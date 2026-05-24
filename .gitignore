@@ -97,3 +97,6 @@ CURSOR.md
 .claude/
 .codex/
 .cursor/
+
+# PySH RPM packaging spec is a source-controlled release artifact definition.
+!packaging/rpm/pysh-shell.spec
