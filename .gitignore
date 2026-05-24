@@ -1,22 +1,99 @@
-# SPDX-License-Identifier: Apache-2.0
-#
-# Project: PYSH - Python-first interactive shell for Debian and Unix-like systems
-# File: pyproject.toml
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Project: PySH - Python-first interactive shell for Debian and Unix-like systems
 # Copyright (c) 2026 Siergej Sobolewski
-#
-# Licensed under the GNU General Public License v3.0 or later.
-# See the LICENSE file in the project root for full license text.
-# Ignore build artifacts and virtual environments
+
+# Python bytecode and cache
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
 env/
 venv/
-build/
-dist/
-*.egg-info/
-dist/
-build/
-*.egg-info/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+*.cover
+*.log
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# Linting / formatting
+.ruff_cache/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# PySH runtime artifacts
+.pysh_history
+*.pysh.log
+
+# Build tools
+*.spec
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+.*.swp
+
+# Documentation builds
+docs/_build/
+docs/.doctrees/
+
+# CI/CD artifacts
+.github/workflows/*.log
+.sonar/
+.sonarqube/
+.re-commit-config.yaml
+sonar-project.properties
+
+# Local AI agent instruction packs
+AGENTS.md
+AI_AGENTS_SETUP.md
+CLAUDE.md
+CODEX.md
+CURSOR.md
+.claude/
+.codex/
+.cursor/
