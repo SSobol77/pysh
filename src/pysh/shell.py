@@ -22,15 +22,26 @@ from typing import IO
 
 from pysh import __version__
 from pysh.completion import Completer
+from pysh.highlighting import colors_enabled, diagnostic
+from pysh.history import DEFAULT_HISTORY_PATH, HistoryManager
 from pysh.parser import (
     ChainOp,
+    expand_command_substitution,
     expand_variables,
     parse_assignment,
     split_chain,
     split_pipeline,
 )
+from pysh.plugins import PLUGIN_DIR, load_plugins
 from pysh.rc import RC_PATH, execute_rc, load_default_rc
 from pysh.redirection import RedirectionSpec, parse_redirections
+from pysh.service import (
+    DEFAULT_PID_ROOT,
+    ServiceClient,
+    ServiceError,
+    format_list,
+    format_status,
+)
 
 
 class _ExitShell(Exception):
@@ -53,17 +64,44 @@ class PyShell:
     }
 
     BUILTINS: frozenset[str] = frozenset(
-        {"cd", "pwd", "alias", "export", "source", ".", "exit", "quit"}
+        {
+            "cd",
+            "pwd",
+            "alias",
+            "unalias",
+            "export",
+            "source",
+            ".",
+            "exit",
+            "quit",
+            "pushd",
+            "popd",
+            "dirs",
+            "svc",
+        }
     )
 
-    HISTORY_PATH: Path = Path("~/.pysh_history").expanduser()
+    HISTORY_PATH: Path = DEFAULT_HISTORY_PATH
 
     # ------------------------------------------------------------ construction
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        pid_root: Path | None = None,
+        service_client: ServiceClient | None = None,
+    ) -> None:
         self.local_vars: dict[str, str] = {}
         self.aliases: dict[str, str] = dict(self.DEFAULT_ALIASES)
         self.last_status: int = 0
+        self.dir_stack: list[Path] = []
         self.completer = Completer(lambda: list(self.aliases.keys()))
+        self.history = HistoryManager(self.HISTORY_PATH)
+        if service_client is not None:
+            self.service_client = service_client
+        else:
+            self.service_client = ServiceClient(
+                pid_root if pid_root is not None else DEFAULT_PID_ROOT,
+            )
 
     # ------------------------------------------------------------------- run
     def run(self) -> int:
@@ -71,6 +109,7 @@ class PyShell:
         self._print_banner()
         self._setup_readline()
         load_default_rc(self.execute)
+        load_plugins(self.execute, directory=PLUGIN_DIR)
         try:
             while True:
                 try:
@@ -96,6 +135,10 @@ class PyShell:
         line = line.rstrip("\n").rstrip("\r")
         if not line.strip():
             return 0
+
+        # Apply command substitution before anything else so the substituted
+        # text participates in chain splitting, alias expansion, etc.
+        line = expand_command_substitution(line)
 
         # Bare ``NAME=value`` assignment.
         if self._is_bare_assignment(line):
@@ -141,7 +184,7 @@ class PyShell:
         if not argv:
             return 0
         if argv[0] in self.BUILTINS:
-            return self._dispatch_builtin(argv, spec)
+            return self._dispatch_builtin(argv)
         return self._run_external(argv, spec)
 
     def _run_pipeline(self, stages: list[str]) -> int:
@@ -287,24 +330,29 @@ class PyShell:
                         pass
 
     # ------------------------------------------------------------- builtins
-    def _dispatch_builtin(self, argv: list[str], spec: RedirectionSpec) -> int:
+    def _dispatch_builtin(self, argv: list[str]) -> int:
         name = argv[0]
         args = argv[1:]
-        if name == "cd":
-            return self._builtin_cd(args)
-        if name == "pwd":
-            return self._builtin_pwd(args)
-        if name == "alias":
-            return self._builtin_alias(args)
-        if name == "export":
-            return self._builtin_export(args)
-        if name in {"source", "."}:
-            return self._builtin_source(args)
-        if name in {"exit", "quit"}:
-            return self._builtin_exit(args)
-        # Should not reach here because BUILTINS gates the dispatch.
-        print(f"pysh: {name}: not a builtin", file=sys.stderr)
-        return 1
+        handlers: dict[str, callable] = {
+            "cd": self._builtin_cd,
+            "pwd": self._builtin_pwd,
+            "alias": self._builtin_alias,
+            "unalias": self._builtin_unalias,
+            "export": self._builtin_export,
+            "source": self._builtin_source,
+            ".": self._builtin_source,
+            "exit": self._builtin_exit,
+            "quit": self._builtin_exit,
+            "pushd": self._builtin_pushd,
+            "popd": self._builtin_popd,
+            "dirs": self._builtin_dirs,
+            "svc": self._builtin_svc,
+        }
+        handler = handlers.get(name)
+        if handler is None:
+            print(f"pysh: {name}: not a builtin", file=sys.stderr)
+            return 1
+        return handler(args)
 
     def _builtin_cd(self, args: list[str]) -> int:
         target = args[0] if args else str(Path.home())
@@ -336,6 +384,19 @@ class PyShell:
                 print(f"alias {token}={shlex.quote(self.aliases[token])}")
             else:
                 print(f"alias: {token}: not found", file=sys.stderr)
+                status = 1
+        return status
+
+    def _builtin_unalias(self, args: list[str]) -> int:
+        if not args:
+            print("unalias: usage: unalias name [name ...]", file=sys.stderr)
+            return 2
+        status = 0
+        for name in args:
+            if name in self.aliases:
+                del self.aliases[name]
+            else:
+                print(f"unalias: {name}: not found", file=sys.stderr)
                 status = 1
         return status
 
@@ -375,6 +436,92 @@ class PyShell:
                 print(f"exit: {args[0]}: numeric argument required", file=sys.stderr)
                 code = 2
         raise _ExitShell(code)
+
+    # ---------------------------------------------------------- directory stack
+    def _builtin_pushd(self, args: list[str]) -> int:
+        if not args:
+            print("pushd: usage: pushd <directory>", file=sys.stderr)
+            return 2
+        target = Path(os.path.expanduser(args[0]))
+        if not target.is_dir():
+            print(f"pushd: {args[0]}: not a directory", file=sys.stderr)
+            return 1
+        current = Path.cwd()
+        try:
+            os.chdir(target)
+        except OSError as exc:
+            print(f"pushd: {exc}", file=sys.stderr)
+            return 1
+        self.dir_stack.append(current)
+        self._builtin_dirs([])
+        return 0
+
+    def _builtin_popd(self, _args: list[str]) -> int:
+        if not self.dir_stack:
+            print("popd: directory stack empty", file=sys.stderr)
+            return 1
+        target = self.dir_stack.pop()
+        try:
+            os.chdir(target)
+        except OSError as exc:
+            print(f"popd: {exc}", file=sys.stderr)
+            return 1
+        self._builtin_dirs([])
+        return 0
+
+    def _builtin_dirs(self, _args: list[str]) -> int:
+        entries = [self._format_path(Path.cwd())]
+        for entry in reversed(self.dir_stack):
+            entries.append(self._format_path(entry))
+        print(" ".join(entries))
+        return 0
+
+    @staticmethod
+    def _format_path(path: Path) -> str:
+        home = Path.home()
+        try:
+            rel = path.relative_to(home)
+            if str(rel) == ".":
+                return "~"
+            return "~/" + str(rel)
+        except ValueError:
+            return str(path)
+
+    # ----------------------------------------------------------------- svc
+    def _builtin_svc(self, args: list[str]) -> int:
+        if not args:
+            print("svc: usage: svc {list|status|start|stop|restart} [name]", file=sys.stderr)
+            return 2
+        action = args[0]
+        rest = args[1:]
+        try:
+            if action == "list":
+                print(format_list(self.service_client.list_services()))
+                return 0
+            if action in {"status", "stop", "restart", "start"}:
+                if not rest:
+                    print(f"svc: {action}: service name required", file=sys.stderr)
+                    return 2
+                name = rest[0]
+                if action == "status":
+                    print(format_status(self.service_client.status(name)))
+                    return 0
+                if action == "stop":
+                    status = self.service_client.stop(name)
+                    print(format_status(status))
+                    return 0
+                if action == "restart":
+                    status = self.service_client.restart(name)
+                    print(format_status(status))
+                    return 0
+                status = self.service_client.start(name)
+                print(format_status(status))
+                return 0
+            print(f"svc: {action}: unknown action", file=sys.stderr)
+            return 2
+        except ServiceError as exc:
+            print(f"svc: {exc}", file=sys.stderr)
+            return 1
 
     # ------------------------------------------------------------- helpers
     def _is_bare_assignment(self, line: str) -> bool:
@@ -467,10 +614,7 @@ class PyShell:
         cwd = Path.cwd()
         try:
             rel = cwd.relative_to(Path.home())
-            if str(rel) == ".":
-                cwd_str = "~"
-            else:
-                cwd_str = "~/" + str(rel)
+            cwd_str = "~" if str(rel) == "." else "~/" + str(rel)
         except ValueError:
             cwd_str = str(cwd)
         icon = self._prompt_icon()
@@ -485,33 +629,21 @@ class PyShell:
 
     def _print_banner(self) -> None:
         py_version = ".".join(str(p) for p in sys.version_info[:3])
+        use_color = colors_enabled()
         if "utf" in (locale.getpreferredencoding(False) or "").lower():
-            print(f"\U0001f40d PySH {__version__} | Python {py_version}")
-            print("Type 'exit' or press Ctrl+D to quit.")
+            line1 = f"\U0001f40d PySH {__version__} | Python {py_version}"
         else:
-            print(f"PySH {__version__} | Python {py_version}")
-            print("Type 'exit' or press Ctrl-D to quit.")
+            line1 = f"PySH {__version__} | Python {py_version}"
+        print(diagnostic(line1, "info", enabled=use_color))
+        print("Type 'exit' or press Ctrl+D to quit.")
         if RC_PATH.exists():
             print(f"Loading {RC_PATH}")
 
     # ----------------------------------------------------------------- readline
     def _setup_readline(self) -> None:
-        try:
-            import readline
-        except ImportError:
-            return
-        try:
-            if self.HISTORY_PATH.exists():
-                readline.read_history_file(str(self.HISTORY_PATH))
-        except OSError:
-            pass
-        readline.set_history_length(10000)
+        self.history.load()
+        self.history.bind_reverse_search()
         self.completer.install()
 
     def _save_history(self) -> None:
-        try:
-            import readline
-
-            readline.write_history_file(str(self.HISTORY_PATH))
-        except (ImportError, OSError):
-            pass
+        self.history.save()

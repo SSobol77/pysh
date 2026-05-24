@@ -194,3 +194,31 @@ def test_external_command_not_found(
     assert status == 127
     captured = capsys.readouterr()
     assert "command not found" in captured.err
+
+
+def test_command_substitution_in_execute(
+    shell: PyShell, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """The shell expands $() before splitting the chain."""
+    status = shell.execute("echo $(printf hello)")
+    assert status == 0
+    captured = capfd.readouterr()
+    assert "hello" in captured.out
+
+
+def test_command_substitution_backticks_in_execute(
+    shell: PyShell, capfd: pytest.CaptureFixture[str]
+) -> None:
+    status = shell.execute("echo `printf world`")
+    assert status == 0
+    captured = capfd.readouterr()
+    assert "world" in captured.out
+
+
+def test_command_substitution_suppressed_in_single_quotes(
+    shell: PyShell, capfd: pytest.CaptureFixture[str]
+) -> None:
+    status = shell.execute("echo 'literal $(printf x)'")
+    assert status == 0
+    captured = capfd.readouterr()
+    assert "literal $(printf x)" in captured.out

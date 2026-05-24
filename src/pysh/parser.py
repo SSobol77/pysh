@@ -25,8 +25,13 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
+import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+
+DEFAULT_SUBSTITUTION_TIMEOUT_SECONDS = 5.0
 
 
 class ChainOp(StrEnum):
@@ -300,3 +305,144 @@ def parse_assignment(line: str) -> tuple[str, str] | None:
     if not m:
         return None
     return m.group(1), m.group(2)
+
+
+# ----------------------------------------------------------------- substitution
+def _default_runner(command: str, timeout: float) -> str:
+    """Run ``command`` in a system shell with a timeout and capture stdout.
+
+    This is the fallback runner used when the shell does not supply one.
+    Stdout is decoded as UTF-8 (errors replaced). Trailing newlines are
+    stripped, matching POSIX command-substitution semantics.
+    """
+    try:
+        completed = subprocess.run(  # noqa: S603,S607 - user-issued substitution
+            ["/bin/sh", "-c", command],
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"pysh: substitution timed out: {command}", file=sys.stderr)
+        return ""
+    except OSError as exc:
+        print(f"pysh: substitution error: {exc}", file=sys.stderr)
+        return ""
+    try:
+        text = completed.stdout.decode("utf-8", errors="replace")
+    except (AttributeError, UnicodeDecodeError):
+        return ""
+    return text.rstrip("\n")
+
+
+def expand_command_substitution(
+    text: str,
+    *,
+    runner: Callable[[str, float], str] | None = None,
+    timeout: float = DEFAULT_SUBSTITUTION_TIMEOUT_SECONDS,
+) -> str:
+    """Expand ``$(command)`` and ``` `command` ``` substitutions in ``text``.
+
+    Substitutions inside single quotes are left as literal text. Substitutions
+    inside double quotes are evaluated. ``runner`` is a callable
+    ``(command, timeout) -> stdout`` used to execute each substitution; if it
+    is omitted, a safe subprocess-based runner is used.
+
+    Nested substitutions are not expanded recursively; the inner ``$(...)``
+    text is passed to the runner verbatim.
+    """
+    run = runner if runner is not None else _default_runner
+    out: list[str] = []
+    in_single = False
+    in_double = False
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if in_single:
+            out.append(c)
+            if c == "'":
+                in_single = False
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            out.append(c)
+            out.append(text[i + 1])
+            i += 2
+            continue
+        if c == "'" and not in_double:
+            in_single = True
+            out.append(c)
+            i += 1
+            continue
+        if c == '"':
+            in_double = not in_double
+            out.append(c)
+            i += 1
+            continue
+        if c == "$" and i + 1 < n and text[i + 1] == "(":
+            end = _find_matching_paren(text, i + 1)
+            if end == -1:
+                out.append(c)
+                i += 1
+                continue
+            command = text[i + 2 : end]
+            out.append(run(command, timeout))
+            i = end + 1
+            continue
+        if c == "`":
+            end = text.find("`", i + 1)
+            if end == -1:
+                out.append(c)
+                i += 1
+                continue
+            command = text[i + 1 : end]
+            out.append(run(command, timeout))
+            i = end + 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _find_matching_paren(text: str, open_idx: int) -> int:
+    """Return the index of the ``)`` matching ``text[open_idx] == '('``.
+
+    Tracks nested parens but ignores those inside single/double quotes.
+    Returns ``-1`` when no match is found.
+    """
+    depth = 0
+    in_single = False
+    in_double = False
+    i = open_idx
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if in_single:
+            if c == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            if c == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if c == '"':
+                in_double = False
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if c == "'":
+            in_single = True
+        elif c == '"':
+            in_double = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1

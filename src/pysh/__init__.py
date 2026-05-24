@@ -12,6 +12,6 @@
 """PySH - Python-first interactive shell."""
 from __future__ import annotations
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __author__ = "Siergej Sobolewski"
 __all__ = ["__version__", "__author__"]

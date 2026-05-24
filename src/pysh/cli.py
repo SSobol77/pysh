@@ -12,10 +12,39 @@
 """Command-line entry point for the ``pysh`` console script."""
 from __future__ import annotations
 
+import argparse
+import sys
+from collections.abc import Sequence
+
+from pysh import __version__
 from pysh.shell import PyShell
 
 
-def main() -> int:
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="pysh",
+        description="PySH - Python-first interactive shell.",
+    )
+    parser.add_argument(
+        "--version",
+        "-V",
+        action="version",
+        version=f"pysh {__version__}",
+    )
+    parser.add_argument(
+        "-c",
+        dest="command",
+        metavar="COMMAND",
+        default=None,
+        help="execute COMMAND and exit",
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
     """Run the interactive PySH shell. Returns the final exit status."""
+    args = _build_parser().parse_args(argv if argv is not None else sys.argv[1:])
     shell = PyShell()
+    if args.command is not None:
+        return shell.execute(args.command)
     return shell.run()
