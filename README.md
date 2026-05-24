@@ -11,7 +11,47 @@ Licensed under the GNU General Public License v3.0 or later.
 See the LICENSE file in the project root for full license text.
 -->
 
-# PySH
+<p align="center">
+  <img src="docs/img/pysh-icon-512.png" alt="PySH logo" width="160"/>
+</p>
+
+<h1 align="center">PySH</h1>
+
+<p align="center">
+  <strong>Python-first interactive shell for Debian and Unix-like systems.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/SSobol77/pysh/actions/workflows/ci.yml">
+    <img src="https://github.com/SSobol77/pysh/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"/>
+  </a>
+  <a href="https://github.com/SSobol77/pysh/actions/workflows/publish.yml">
+    <img src="https://github.com/SSobol77/pysh/actions/workflows/publish.yml/badge.svg?branch=main" alt="PyPI publish workflow"/>
+  </a>
+  <a href="https://pypi.org/project/pysh-shell/">
+    <img src="https://img.shields.io/pypi/v/pysh-shell?label=PyPI&logo=pypi&logoColor=white" alt="PyPI version"/>
+  </a>
+  <a href="https://pypi.org/project/pysh-shell/">
+    <img src="https://img.shields.io/pypi/pyversions/pysh-shell?label=Python&logo=python&logoColor=white" alt="Supported Python versions"/>
+  </a>
+  <a href="https://pypi.org/project/pysh-shell/">
+    <img src="https://img.shields.io/pypi/dm/pysh-shell?label=PyPI%20downloads" alt="PyPI downloads"/>
+  </a>
+  <a href="https://github.com/SSobol77/pysh/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/SSobol77/pysh?label=License" alt="License"/>
+  </a>
+  <a href="https://github.com/SSobol77/pysh/releases">
+    <img src="https://img.shields.io/github/v/release/SSobol77/pysh?label=Release&logo=github" alt="GitHub release"/>
+  </a>
+  <a href="https://github.com/SSobol77/pysh">
+    <img src="https://img.shields.io/badge/platform-Debian%20%7C%20Unix--like-2f4f6f?logo=debian&logoColor=white" alt="Debian and Unix-like systems"/>
+  </a>
+  <a href="https://github.com/SSobol77/pysh">
+    <img src="https://img.shields.io/badge/shell-Python--first-3776AB?logo=python&logoColor=white" alt="Python-first shell"/>
+  </a>
+</p>
+
+---
 
 **Python-first interactive shell for Debian and Unix-like systems.**
 
@@ -177,10 +217,10 @@ echo "Date: $(date '+%Y-%m-%d')"
 echo 'No substitution: $(date)'
 ```
 
-* `$(...)` and `` `...` `` are both supported.
-* Quotes are honoured: substitutions inside single quotes are kept
+- `$(...)` and `` `...` `` are both supported.
+- Quotes are honoured: substitutions inside single quotes are kept
   literally; substitutions inside double quotes are evaluated.
-* Each substitution runs with a 5-second timeout by default. On timeout or
+- Each substitution runs with a 5-second timeout by default. On timeout or
   failure the substitution expands to an empty string and the shell
   remains usable.
 
@@ -315,14 +355,14 @@ svc stop <name>
 svc restart <name>
 ```
 
-* `svc list` walks `/run/pyinit/*.pid` and prints each service as
+- `svc list` walks `/run/pyinit/*.pid` and prints each service as
   `name\tactive|dead\tpid=N`.
-* `svc status <name>` checks the PID file at
+- `svc status <name>` checks the PID file at
   `/run/pyinit/<name>.pid`.
-* `svc stop <name>` reads the PID file and sends `SIGTERM`.
-* `svc restart <name>` sends `SIGTERM`. Without a registered PyInit control
+- `svc stop <name>` reads the PID file and sends `SIGTERM`.
+- `svc restart <name>` sends `SIGTERM`. Without a registered PyInit control
   interface it then reports that restart requires supervision.
-* `svc start <name>` requires a PyInit control interface. Without one it
+- `svc start <name>` requires a PyInit control interface. Without one it
   fails deterministically rather than pretending to work.
 
 PySH never calls `sudo`. To control system-wide PyInit services, run PySH
@@ -342,9 +382,9 @@ depends: [network]
 
 Recognised fields:
 
-* `name`     — required, identifier
-* `command`  — required, the launch command line
-* `depends`  — optional list of dependency names; accepts `[a, b]` or
+- `name`     — required, identifier
+- `command`  — required, the launch command line
+- `depends`  — optional list of dependency names; accepts `[a, b]` or
   comma-separated form
 
 Invalid metadata (unknown syntax, malformed dependencies, missing fields)
@@ -363,12 +403,12 @@ paths for any word. Inaccessible directories are silently skipped.
 
 ## Limitations
 
-* No job control (`&`, `bg`, `fg`, `jobs`, `Ctrl+Z` job suspension).
-* No full POSIX shell grammar — only the constructs documented above.
-* No glob expansion is performed by PySH itself; external commands still
+- No job control (`&`, `bg`, `fg`, `jobs`, `Ctrl+Z` job suspension).
+- No full POSIX shell grammar — only the constructs documented above.
+- No glob expansion is performed by PySH itself; external commands still
   receive globs through their own expansion logic when run via a system
   shell, but plain pipelines do not expand `*` / `?` in arguments.
-* `svc start` and `svc restart` to actually re-launch a process require a
+- `svc start` and `svc restart` to actually re-launch a process require a
   PyInit control interface; without one they return a deterministic error.
 
 ---
