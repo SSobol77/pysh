@@ -54,7 +54,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current development version: **0.3.0**. PySH targets **Python 3.13+** and is
+Current development version: **0.4.0**. PySH targets **Python 3.13+** and is
 validated primarily on **Debian 13** and Unix-like systems.
 
 ---
@@ -232,7 +232,7 @@ documented.
 Operators inside single or double quotes are treated as literal text.
 
 ```sh
-echo "🐍 PySH v0.3.0 | Python 3.13.5"
+echo "🐍 PySH v0.4.0 | Python 3.13.5"
 echo "Test | pipe & semicolon; && ok"
 python3.13 -c "import subprocess; print('ok')"
 ```
@@ -476,7 +476,7 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "🐍 PySH 0.3.0 | Python 3.13+"
+echo "🐍 PySH 0.4.0 | Python 3.13+"
 echo "💡 Operators: && || ; | > >> < 2> 2>> &> &>>  + \$() and backticks"
 ```
 
@@ -614,7 +614,7 @@ paths for any word. Inaccessible directories are silently skipped.
 - Debian helpers (`apt_check`, `apt_search`) require `apt` to exist; they
   return 127 deterministically when it does not.
 - `plan` is advisory only. Policy enforcement is intentionally out of scope
-  in 0.3.0.
+  in 0.4.0.
 
 ---
 

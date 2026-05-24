@@ -100,7 +100,7 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "PySH 0.3.0 | Python 3.13+"
+echo "PySH 0.4.0 | Python 3.13+"
 ```
 
 Plugins may also contain multiline Python automation blocks. The block

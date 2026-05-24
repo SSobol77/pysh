@@ -57,6 +57,6 @@ install -m 0755 packaging/wrappers/pysh.sh %{buildroot}/usr/bin/pysh
 /usr/bin/pysh
 
 %changelog
-* Sun May 24 2026 Siergej Sobolewski <ssobo77@gmail.com> - 0.3.0-1
+* Sun May 24 2026 Siergej Sobolewski <ssobo77@gmail.com> - 0.4.0-1
 - Initial RPM packaging for PySH (pysh-shell) following the canonical
   packaging naming contract: pysh-shell-X.Y.Z-1.noarch.rpm.
