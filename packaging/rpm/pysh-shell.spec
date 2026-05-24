@@ -14,7 +14,6 @@ URL:            https://github.com/SSobol77/pysh
 Source0:        %{name}-%{version}.tar.gz
 
 BuildArch:      noarch
-BuildRequires:  coreutils
 
 Requires:       python3 >= 3.13
 
@@ -58,6 +57,6 @@ install -m 0755 packaging/wrappers/pysh.sh %{buildroot}/usr/bin/pysh
 /usr/bin/pysh
 
 %changelog
-* Sat May 24 2026 Siergej Sobolewski <ssobo77@gmail.com> - 0.3.0-1
+* Sun May 24 2026 Siergej Sobolewski <ssobo77@gmail.com> - 0.3.0-1
 - Initial RPM packaging for PySH (pysh-shell) following the canonical
   packaging naming contract: pysh-shell-X.Y.Z-1.noarch.rpm.
