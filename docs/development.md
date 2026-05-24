@@ -38,7 +38,7 @@ twine check dist/*
 
 `pytest -q` should report **all tests passing**. `ruff check` should report
 **All checks passed!**. `python -m build` should produce
-`dist/pysh_shell-0.2.0.tar.gz` and `dist/pysh_shell-0.2.0-py3-none-any.whl`.
+`dist/pysh_shell-0.2.1.tar.gz` and `dist/pysh_shell-0.2.1-py3-none-any.whl`.
 `twine check` should report `PASSED` for both artifacts.
 
 ## Smoke tests
@@ -63,9 +63,14 @@ pysh/
 │   ├── img/                    # Logo and screenshots
 │   ├── installation.md
 │   ├── usage.md
+│   ├── builtins.md
+│   ├── operators.md
 │   ├── configuration.md
+│   ├── migration.md
 │   ├── zsh-compatibility.md
 │   ├── python-runtime.md
+│   ├── limitations.md
+│   ├── documentation-policy.md
 │   ├── development.md
 │   └── release.md
 ├── src/
@@ -83,6 +88,8 @@ pysh/
 │       ├── completion.py       # Tab completion
 │       ├── service.py          # svc builtin client (PID-file based)
 │       ├── pyinit.py           # PyInit service metadata parser
+│       ├── profile_importer.py # Static profile import and compat reporting
+│       ├── script_runner.py    # Script transition runner
 │       ├── zsh_bridge.py       # Optional zsh -lc execution bridge
 │       ├── zsh_aliases.py      # Static zsh alias importer
 │       └── python_runtime.py   # Persistent Python runtime for py builtin
@@ -103,6 +110,8 @@ pysh/
     ├── test_pyinit.py
     ├── test_zsh_bridge.py
     ├── test_zsh_transition.py
+    ├── test_profile_importer.py
+    ├── test_script_runner.py
     ├── test_python_runtime.py
     └── test_cli.py
 ```
@@ -113,8 +122,19 @@ pysh/
 - Code is formatted to **100-column** lines (see `[tool.ruff]` in
   `pyproject.toml`).
 - New behavior must come with tests under `tests/`.
+- New builtins, parser behavior, configuration behavior, migration helpers
+  and limitations must be documented in the same change. See
+  [`docs/documentation-policy.md`](documentation-policy.md).
+- Builtin and completion lists must stay aligned with the implementation.
 - Public modules carry an SPDX `GPL-3.0-or-later` header.
 - All documentation is written in **English**.
+
+## CI expectations
+
+The CI workflow installs zsh, installs the package in editable mode, runs
+`pytest -q`, runs `ruff check src tests`, builds sdist/wheel artifacts,
+validates them with `twine check dist/*`, and smoke-tests both `pysh
+--version` and `python -m pysh --version`.
 
 ## Useful one-liners
 
@@ -127,5 +147,5 @@ pytest -q tests/test_shell.py::test_cd_changes_directory
 
 # Build and inspect the wheel contents:
 python -m build
-unzip -l dist/pysh_shell-0.2.0-py3-none-any.whl
+unzip -l dist/pysh_shell-0.2.1-py3-none-any.whl
 ```

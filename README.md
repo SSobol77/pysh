@@ -25,17 +25,11 @@ See the LICENSE file in the project root for full license text.
   <a href="https://github.com/SSobol77/pysh/actions/workflows/ci.yml">
     <img src="https://github.com/SSobol77/pysh/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"/>
   </a>
-  <a href="https://github.com/SSobol77/pysh/actions/workflows/publish.yml">
-    <img src="https://github.com/SSobol77/pysh/actions/workflows/publish.yml/badge.svg?branch=main" alt="PyPI publish workflow"/>
-  </a>
   <a href="https://pypi.org/project/pysh-shell/">
     <img src="https://img.shields.io/pypi/v/pysh-shell?label=PyPI&logo=pypi&logoColor=white" alt="PyPI version"/>
   </a>
   <a href="https://pypi.org/project/pysh-shell/">
     <img src="https://img.shields.io/pypi/pyversions/pysh-shell?label=Python&logo=python&logoColor=white" alt="Supported Python versions"/>
-  </a>
-  <a href="https://pypi.org/project/pysh-shell/">
-    <img src="https://img.shields.io/pypi/dm/pysh-shell?label=PyPI%20downloads" alt="PyPI downloads"/>
   </a>
   <a href="https://github.com/SSobol77/pysh/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/SSobol77/pysh?label=License" alt="License"/>
@@ -60,8 +54,8 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-The 0.2.0 development line targets **Python 3.13+** and is validated on
-**Debian 13**.
+Current development version: **0.2.1**. PySH targets **Python 3.13+** and is
+validated primarily on **Debian 13** and Unix-like systems.
 
 ---
 
@@ -82,10 +76,15 @@ The 0.2.0 development line targets **Python 3.13+** and is validated on
 - Local variables (`NAME=value`) and exported environment variables
   (`export NAME=value`) with `$NAME` / `${NAME}` expansion.
 - Aliases with sane defaults; `alias` and **`unalias`** builtins.
-- **Zsh Transition Layer** for migration: `source_zsh <file>` safely imports
-  simple aliases without executing rc code, `zsh <command>` delegates
-  explicitly to real zsh when installed, and `zsh_fallback` can be enabled
-  for controlled fallback experiments.
+- **Migration layer for zsh/bash/sh**: `source_zsh <file>` preserves the
+  existing alias importer, `source_zsh_profile <file>` and
+  `source_sh_aliases <file>` statically import simple aliases, exports and
+  assignments without executing profile code, `run_script <file> [args...]`
+  delegates shebang scripts to their real interpreter, and `compat_check
+  <file>` reports migration risk before execution.
+- **Zsh Transition Layer** for explicit delegation: `zsh <command>` delegates
+  to real zsh when installed, and `zsh_fallback` can be enabled for
+  controlled fallback experiments.
 - **Python-native runtime bridge**: `py <code>` executes one-line Python code
   in a persistent per-session runtime context.
 - Startup file `~/.pyshrc` plus a **plugin directory** at `~/.pyshrc.d/`
@@ -121,6 +120,20 @@ Then start the shell with:
 pysh
 ```
 
+### Quick start
+
+```sh
+pysh
+pysh --version
+pysh -c "echo hi"
+alias ll='ls -lah'
+source_zsh_profile ~/.zshrc
+source_sh_aliases ~/.bash_aliases
+compat_check ~/scripts/maintenance.sh
+run_script ~/scripts/maintenance.sh --dry-run
+py import platform; print(platform.platform())
+```
+
 ### Development install
 
 ```bash
@@ -148,22 +161,34 @@ Full documentation lives under [`docs/`](docs/):
 - [Installation](docs/installation.md) — installing from PyPI and dev install.
 - [Usage](docs/usage.md) — invocation, operators, pipelines, redirection,
   command substitution, variables, builtins.
-- [Zsh compatibility](docs/zsh-compatibility.md) — transition bridge,
-  safe alias import, explicit zsh delegation, optional fallback mode.
-- [Python runtime](docs/python-runtime.md) — persistent Python-native `py`
-  execution context.
+- [Builtins](docs/builtins.md) — syntax, examples, return behavior and
+  limitations for every builtin.
+- [Operators](docs/operators.md) — chains, pipelines, redirection, command
+  substitution, quoting and parser limitations.
 - [Configuration](docs/configuration.md) — `~/.pyshrc`, plugins under
   `~/.pyshrc.d/`, aliases, exports, prompt behavior.
+- [Migration](docs/migration.md) — static profile import, script transition
+  runner, and compatibility reporting.
+- [Zsh compatibility](docs/zsh-compatibility.md) — transition bridge,
+  safe profile import, explicit zsh delegation, optional fallback mode.
+- [Python runtime](docs/python-runtime.md) — persistent Python-native `py`
+  execution context.
 - [Development](docs/development.md) — running the test suite, linting,
   building artifacts, repository layout.
-- [Release process](docs/release.md) — how PySH 0.2.0 ships via GitHub
+- [Release process](docs/release.md) — how PySH 0.2.1 ships via GitHub
   Actions and PyPI Trusted Publishing.
+- [Limitations](docs/limitations.md) — explicit non-goals and compatibility
+  boundaries.
+- [Documentation policy](docs/documentation-policy.md) — required coverage for
+  new commands, parser behavior, migration helpers and limitations.
 
 ---
 
 ## Builtins
 
-Implemented directly inside the shell (no subprocess spawned):
+Available shell builtins. Most run inside the shell process; transition
+builtins such as `zsh` and `run_script` may delegate explicitly as
+documented.
 
 | Builtin    | Description                                              |
 | ---------- | -------------------------------------------------------- |
@@ -174,6 +199,10 @@ Implemented directly inside the shell (no subprocess spawned):
 | `export`   | Define or display exported environment vars.             |
 | `source`   | Execute commands from a file (also `.`).                 |
 | `source_zsh` | Safely import simple aliases from a zsh-compatible file. |
+| `source_zsh_profile` | Statically import simple zsh profile entries. |
+| `source_sh_aliases` | Statically import simple sh/bash aliases and vars. |
+| `run_script` | Run a script through a shebang interpreter or native PySH lines. |
+| `compat_check` | Produce a static migration report for a shell file. |
 | `zsh`      | Execute one command through real `zsh -lc`.              |
 | `zsh_fallback` | Enable or disable explicit zsh fallback mode.       |
 | `py`       | Execute Python code in the persistent PySH runtime.      |
@@ -198,7 +227,7 @@ Implemented directly inside the shell (no subprocess spawned):
 Operators inside single or double quotes are treated as literal text.
 
 ```sh
-echo "🐍 PySH v0.2.0 | Python 3.13.5"
+echo "🐍 PySH v0.2.1 | Python 3.13.5"
 echo "Test | pipe & semicolon; && ok"
 python3.13 -c "import subprocess; print('ok')"
 ```
@@ -278,6 +307,10 @@ PySH without pretending that every zsh grammar feature is native.
 
 ```sh
 source_zsh ~/.zsh_aliases
+source_zsh_profile ~/.zshrc
+source_sh_aliases ~/.bash_aliases
+compat_check ~/scripts/maintenance.sh
+run_script ~/scripts/maintenance.sh --dry-run
 zsh 'source ~/.zshrc; my_old_alias'
 zsh 'print -r -- hello'
 ```
@@ -286,6 +319,21 @@ zsh 'print -r -- hello'
 such as `alias ll='ls -lah'`, ignores comments and unsupported constructs,
 and never executes the file as code. It prints `imported=N skipped=M
 file=<path>` and reports malformed alias lines deterministically on stderr.
+
+`source_zsh_profile <file>` and `source_sh_aliases <file>` use the 0.2.1
+static profile importer. They read files such as `~/.zshrc`, `.profile` and
+`.bash_aliases` without executing them, import supported simple aliases,
+exports and local assignments, and print `aliases=N exports=N vars=N
+skipped=M file=<path>`.
+
+`compat_check <file>` produces a static report with `supported`,
+`delegated`, `skipped` and `risky` counts. Risky constructs such as `eval`,
+command substitution, `source` and shell functions cause exit status 2.
+
+`run_script <file> [args...]` is an explicit transition runner. Scripts with
+`zsh`, `bash` or `sh` shebangs are delegated to the real interpreter through
+an argv list; no-shebang scripts are executed line-by-line by PySH's native
+engine where possible.
 
 `zsh <command>` delegates explicitly to real `zsh -lc <command>`. If zsh is
 not installed, it returns 127 with a deterministic error.
@@ -369,7 +417,7 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "🐍 PySH 0.2.0 | Python 3.13+"
+echo "🐍 PySH 0.2.1 | Python 3.13+"
 echo "💡 Operators: && || ; | > >> < 2> 2>> &> &>>  + \$() and backticks"
 ```
 

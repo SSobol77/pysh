@@ -4,7 +4,7 @@ Copyright (c) 2026 Siergej Sobolewski
 Licensed under the GNU General Public License v3.0 or later.
 -->
 
-# Release process (v0.2.0)
+# Release process (v0.2.1)
 
 PySH is published to PyPI as **`pysh-shell`** through GitHub Actions and
 **PyPI Trusted Publishing**. The workflow lives at
@@ -24,8 +24,8 @@ the `pypi` GitHub environment.
    git pull --ff-only origin main
    ```
 2. Bump the version everywhere it appears:
-   - [`pyproject.toml`](../pyproject.toml) → `version = "0.2.0"`
-   - [`src/pysh/__init__.py`](../src/pysh/__init__.py) → `__version__ = "0.2.0"`
+   - [`pyproject.toml`](../pyproject.toml) → `version = "0.2.1"`
+   - [`src/pysh/__init__.py`](../src/pysh/__init__.py) → `__version__ = "0.2.1"`
    - Any user-facing version strings in [`README.md`](../README.md).
 3. Run the full quality gate locally:
    ```bash
@@ -40,27 +40,39 @@ the `pypi` GitHub environment.
    ```
    All four steps must pass before tagging.
 
+## Release checklist
+
+- README updated for the current version and user-visible behavior.
+- Dedicated docs updated, including builtins, operators, configuration,
+  migration, zsh compatibility, Python runtime and limitations.
+- Every builtin is documented in `docs/builtins.md`.
+- Tests updated for every new builtin or behavior change.
+- CI is green.
+- Local build passes.
+- `twine check dist/*` passes.
+- `pysh --version` and `python -m pysh --version` print the target version.
+
 ## Cutting the release
 
 1. Commit any pending documentation / metadata changes:
    ```bash
-   git add README.md pyproject.toml docs/ src/pysh/__init__.py
-   git commit -m "docs: prepare PySH 0.2.0 README and documentation"
+   git add README.md pyproject.toml src tests docs .github/workflows/ci.yml
+   git commit -m "feat: add PySH script transition runner"
    ```
 2. Create the version tag manually:
    ```bash
-   git tag v0.2.0
+   git tag v0.2.1
    ```
 3. Push the branch and the tag:
    ```bash
    git push origin main
-   git push origin v0.2.0
+   git push origin v0.2.1
    ```
 4. The `publish.yml` workflow runs on tag push, builds artifacts in an
    isolated CI environment, and uploads to PyPI using Trusted Publishing.
 5. Verify the release on
    [PyPI](https://pypi.org/project/pysh-shell/) and that the GitHub
-   release page lists `v0.2.0` under
+   release page lists `v0.2.1` under
    [Releases](https://github.com/SSobol77/pysh/releases).
 
 ## Post-release
@@ -71,7 +83,7 @@ the `pypi` GitHub environment.
   python3.13 -m venv /tmp/pysh-smoke
   . /tmp/pysh-smoke/bin/activate
   python -m pip install --upgrade pip
-  python -m pip install pysh-shell==0.2.0
+  python -m pip install pysh-shell==0.2.1
   pysh --version
   python -m pysh --version
   ```

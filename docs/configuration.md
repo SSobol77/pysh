@@ -36,11 +36,19 @@ Simple zsh-compatible alias files can be imported without executing them:
 
 ```sh
 source_zsh ~/.zsh_aliases
+source_zsh_profile ~/.zshrc
+source_sh_aliases ~/.bash_aliases
 ```
 
 `source_zsh` supports simple `alias NAME=VALUE` lines, ignores comments and
 blank lines, skips unsupported zsh constructs, and reports malformed alias
 lines deterministically.
+
+`source_zsh_profile` and `source_sh_aliases` use the 0.2.1 static profile
+importer. They support simple aliases, `export NAME=value` statements and
+local `NAME=value` assignments. They read files as text and never execute
+profile code, command substitution, shell functions, plugin loaders or
+external commands.
 
 ## Exports and local variables
 
@@ -92,7 +100,7 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "PySH 0.2.0 | Python 3.13+"
+echo "PySH 0.2.1 | Python 3.13+"
 ```
 
 To opt into zsh fallback for one interactive session, set the variable or use

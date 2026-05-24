@@ -4,14 +4,14 @@ Copyright (c) 2026 Siergej Sobolewski
 Licensed under the GNU General Public License v3.0 or later.
 -->
 
-# Zsh compatibility
+# Zsh compatibility and migration
 
-PySH 0.2.0 starts a **Zsh Transition Layer**. The design goal is migration,
-not full zsh emulation:
+PySH 0.2.1 continues the **Zsh Transition Layer** and adds a safe profile
+import path. The design goal is migration, not full zsh emulation:
 
 - PySH remains a Python-first shell with its own native execution engine.
 - zsh compatibility is explicit, deterministic and testable.
-- Static alias import never executes arbitrary zsh files.
+- Static alias/profile import never executes arbitrary zsh files.
 - Real zsh may be used as an optional bridge when it is installed.
 - Native PySH builtins and native command errors are not hidden by default.
 
@@ -48,6 +48,78 @@ imported=N skipped=M file=/home/user/.zsh_aliases
 ```
 
 Missing or unreadable files return non-zero.
+
+## Safe zsh profile import
+
+Use `source_zsh_profile <file>` to import safe, static parts of a zsh-style
+profile without executing it:
+
+```sh
+source_zsh_profile ~/.zshrc
+```
+
+Supported forms:
+
+```sh
+alias ll='ls -lah'
+alias gs="git status -sb"
+export EDITOR=nano
+export PAGER="less"
+PYSH_MODE=transition
+```
+
+Supported static syntax is intentionally narrow:
+
+- aliases: `alias NAME=value`, `alias NAME="value"`, `alias NAME='value'`;
+- exports: `export NAME=value`, `export NAME="value"`, `export NAME='value'`;
+- assignments: `NAME=value`, `NAME="value"`, `NAME='value'`.
+
+The importer ignores comments and blank lines, imports simple aliases,
+exports and local assignments, and deterministically skips unsupported zsh
+constructs, including:
+
+```sh
+autoload -Uz compinit
+compinit
+eval "$(starship init zsh)"
+function foo() { echo hi; }
+plugins=(git docker)
+source "$HOME/.oh-my-zsh/oh-my-zsh.sh"
+```
+
+The profile is read as text only. PySH does not evaluate command
+substitution, execute shell functions, run plugin managers or invoke external
+commands during import.
+
+The command prints:
+
+```text
+aliases=N exports=N vars=N skipped=M file=/home/user/.zshrc
+```
+
+For bash/sh-oriented files, use `source_sh_aliases <file>`; it uses the same
+static model but is documented for `.bash_aliases`, `.profile` and simple
+POSIX-style alias/export files.
+
+## CI behavior
+
+The GitHub Actions CI workflow installs zsh before running tests so the
+transition-layer tests cover real zsh delegation on `ubuntu-latest`. Local
+tests that require zsh skip cleanly when zsh is not installed.
+
+## Static compatibility check
+
+Use `compat_check <file>` before importing or running legacy shell content:
+
+```sh
+compat_check ~/scripts/maintenance.sh
+```
+
+The checker does not execute the file. It classifies lines as `supported`,
+`delegated`, `skipped` or `risky` and flags common migration hazards such as
+`eval`, command substitution, shell functions and `source` statements. It
+returns 0 when no risky constructs are found, 2 when risky constructs are
+present, and 1 for file read errors.
 
 ## Explicit zsh delegation
 

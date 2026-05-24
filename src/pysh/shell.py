@@ -34,9 +34,14 @@ from pysh.parser import (
     split_pipeline,
 )
 from pysh.plugins import PLUGIN_DIR, load_plugins
+from pysh.profile_importer import (
+    analyze_compatibility_file,
+    import_profile_file,
+)
 from pysh.python_runtime import PythonRuntime
 from pysh.rc import RC_PATH, execute_rc, load_default_rc
 from pysh.redirection import RedirectionSpec, parse_redirections
+from pysh.script_runner import ScriptRunner
 from pysh.service import (
     DEFAULT_PID_ROOT,
     ServiceClient,
@@ -83,6 +88,10 @@ class PyShell:
             "dirs",
             "svc",
             "source_zsh",
+            "source_zsh_profile",
+            "source_sh_aliases",
+            "run_script",
+            "compat_check",
             "zsh",
             "zsh_fallback",
             "py",
@@ -98,6 +107,7 @@ class PyShell:
         pid_root: Path | None = None,
         service_client: ServiceClient | None = None,
         zsh_bridge: ZshBridge | None = None,
+        script_runner: ScriptRunner | None = None,
     ) -> None:
         self.local_vars: dict[str, str] = {}
         self.aliases: dict[str, str] = dict(self.DEFAULT_ALIASES)
@@ -108,6 +118,9 @@ class PyShell:
         self.zsh_bridge = zsh_bridge if zsh_bridge is not None else ZshBridge()
         self.zsh_fallback_enabled = os.environ.get("PYSH_ZSH_FALLBACK") == "1"
         self.python_runtime = PythonRuntime()
+        self.script_runner = (
+            script_runner if script_runner is not None else ScriptRunner(self.execute)
+        )
         if service_client is not None:
             self.service_client = service_client
         else:
@@ -381,6 +394,10 @@ class PyShell:
             "dirs": self._builtin_dirs,
             "svc": self._builtin_svc,
             "source_zsh": self._builtin_source_zsh,
+            "source_zsh_profile": self._builtin_source_zsh_profile,
+            "source_sh_aliases": self._builtin_source_sh_aliases,
+            "run_script": self._builtin_run_script,
+            "compat_check": self._builtin_compat_check,
             "zsh": self._builtin_zsh,
             "zsh_fallback": self._builtin_zsh_fallback,
             "py": self._builtin_py,
@@ -491,6 +508,51 @@ class PyShell:
             )
         print(f"imported={result.imported} skipped={result.skipped} file={target}")
         return 0
+
+    def _builtin_source_zsh_profile(self, args: list[str]) -> int:
+        if not args:
+            print("source_zsh_profile: filename argument required", file=sys.stderr)
+            return 2
+        return self._import_static_profile("source_zsh_profile", Path(os.path.expanduser(args[0])))
+
+    def _builtin_source_sh_aliases(self, args: list[str]) -> int:
+        if not args:
+            print("source_sh_aliases: filename argument required", file=sys.stderr)
+            return 2
+        return self._import_static_profile("source_sh_aliases", Path(os.path.expanduser(args[0])))
+
+    def _builtin_run_script(self, args: list[str]) -> int:
+        if not args:
+            print("run_script: filename argument required", file=sys.stderr)
+            return 2
+        target = Path(os.path.expanduser(args[0]))
+        return self.script_runner.run(target, args[1:])
+
+    def _builtin_compat_check(self, args: list[str]) -> int:
+        if not args:
+            print("compat_check: filename argument required", file=sys.stderr)
+            return 2
+        target = Path(os.path.expanduser(args[0]))
+        try:
+            report = analyze_compatibility_file(target)
+        except FileNotFoundError:
+            print(f"compat_check: {target}: file not found", file=sys.stderr)
+            return 1
+        except OSError as exc:
+            print(f"compat_check: {target}: {exc}", file=sys.stderr)
+            return 1
+
+        print(f"file={target}")
+        print(
+            f"supported={report.supported} delegated={report.delegated} "
+            f"skipped={report.skipped} risky={report.risky}"
+        )
+        for finding in report.findings:
+            print(
+                f"line={finding.line_number} kind={finding.kind} "
+                f"action={finding.action.value}"
+            )
+        return 2 if report.risky else 0
 
     def _builtin_zsh(self, args: list[str]) -> int:
         if not args:
@@ -609,6 +671,32 @@ class PyShell:
             return 1
 
     # ------------------------------------------------------------- helpers
+    def _import_static_profile(self, command: str, target: Path) -> int:
+        try:
+            result = import_profile_file(target)
+        except FileNotFoundError:
+            print(f"{command}: {target}: file not found", file=sys.stderr)
+            return 1
+        except OSError as exc:
+            print(f"{command}: {target}: {exc}", file=sys.stderr)
+            return 1
+
+        self.aliases.update(result.aliases)
+        for name, value in result.variables.items():
+            self.local_vars[name] = value
+            if name == "PYSH_ZSH_FALLBACK":
+                self.zsh_fallback_enabled = value == "1"
+        for name, value in result.exports.items():
+            os.environ[name] = value
+            self.local_vars[name] = value
+            if name == "PYSH_ZSH_FALLBACK":
+                self.zsh_fallback_enabled = value == "1"
+        print(
+            f"aliases={len(result.aliases)} exports={len(result.exports)} "
+            f"vars={len(result.variables)} skipped={result.skipped} file={target}"
+        )
+        return 0
+
     def _is_bare_assignment(self, line: str) -> bool:
         stripped = line.strip()
         if not parse_assignment(stripped):

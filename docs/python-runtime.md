@@ -6,7 +6,7 @@ Licensed under the GNU General Public License v3.0 or later.
 
 # Python runtime
 
-PySH 0.2.0 adds a Python-native runtime bridge through the `py` builtin. This
+PySH provides a Python-native runtime bridge through the `py` builtin. This
 is a first-class PySH feature: it runs Python code in the shell process using
 the current Python 3.13+ runtime and keeps state for the duration of one PySH
 session.
@@ -56,3 +56,6 @@ user-code exceptions.
 interactive inspection, Python-native shell automation and gradual movement
 from shell snippets into Python. It is not a replacement for a full Python
 REPL, debugger or long-running script supervisor.
+
+Multiline Python blocks are planned for a future release, but PySH 0.2.1 does
+not expand the runtime scope beyond one-line persistent execution.

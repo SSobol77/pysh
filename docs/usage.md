@@ -16,6 +16,7 @@ pysh                        # interactive REPL via the console entry point
 python -m pysh              # equivalent module entry point
 pysh -c "echo hi"           # run a single command line and exit
 pysh --version              # print version and exit
+python -m pysh --version    # module entry point version check
 pysh -V                     # short form
 ```
 
@@ -95,6 +96,17 @@ echo "$GREETING, $NAME"
 Local variables shadow environment variables when expanded. Single quotes
 suppress expansion; double quotes do not.
 
+## Aliases
+
+```sh
+alias ll='ls -lah'
+alias gs="git status -sb"
+alias
+unalias gs
+```
+
+Aliases are expanded only for the first word of each pipeline stage.
+
 ## Builtins
 
 | Builtin    | Description                                                |
@@ -106,6 +118,10 @@ suppress expansion; double quotes do not.
 | `export`   | Define or display exported environment vars.               |
 | `source`   | Execute commands from a file (also `.`).                   |
 | `source_zsh` | Safely import simple aliases from a zsh-compatible file. |
+| `source_zsh_profile` | Statically import simple zsh aliases, exports and vars. |
+| `source_sh_aliases` | Statically import simple sh/bash aliases, exports and vars. |
+| `run_script` | Run a script through its shebang interpreter or native PySH. |
+| `compat_check` | Print a static migration report for a shell file.      |
 | `zsh`      | Execute one command through real `zsh -lc`.                |
 | `zsh_fallback` | Enable or disable optional zsh fallback mode.         |
 | `py`       | Execute Python code in the persistent PySH runtime.        |
@@ -123,6 +139,10 @@ for transition and controlled delegation.
 
 ```sh
 source_zsh ~/.zsh_aliases
+source_zsh_profile ~/.zshrc
+source_sh_aliases ~/.bash_aliases
+compat_check ~/scripts/maintenance.sh
+run_script ~/scripts/maintenance.sh --dry-run
 zsh 'source ~/.zshrc; my_old_alias'
 zsh 'print -r -- hello'
 ```
@@ -130,6 +150,24 @@ zsh 'print -r -- hello'
 `source_zsh <file>` statically imports supported simple aliases without
 executing the file. Comments, blank lines and unsupported zsh constructs are
 skipped. Malformed alias lines are reported on stderr and counted as skipped.
+
+`source_zsh_profile <file>` extends static import to simple zsh-compatible
+aliases, `export NAME=value` statements and local `NAME=value` assignments.
+It is intended for incremental migration from files such as `~/.zshrc`; it
+never executes profile code, functions, plugin loaders, `eval`, command
+substitution or external commands.
+
+`source_sh_aliases <file>` uses the same static parser for `.bash_aliases`,
+`.profile` and simple POSIX-style alias/export files.
+
+`compat_check <file>` reads a profile or script without executing it and
+prints a concise migration report. Lines are classified as `supported`,
+`delegated`, `skipped` or `risky`. Risky constructs produce exit status 2.
+
+`run_script <file> [args...]` is an explicit script transition runner. A
+script with a `zsh`, `bash` or `sh` shebang is delegated to the real
+interpreter using an argv list. A script with no shebang is run line-by-line
+through PySH's native execution engine where possible.
 
 `zsh <command>` runs the command through `zsh -lc <command>` when zsh is
 installed. If zsh is unavailable, it returns 127 and reports
@@ -207,6 +245,8 @@ paths for any word. Inaccessible directories are silently skipped.
 - No full POSIX shell grammar — only the constructs documented here.
 - No full zsh compatibility. The zsh bridge is a transition layer and
   delegates to real zsh only when explicitly requested or fallback is enabled.
+- No full POSIX script compatibility. `run_script` delegates legacy scripts
+  to their real interpreter when a supported shebang is present.
 - No glob expansion is performed by PySH itself.
 - `svc start` / `svc restart` require a PyInit control interface to fully
   relaunch processes.
