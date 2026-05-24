@@ -6,7 +6,7 @@ Licensed under the GNU General Public License v3.0 or later.
 
 # Migration
 
-PySH 0.2.1 adds a professional migration layer for users moving from
+PySH 0.2.2 includes the professional migration layer for users moving from
 zsh/bash/sh profiles and scripts. The layer is intentionally conservative:
 PySH remains Python-first and does not claim full zsh or POSIX shell
 compatibility.
@@ -131,5 +131,5 @@ maintainability:
 py import platform; print(platform.platform())
 ```
 
-`py <code>` remains one-line persistent Python execution in 0.2.1. Multiline
+`py <code>` remains one-line persistent Python execution in 0.2.2. Multiline
 Python blocks are planned for a future release.

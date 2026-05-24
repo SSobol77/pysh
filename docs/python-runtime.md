@@ -57,5 +57,5 @@ interactive inspection, Python-native shell automation and gradual movement
 from shell snippets into Python. It is not a replacement for a full Python
 REPL, debugger or long-running script supervisor.
 
-Multiline Python blocks are planned for a future release, but PySH 0.2.1 does
+Multiline Python blocks are planned for a future release, but PySH 0.2.2 does
 not expand the runtime scope beyond one-line persistent execution.

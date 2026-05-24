@@ -6,7 +6,7 @@ Licensed under the GNU General Public License v3.0 or later.
 
 # Zsh compatibility and migration
 
-PySH 0.2.1 continues the **Zsh Transition Layer** and adds a safe profile
+PySH 0.2.2 continues the **Zsh Transition Layer** and includes a safe profile
 import path. The design goal is migration, not full zsh emulation:
 
 - PySH remains a Python-first shell with its own native execution engine.

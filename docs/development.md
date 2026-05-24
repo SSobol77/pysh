@@ -38,7 +38,7 @@ twine check dist/*
 
 `pytest -q` should report **all tests passing**. `ruff check` should report
 **All checks passed!**. `python -m build` should produce
-`dist/pysh_shell-0.2.1.tar.gz` and `dist/pysh_shell-0.2.1-py3-none-any.whl`.
+`dist/pysh_shell-0.2.2.tar.gz` and `dist/pysh_shell-0.2.2-py3-none-any.whl`.
 `twine check` should report `PASSED` for both artifacts.
 
 ## Smoke tests
@@ -147,5 +147,5 @@ pytest -q tests/test_shell.py::test_cd_changes_directory
 
 # Build and inspect the wheel contents:
 python -m build
-unzip -l dist/pysh_shell-0.2.1-py3-none-any.whl
+unzip -l dist/pysh_shell-0.2.2-py3-none-any.whl
 ```

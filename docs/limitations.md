@@ -24,7 +24,7 @@ features remain the responsibility of real zsh when delegated.
 
 ## Job control
 
-PySH does not implement job control in 0.2.1:
+PySH does not implement job control in 0.2.2:
 
 - no background execution with `&`,
 - no `jobs`,
@@ -68,7 +68,7 @@ as a claim that PySH is zsh-compatible.
 
 `py <code>` supports one-line Python execution in a persistent session
 context. Multiline Python blocks are planned for a future release and are
-not implemented in 0.2.1.
+not implemented in 0.2.2.
 
 ## Service helper
 

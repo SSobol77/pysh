@@ -387,5 +387,5 @@ Return behavior: returns 0 when Python execution succeeds and non-zero when
 the Python code raises an exception. Exceptions are printed to stderr and do
 not kill the shell.
 
-Limitations: PySH 0.2.1 supports one-line Python execution only. Multiline
+Limitations: PySH 0.2.2 supports one-line Python execution only. Multiline
 Python blocks are planned for a future release.

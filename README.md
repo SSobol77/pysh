@@ -1,7 +1,7 @@
 <!--
 SPDX-License-Identifier: GPL-3.0-or-later
 
-Project: PySH - Python-first interactive shell for Debian and Unix-like systems
+Project: PySH - fast, Python-first universal interactive shell for Debian and Unix-like systems
 File: README.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
@@ -18,7 +18,7 @@ See the LICENSE file in the project root for full license text.
 <h1 align="center">PySH</h1>
 
 <p align="center">
-  <strong>Python-first interactive shell for Debian and Unix-like systems.</strong>
+  <strong>PySH — fast, Python-first universal interactive shell for Debian and Unix-like systems.</strong>
 </p>
 
 <p align="center">
@@ -47,14 +47,14 @@ See the LICENSE file in the project root for full license text.
 
 ---
 
-**Python-first interactive shell for Debian and Unix-like systems.**
+**PySH — fast, Python-first universal interactive shell for Debian and Unix-like systems.**
 
 PySH is a small, dependency-free interactive shell written in pure Python.
 It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current development version: **0.2.1**. PySH targets **Python 3.13+** and is
+Current development version: **0.2.2**. PySH targets **Python 3.13+** and is
 validated primarily on **Debian 13** and Unix-like systems.
 
 ---
@@ -156,31 +156,20 @@ pysh -c "echo hi; echo there"  # run one command line and exit
 
 ## Documentation
 
-Full documentation lives under [`docs/`](docs/):
+Full documentation lives under the repository [`docs/`](https://github.com/SSobol77/pysh/tree/main/docs):
 
-- [Installation](docs/installation.md) — installing from PyPI and dev install.
-- [Usage](docs/usage.md) — invocation, operators, pipelines, redirection,
-  command substitution, variables, builtins.
-- [Builtins](docs/builtins.md) — syntax, examples, return behavior and
-  limitations for every builtin.
-- [Operators](docs/operators.md) — chains, pipelines, redirection, command
-  substitution, quoting and parser limitations.
-- [Configuration](docs/configuration.md) — `~/.pyshrc`, plugins under
-  `~/.pyshrc.d/`, aliases, exports, prompt behavior.
-- [Migration](docs/migration.md) — static profile import, script transition
-  runner, and compatibility reporting.
-- [Zsh compatibility](docs/zsh-compatibility.md) — transition bridge,
-  safe profile import, explicit zsh delegation, optional fallback mode.
-- [Python runtime](docs/python-runtime.md) — persistent Python-native `py`
-  execution context.
-- [Development](docs/development.md) — running the test suite, linting,
-  building artifacts, repository layout.
-- [Release process](docs/release.md) — how PySH 0.2.1 ships via GitHub
-  Actions and PyPI Trusted Publishing.
-- [Limitations](docs/limitations.md) — explicit non-goals and compatibility
-  boundaries.
-- [Documentation policy](docs/documentation-policy.md) — required coverage for
-  new commands, parser behavior, migration helpers and limitations.
+- [Installation](https://github.com/SSobol77/pysh/blob/main/docs/installation.md) — installing from PyPI and dev install.
+- [Usage](https://github.com/SSobol77/pysh/blob/main/docs/usage.md) — invocation, operators, pipelines, redirection, command substitution, variables, builtins.
+- [Builtins](https://github.com/SSobol77/pysh/blob/main/docs/builtins.md) — syntax, examples, return behavior and limitations for every builtin.
+- [Operators](https://github.com/SSobol77/pysh/blob/main/docs/operators.md) — chains, pipelines, redirection, command substitution, quoting and parser limitations.
+- [Configuration](https://github.com/SSobol77/pysh/blob/main/docs/configuration.md) — `~/.pyshrc`, plugins under `~/.pyshrc.d/`, aliases, exports, prompt behavior.
+- [Migration](https://github.com/SSobol77/pysh/blob/main/docs/migration.md) — static profile import, script transition runner, and compatibility reporting.
+- [Zsh compatibility](https://github.com/SSobol77/pysh/blob/main/docs/zsh-compatibility.md) — transition bridge, safe profile import, explicit zsh delegation, optional fallback mode.
+- [Python runtime](https://github.com/SSobol77/pysh/blob/main/docs/python-runtime.md) — persistent Python-native `py` execution context.
+- [Development](https://github.com/SSobol77/pysh/blob/main/docs/development.md) — running the test suite, linting, building artifacts, repository layout.
+- [Release process](https://github.com/SSobol77/pysh/blob/main/docs/release.md) — how PySH ships via GitHub Actions and PyPI Trusted Publishing.
+- [Limitations](https://github.com/SSobol77/pysh/blob/main/docs/limitations.md) — explicit non-goals and compatibility boundaries.
+- [Documentation policy](https://github.com/SSobol77/pysh/blob/main/docs/documentation-policy.md) — required coverage for new commands, parser behavior, migration helpers and limitations.
 
 ---
 
@@ -227,7 +216,7 @@ documented.
 Operators inside single or double quotes are treated as literal text.
 
 ```sh
-echo "🐍 PySH v0.2.1 | Python 3.13.5"
+echo "🐍 PySH v0.2.2 | Python 3.13.5"
 echo "Test | pipe & semicolon; && ok"
 python3.13 -c "import subprocess; print('ok')"
 ```
@@ -320,7 +309,7 @@ such as `alias ll='ls -lah'`, ignores comments and unsupported constructs,
 and never executes the file as code. It prints `imported=N skipped=M
 file=<path>` and reports malformed alias lines deterministically on stderr.
 
-`source_zsh_profile <file>` and `source_sh_aliases <file>` use the 0.2.1
+`source_zsh_profile <file>` and `source_sh_aliases <file>` use the 0.2.2
 static profile importer. They read files such as `~/.zshrc`, `.profile` and
 `.bash_aliases` without executing them, import supported simple aliases,
 exports and local assignments, and print `aliases=N exports=N vars=N
@@ -417,7 +406,7 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "🐍 PySH 0.2.1 | Python 3.13+"
+echo "🐍 PySH 0.2.2 | Python 3.13+"
 echo "💡 Operators: && || ; | > >> < 2> 2>> &> &>>  + \$() and backticks"
 ```
 
@@ -573,9 +562,7 @@ the Python runtime bridge.
 ## Publishing
 
 This repository is configured for **PyPI Trusted Publishing** via GitHub
-Actions. See [`.github/workflows/publish.yml`](.github/workflows/publish.yml) —
-it uses `pypa/gh-action-pypi-publish@release/v1` with `id-token: write` and
-the `pypi` environment. Tagging a release on GitHub publishes the build.
+Actions. See [`.github/workflows/publish.yml`](https://github.com/SSobol77/pysh/blob/main/.github/workflows/publish.yml) — it uses `pypa/gh-action-pypi-publish@release/v1` with `id-token: write` and the `pypi` environment. Tagging a release on GitHub publishes the build.
 
 Do **not** publish from a developer machine; let the workflow do it.
 
@@ -592,4 +579,4 @@ Do **not** publish from a developer machine; let the workflow do it.
 ## License
 
 PySH is distributed under the **GNU General Public License v3.0 or later**
-(`GPL-3.0-or-later`). See [`LICENSE`](LICENSE) for the full text.
+(`GPL-3.0-or-later`). See [`LICENSE`](https://github.com/SSobol77/pysh/blob/main/LICENSE) for the full text.
