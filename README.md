@@ -12,7 +12,7 @@ See the LICENSE file in the project root for full license text.
 -->
 
 <p align="center">
-  <img src="docs/img/pysh-icon-512.png" alt="PySH logo" width="160"/>
+  <img src="https://raw.githubusercontent.com/SSobol77/pysh/main/docs/img/pysh-icon-512.png" alt="PySH logo" width="160"/>
 </p>
 
 <h1 align="center">PySH</h1>
@@ -60,7 +60,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-The 0.1.2 release targets **Python 3.13+** and is validated on **Debian 13**.
+The 0.1.3 release targets **Python 3.13+** and is validated on **Debian 13**.
 
 ---
 
@@ -134,6 +134,22 @@ pysh -c "echo hi; echo there"  # run one command line and exit
 
 ---
 
+## Documentation
+
+Full documentation lives under [`docs/`](docs/):
+
+- [Installation](docs/installation.md) — installing from PyPI and dev install.
+- [Usage](docs/usage.md) — invocation, operators, pipelines, redirection,
+  command substitution, variables, builtins.
+- [Configuration](docs/configuration.md) — `~/.pyshrc`, plugins under
+  `~/.pyshrc.d/`, aliases, exports, prompt behavior.
+- [Development](docs/development.md) — running the test suite, linting,
+  building artifacts, repository layout.
+- [Release process](docs/release.md) — how PySH 0.1.3 ships via GitHub
+  Actions and PyPI Trusted Publishing.
+
+---
+
 ## Builtins
 
 Implemented directly inside the shell (no subprocess spawned):
@@ -167,7 +183,7 @@ Implemented directly inside the shell (no subprocess spawned):
 Operators inside single or double quotes are treated as literal text.
 
 ```sh
-echo "🐍 PySH v0.1.2 | Python 3.13.5"
+echo "🐍 PySH v0.1.3 | Python 3.13.5"
 echo "Test | pipe & semicolon; && ok"
 python3.13 -c "import subprocess; print('ok')"
 ```
@@ -279,7 +295,7 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "🐍 PySH 0.1.2 | Python 3.13+"
+echo "🐍 PySH 0.1.3 | Python 3.13+"
 echo "💡 Operators: && || ; | > >> < 2> 2>> &> &>>  + \$() and backticks"
 ```
 
