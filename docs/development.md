@@ -38,7 +38,7 @@ twine check dist/*
 
 `pytest -q` should report **all tests passing**. `ruff check` should report
 **All checks passed!**. `python -m build` should produce
-`dist/pysh_shell-0.1.3.tar.gz` and `dist/pysh_shell-0.1.3-py3-none-any.whl`.
+`dist/pysh_shell-0.2.0.tar.gz` and `dist/pysh_shell-0.2.0-py3-none-any.whl`.
 `twine check` should report `PASSED` for both artifacts.
 
 ## Smoke tests
@@ -64,6 +64,8 @@ pysh/
 │   ├── installation.md
 │   ├── usage.md
 │   ├── configuration.md
+│   ├── zsh-compatibility.md
+│   ├── python-runtime.md
 │   ├── development.md
 │   └── release.md
 ├── src/
@@ -80,7 +82,10 @@ pysh/
 │       ├── highlighting.py     # ANSI color helpers and classifier
 │       ├── completion.py       # Tab completion
 │       ├── service.py          # svc builtin client (PID-file based)
-│       └── pyinit.py           # PyInit service metadata parser
+│       ├── pyinit.py           # PyInit service metadata parser
+│       ├── zsh_bridge.py       # Optional zsh -lc execution bridge
+│       ├── zsh_aliases.py      # Static zsh alias importer
+│       └── python_runtime.py   # Persistent Python runtime for py builtin
 └── tests/
     ├── test_parser.py
     ├── test_redirection.py
@@ -91,10 +96,14 @@ pysh/
     ├── test_plugins.py
     ├── test_history.py
     ├── test_highlighting.py
+    ├── test_completion.py
     ├── test_dirstack.py
     ├── test_unalias.py
     ├── test_service.py
     ├── test_pyinit.py
+    ├── test_zsh_bridge.py
+    ├── test_zsh_transition.py
+    ├── test_python_runtime.py
     └── test_cli.py
 ```
 
@@ -118,5 +127,5 @@ pytest -q tests/test_shell.py::test_cd_changes_directory
 
 # Build and inspect the wheel contents:
 python -m build
-unzip -l dist/pysh_shell-0.1.3-py3-none-any.whl
+unzip -l dist/pysh_shell-0.2.0-py3-none-any.whl
 ```

@@ -30,7 +30,7 @@ pysh --version
 python -m pysh --version
 ```
 
-Both commands must print `pysh 0.1.3`.
+Both commands must print `pysh 0.2.0`.
 
 ## Development install (editable)
 

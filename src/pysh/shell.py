@@ -17,6 +17,7 @@ import os
 import shlex
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import IO
 
@@ -33,6 +34,7 @@ from pysh.parser import (
     split_pipeline,
 )
 from pysh.plugins import PLUGIN_DIR, load_plugins
+from pysh.python_runtime import PythonRuntime
 from pysh.rc import RC_PATH, execute_rc, load_default_rc
 from pysh.redirection import RedirectionSpec, parse_redirections
 from pysh.service import (
@@ -42,6 +44,8 @@ from pysh.service import (
     format_list,
     format_status,
 )
+from pysh.zsh_aliases import parse_zsh_aliases
+from pysh.zsh_bridge import ZshBridge
 
 
 class _ExitShell(Exception):
@@ -78,6 +82,10 @@ class PyShell:
             "popd",
             "dirs",
             "svc",
+            "source_zsh",
+            "zsh",
+            "zsh_fallback",
+            "py",
         }
     )
 
@@ -89,6 +97,7 @@ class PyShell:
         *,
         pid_root: Path | None = None,
         service_client: ServiceClient | None = None,
+        zsh_bridge: ZshBridge | None = None,
     ) -> None:
         self.local_vars: dict[str, str] = {}
         self.aliases: dict[str, str] = dict(self.DEFAULT_ALIASES)
@@ -96,6 +105,9 @@ class PyShell:
         self.dir_stack: list[Path] = []
         self.completer = Completer(lambda: list(self.aliases.keys()))
         self.history = HistoryManager(self.HISTORY_PATH)
+        self.zsh_bridge = zsh_bridge if zsh_bridge is not None else ZshBridge()
+        self.zsh_fallback_enabled = os.environ.get("PYSH_ZSH_FALLBACK") == "1"
+        self.python_runtime = PythonRuntime()
         if service_client is not None:
             self.service_client = service_client
         else:
@@ -140,6 +152,10 @@ class PyShell:
         # text participates in chain splitting, alias expansion, etc.
         line = expand_command_substitution(line)
 
+        py_code = self._extract_direct_py_code(line)
+        if py_code is not None:
+            return self._run_python_code(py_code)
+
         # Bare ``NAME=value`` assignment.
         if self._is_bare_assignment(line):
             return self._assign_local(line)
@@ -172,22 +188,24 @@ class PyShell:
         stages = [expand_variables(s, self.local_vars) for s in stages]
         if len(stages) == 1:
             return self._run_simple(stages[0])
-        return self._run_pipeline(stages)
+        return self._run_pipeline(stages, original_command=command)
 
     def _run_simple(self, stage: str) -> int:
         clean, spec = parse_redirections(stage)
         try:
             argv = shlex.split(clean, posix=True)
         except ValueError as exc:
+            if self.zsh_fallback_enabled:
+                return self._run_zsh_fallback(stage)
             print(f"pysh: parse error: {exc}", file=sys.stderr)
             return 2
         if not argv:
             return 0
         if argv[0] in self.BUILTINS:
             return self._dispatch_builtin(argv)
-        return self._run_external(argv, spec)
+        return self._run_external(argv, spec, original_stage=stage)
 
-    def _run_pipeline(self, stages: list[str]) -> int:
+    def _run_pipeline(self, stages: list[str], *, original_command: str) -> int:
         parsed: list[tuple[list[str], RedirectionSpec]] = []
         for s in stages:
             clean, spec = parse_redirections(s)
@@ -247,6 +265,13 @@ class PyShell:
                         stderr=stderr_arg,
                     )
                 except FileNotFoundError:
+                    if self.zsh_fallback_enabled and argv[0] not in self.BUILTINS:
+                        if prev_out is not None:
+                            prev_out.close()
+                        for p in procs:
+                            p.terminate()
+                            p.wait()
+                        return self._run_zsh_fallback(original_command)
                     print(f"pysh: {argv[0]}: command not found", file=sys.stderr)
                     if prev_out is not None:
                         prev_out.close()
@@ -282,7 +307,13 @@ class PyShell:
                 except OSError:
                     pass
 
-    def _run_external(self, argv: list[str], spec: RedirectionSpec) -> int:
+    def _run_external(
+        self,
+        argv: list[str],
+        spec: RedirectionSpec,
+        *,
+        original_stage: str | None = None,
+    ) -> int:
         stdin_f: IO[bytes] | None = None
         stdout_f: IO[bytes] | None = None
         stderr_f: IO[bytes] | None = None
@@ -307,6 +338,8 @@ class PyShell:
                     stderr=stderr_arg,
                 )
             except FileNotFoundError:
+                if self.zsh_fallback_enabled and original_stage is not None:
+                    return self._run_zsh_fallback(original_stage)
                 print(f"pysh: {argv[0]}: command not found", file=sys.stderr)
                 return 127
             except PermissionError as exc:
@@ -333,7 +366,7 @@ class PyShell:
     def _dispatch_builtin(self, argv: list[str]) -> int:
         name = argv[0]
         args = argv[1:]
-        handlers: dict[str, callable] = {
+        handlers: dict[str, Callable[[list[str]], int]] = {
             "cd": self._builtin_cd,
             "pwd": self._builtin_pwd,
             "alias": self._builtin_alias,
@@ -347,6 +380,10 @@ class PyShell:
             "popd": self._builtin_popd,
             "dirs": self._builtin_dirs,
             "svc": self._builtin_svc,
+            "source_zsh": self._builtin_source_zsh,
+            "zsh": self._builtin_zsh,
+            "zsh_fallback": self._builtin_zsh_fallback,
+            "py": self._builtin_py,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -413,9 +450,13 @@ class PyShell:
                 os.environ[name] = value
                 # Keep local_vars in sync so that ${NAME} expansion sees it.
                 self.local_vars[name] = value
+                if name == "PYSH_ZSH_FALLBACK":
+                    self.zsh_fallback_enabled = value == "1"
             else:
                 if token in self.local_vars:
                     os.environ[token] = self.local_vars[token]
+                    if token == "PYSH_ZSH_FALLBACK":
+                        self.zsh_fallback_enabled = self.local_vars[token] == "1"
                 else:
                     os.environ.setdefault(token, "")
         return 0
@@ -426,6 +467,50 @@ class PyShell:
             return 2
         target = Path(os.path.expanduser(args[0]))
         return execute_rc(target, self.execute, quiet_missing=False)
+
+    def _builtin_source_zsh(self, args: list[str]) -> int:
+        if not args:
+            print("source_zsh: filename argument required", file=sys.stderr)
+            return 2
+        target = Path(os.path.expanduser(args[0]))
+        try:
+            text = target.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            print(f"source_zsh: {target}: file not found", file=sys.stderr)
+            return 1
+        except OSError as exc:
+            print(f"source_zsh: {target}: {exc}", file=sys.stderr)
+            return 1
+        result = parse_zsh_aliases(text)
+        self.aliases.update(result.aliases)
+        for diagnostic_info in result.diagnostics:
+            print(
+                f"source_zsh: {target}:{diagnostic_info.line_number}: "
+                f"malformed alias: {diagnostic_info.message}",
+                file=sys.stderr,
+            )
+        print(f"imported={result.imported} skipped={result.skipped} file={target}")
+        return 0
+
+    def _builtin_zsh(self, args: list[str]) -> int:
+        if not args:
+            print("zsh: command argument required", file=sys.stderr)
+            return 2
+        return self._run_zsh_command(" ".join(args))
+
+    def _builtin_zsh_fallback(self, args: list[str]) -> int:
+        if len(args) != 1 or args[0] not in {"on", "off"}:
+            print("zsh_fallback: usage: zsh_fallback {on|off}", file=sys.stderr)
+            return 2
+        self.zsh_fallback_enabled = args[0] == "on"
+        self.local_vars["PYSH_ZSH_FALLBACK"] = "1" if self.zsh_fallback_enabled else "0"
+        return 0
+
+    def _builtin_py(self, args: list[str]) -> int:
+        if not args:
+            print("py: code argument required", file=sys.stderr)
+            return 2
+        return self._run_python_code(" ".join(args))
 
     def _builtin_exit(self, args: list[str]) -> int:
         code = 0
@@ -541,7 +626,34 @@ class PyShell:
         expanded = expand_variables(raw, self.local_vars)
         value = self._unquote_value(expanded)
         self.local_vars[name] = value
+        if name == "PYSH_ZSH_FALLBACK":
+            self.zsh_fallback_enabled = value == "1"
         return 0
+
+    def _run_zsh_command(self, command: str) -> int:
+        result = self.zsh_bridge.execute(command)
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        return result.returncode
+
+    def _run_zsh_fallback(self, command: str) -> int:
+        return self._run_zsh_command(command)
+
+    def _run_python_code(self, code: str) -> int:
+        return self.python_runtime.execute(code)
+
+    @staticmethod
+    def _extract_direct_py_code(line: str) -> str | None:
+        stripped = line.lstrip()
+        if stripped == "py":
+            return None
+        if not stripped.startswith("py") or len(stripped) == 2:
+            return None
+        if stripped[2] not in " \t":
+            return None
+        return stripped[3:].lstrip()
 
     def _unquote_value(self, raw: str) -> str:
         try:

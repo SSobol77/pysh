@@ -32,6 +32,16 @@ unalias ll
 
 Aliases are expanded on the first word of each pipeline stage only.
 
+Simple zsh-compatible alias files can be imported without executing them:
+
+```sh
+source_zsh ~/.zsh_aliases
+```
+
+`source_zsh` supports simple `alias NAME=VALUE` lines, ignores comments and
+blank lines, skips unsupported zsh constructs, and reports malformed alias
+lines deterministically.
+
 ## Exports and local variables
 
 ```sh
@@ -82,8 +92,20 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "PySH 0.1.3 | Python 3.13+"
+echo "PySH 0.2.0 | Python 3.13+"
 ```
+
+To opt into zsh fallback for one interactive session, set the variable or use
+the builtin explicitly. Fallback is off unless configured:
+
+```sh
+PYSH_ZSH_FALLBACK=1
+zsh_fallback on
+```
+
+This is a transition setting. It does not turn PySH into a zsh clone; it only
+allows commands PySH cannot parse or execute natively to be delegated through
+the zsh compatibility bridge.
 
 ## Plugin directory: `~/.pyshrc.d/*.pysh`
 

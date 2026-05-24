@@ -30,7 +30,25 @@ from pathlib import Path
 class Completer:
     """Readline completion driver."""
 
-    BUILTINS: tuple[str, ...] = ("cd", "pwd", "alias", "export", "source", "exit", "quit")
+    BUILTINS: tuple[str, ...] = (
+        "cd",
+        "pwd",
+        "alias",
+        "unalias",
+        "export",
+        "source",
+        ".",
+        "source_zsh",
+        "zsh",
+        "zsh_fallback",
+        "py",
+        "pushd",
+        "popd",
+        "dirs",
+        "svc",
+        "exit",
+        "quit",
+    )
 
     def __init__(self, get_aliases: Callable[[], Iterable[str]]) -> None:
         self._get_aliases = get_aliases

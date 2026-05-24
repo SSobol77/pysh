@@ -105,12 +105,62 @@ suppress expansion; double quotes do not.
 | `unalias`  | Remove one or more aliases.                                |
 | `export`   | Define or display exported environment vars.               |
 | `source`   | Execute commands from a file (also `.`).                   |
+| `source_zsh` | Safely import simple aliases from a zsh-compatible file. |
+| `zsh`      | Execute one command through real `zsh -lc`.                |
+| `zsh_fallback` | Enable or disable optional zsh fallback mode.         |
+| `py`       | Execute Python code in the persistent PySH runtime.        |
 | `pushd`    | Push CWD onto the directory stack and `cd` to a path.      |
 | `popd`     | Pop the directory stack and `cd` to the popped entry.      |
 | `dirs`     | Print the current directory followed by the stack.         |
 | `svc`      | Query and signal PyInit services (see below).              |
 | `exit`     | Exit the shell with an optional status code.               |
 | `quit`     | Same as `exit`.                                            |
+
+## Zsh transition commands
+
+PySH is Python-first, not a full zsh clone. The zsh compatibility bridge is
+for transition and controlled delegation.
+
+```sh
+source_zsh ~/.zsh_aliases
+zsh 'source ~/.zshrc; my_old_alias'
+zsh 'print -r -- hello'
+```
+
+`source_zsh <file>` statically imports supported simple aliases without
+executing the file. Comments, blank lines and unsupported zsh constructs are
+skipped. Malformed alias lines are reported on stderr and counted as skipped.
+
+`zsh <command>` runs the command through `zsh -lc <command>` when zsh is
+installed. If zsh is unavailable, it returns 127 and reports
+`pysh: zsh: command not found`.
+
+Fallback is off by default:
+
+```sh
+zsh_fallback on
+zsh_fallback off
+PYSH_ZSH_FALLBACK=1
+```
+
+When enabled, fallback may delegate commands PySH cannot parse or execute
+natively. PySH builtins are not delegated.
+
+## Python runtime
+
+`py <code>` executes one-line Python code in a persistent runtime context for
+the current shell session:
+
+```sh
+py print("hello from python")
+py import platform; print(platform.platform())
+py from pathlib import Path; print(Path(".").resolve())
+py x = 10
+py print(x)
+```
+
+Imports and variables persist between `py` invocations. Exceptions are
+printed to stderr and return non-zero without terminating the shell.
 
 ## Directory stack
 
@@ -155,6 +205,8 @@ paths for any word. Inaccessible directories are silently skipped.
 
 - No job control (`&`, `bg`, `fg`, `jobs`, `Ctrl+Z`).
 - No full POSIX shell grammar — only the constructs documented here.
+- No full zsh compatibility. The zsh bridge is a transition layer and
+  delegates to real zsh only when explicitly requested or fallback is enabled.
 - No glob expansion is performed by PySH itself.
 - `svc start` / `svc restart` require a PyInit control interface to fully
   relaunch processes.

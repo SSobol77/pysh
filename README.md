@@ -60,7 +60,8 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-The 0.1.3 release targets **Python 3.13+** and is validated on **Debian 13**.
+The 0.2.0 development line targets **Python 3.13+** and is validated on
+**Debian 13**.
 
 ---
 
@@ -81,6 +82,12 @@ The 0.1.3 release targets **Python 3.13+** and is validated on **Debian 13**.
 - Local variables (`NAME=value`) and exported environment variables
   (`export NAME=value`) with `$NAME` / `${NAME}` expansion.
 - Aliases with sane defaults; `alias` and **`unalias`** builtins.
+- **Zsh Transition Layer** for migration: `source_zsh <file>` safely imports
+  simple aliases without executing rc code, `zsh <command>` delegates
+  explicitly to real zsh when installed, and `zsh_fallback` can be enabled
+  for controlled fallback experiments.
+- **Python-native runtime bridge**: `py <code>` executes one-line Python code
+  in a persistent per-session runtime context.
 - Startup file `~/.pyshrc` plus a **plugin directory** at `~/.pyshrc.d/`
   whose `*.pysh` files load in deterministic lexicographic order.
 - **Mini rc-interpreter** for control flow inside `~/.pyshrc` and plugins:
@@ -141,11 +148,15 @@ Full documentation lives under [`docs/`](docs/):
 - [Installation](docs/installation.md) — installing from PyPI and dev install.
 - [Usage](docs/usage.md) — invocation, operators, pipelines, redirection,
   command substitution, variables, builtins.
+- [Zsh compatibility](docs/zsh-compatibility.md) — transition bridge,
+  safe alias import, explicit zsh delegation, optional fallback mode.
+- [Python runtime](docs/python-runtime.md) — persistent Python-native `py`
+  execution context.
 - [Configuration](docs/configuration.md) — `~/.pyshrc`, plugins under
   `~/.pyshrc.d/`, aliases, exports, prompt behavior.
 - [Development](docs/development.md) — running the test suite, linting,
   building artifacts, repository layout.
-- [Release process](docs/release.md) — how PySH 0.1.3 ships via GitHub
+- [Release process](docs/release.md) — how PySH 0.2.0 ships via GitHub
   Actions and PyPI Trusted Publishing.
 
 ---
@@ -162,6 +173,10 @@ Implemented directly inside the shell (no subprocess spawned):
 | `unalias`  | Remove one or more aliases.                              |
 | `export`   | Define or display exported environment vars.             |
 | `source`   | Execute commands from a file (also `.`).                 |
+| `source_zsh` | Safely import simple aliases from a zsh-compatible file. |
+| `zsh`      | Execute one command through real `zsh -lc`.              |
+| `zsh_fallback` | Enable or disable explicit zsh fallback mode.       |
+| `py`       | Execute Python code in the persistent PySH runtime.      |
 | `pushd`    | Push CWD onto the directory stack and `cd` to a path.    |
 | `popd`     | Pop the directory stack and `cd` to the popped entry.    |
 | `dirs`     | Print the current directory followed by the stack.       |
@@ -183,7 +198,7 @@ Implemented directly inside the shell (no subprocess spawned):
 Operators inside single or double quotes are treated as literal text.
 
 ```sh
-echo "🐍 PySH v0.1.3 | Python 3.13.5"
+echo "🐍 PySH v0.2.0 | Python 3.13.5"
 echo "Test | pipe & semicolon; && ok"
 python3.13 -c "import subprocess; print('ok')"
 ```
@@ -255,6 +270,65 @@ suppress expansion; double quotes do not.
 
 ---
 
+## Zsh Transition Layer
+
+PySH is Python-first, not a full zsh clone. The zsh compatibility bridge is
+for transition: it lets users move aliases and selected legacy commands into
+PySH without pretending that every zsh grammar feature is native.
+
+```sh
+source_zsh ~/.zsh_aliases
+zsh 'source ~/.zshrc; my_old_alias'
+zsh 'print -r -- hello'
+```
+
+`source_zsh <file>` statically imports supported simple alias definitions
+such as `alias ll='ls -lah'`, ignores comments and unsupported constructs,
+and never executes the file as code. It prints `imported=N skipped=M
+file=<path>` and reports malformed alias lines deterministically on stderr.
+
+`zsh <command>` delegates explicitly to real `zsh -lc <command>`. If zsh is
+not installed, it returns 127 with a deterministic error.
+
+Fallback mode is off by default. It can be enabled only explicitly:
+
+```sh
+zsh_fallback on
+zsh_fallback off
+PYSH_ZSH_FALLBACK=1
+```
+
+When fallback is on, PySH may delegate commands it cannot parse or execute
+natively to zsh. Builtins already handled by PySH stay native, and native
+command failures are not hidden.
+
+---
+
+## Python Runtime
+
+The `py` builtin executes one-line Python code in a persistent runtime context
+owned by the current PySH session:
+
+```sh
+py print("hello from python")
+py import platform; print(platform.platform())
+py from pathlib import Path; print(Path(".").resolve())
+```
+
+Variables and imports persist across `py` invocations:
+
+```sh
+py x = 10
+py print(x)
+py import pathlib
+py print(pathlib.Path(".").exists())
+```
+
+Exceptions are printed to stderr and return non-zero without terminating the
+shell.
+
+---
+
 ## `~/.pyshrc` and `~/.pyshrc.d/`
 
 At startup PySH first executes `~/.pyshrc` (if present), then every file in
@@ -295,7 +369,7 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "🐍 PySH 0.1.3 | Python 3.13+"
+echo "🐍 PySH 0.2.0 | Python 3.13+"
 echo "💡 Operators: && || ; | > >> < 2> 2>> &> &>>  + \$() and backticks"
 ```
 
@@ -424,6 +498,8 @@ paths for any word. Inaccessible directories are silently skipped.
 - No glob expansion is performed by PySH itself; external commands still
   receive globs through their own expansion logic when run via a system
   shell, but plain pipelines do not expand `*` / `?` in arguments.
+- No full zsh compatibility. The zsh compatibility bridge is a transition
+  layer with safe static alias import and explicit delegation to real zsh.
 - `svc start` and `svc restart` to actually re-launch a process require a
   PyInit control interface; without one they return a deterministic error.
 
@@ -441,7 +517,8 @@ twine check dist/*
 The project ships unit tests for the parser, the redirection module, the
 rc loader and mini-interpreter, command substitution, the history manager,
 the highlighting helpers, the plugin loader, directory stack, `unalias`,
-the `svc` builtin and the PyInit metadata parser.
+the `svc` builtin, the PyInit metadata parser, the zsh transition layer and
+the Python runtime bridge.
 
 ---
 
