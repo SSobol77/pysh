@@ -1,7 +1,9 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Project: PYSH - Python-first interactive shell for Debian and Unix-like systems
+# Project: PySH - Python-first interactive shell for Debian and Unix-like systems
 # File: pyproject.toml
+# Repository: https://github.com/SSobol77/pysh
+# PyPI: https://pypi.org/project/pysh-shell
 #
 # Copyright (c) 2026 Siergej Sobolewski
 #
@@ -13,7 +15,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pysh-shell"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python-first interactive shell for Debian and Unix-like systems"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -24,17 +26,32 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
     "Topic :: System :: Shells",
     "Topic :: Terminals",
 ]
 
+[project.urls]
+Homepage = "https://github.com/SSobol77/pysh"
+Repository = "https://github.com/SSobol77/pysh"
+Issues = "https://github.com/SSobol77/pysh/issues"
+
 [project.scripts]
 pysh = "pysh.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6", "build>=1.2", "twine>=5.0"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

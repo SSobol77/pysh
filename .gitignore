@@ -17,3 +17,6 @@ venv/
 build/
 dist/
 *.egg-info/
+dist/
+build/
+*.egg-info/
