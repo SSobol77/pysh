@@ -100,7 +100,19 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "PySH 0.2.2 | Python 3.13+"
+echo "PySH 0.3.0 | Python 3.13+"
+```
+
+Plugins may also contain multiline Python automation blocks. The block
+opener `py {` starts a deterministic multiline collection that ends at the
+next line containing `}`:
+
+```sh
+# ~/.pyshrc.d/30-py-banner.pysh
+py {
+    import platform
+    print(f"# host={platform.node()} python={platform.python_version()}")
+}
 ```
 
 To opt into zsh fallback for one interactive session, set the variable or use

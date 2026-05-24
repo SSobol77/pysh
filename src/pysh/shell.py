@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import IO
 
 from pysh import __version__
+from pysh.command_plan import plan as run_plan
 from pysh.completion import Completer
 from pysh.highlighting import colors_enabled, diagnostic
 from pysh.history import DEFAULT_HISTORY_PATH, HistoryManager
@@ -38,7 +39,12 @@ from pysh.profile_importer import (
     analyze_compatibility_file,
     import_profile_file,
 )
-from pysh.python_runtime import PythonRuntime
+from pysh.python_runtime import (
+    PythonRuntime,
+    extract_block_body,
+    is_block_closer,
+    is_block_opener,
+)
 from pysh.rc import RC_PATH, execute_rc, load_default_rc
 from pysh.redirection import RedirectionSpec, parse_redirections
 from pysh.script_runner import ScriptRunner
@@ -48,6 +54,14 @@ from pysh.service import (
     ServiceError,
     format_list,
     format_status,
+)
+from pysh.system_profile import (
+    apt_check,
+    apt_search,
+    env_audit,
+    path_audit,
+    sys_info,
+    which_all,
 )
 from pysh.zsh_aliases import parse_zsh_aliases
 from pysh.zsh_bridge import ZshBridge
@@ -95,6 +109,13 @@ class PyShell:
             "zsh",
             "zsh_fallback",
             "py",
+            "sys_info",
+            "env_audit",
+            "path_audit",
+            "which_all",
+            "apt_check",
+            "apt_search",
+            "plan",
         }
     )
 
@@ -147,6 +168,11 @@ class PyShell:
                     continue
                 if not line.strip():
                     continue
+                if is_block_opener(line):
+                    collected = self._collect_block_interactive(line)
+                    if collected is None:
+                        continue
+                    line = collected
                 try:
                     self.last_status = self.execute(line)
                 except _ExitShell as exit_signal:
@@ -154,12 +180,56 @@ class PyShell:
         finally:
             self._save_history()
 
+    def _collect_block_interactive(self, opener: str) -> str | None:
+        """Read continuation lines until the ``py { ... }`` block closes.
+
+        Returns the joined multi-line block text, or ``None`` if collection
+        was cancelled by the user (Ctrl+C or EOF).
+        """
+        collected: list[str] = [opener]
+        while True:
+            try:
+                cont = input(self._continuation_prompt())
+            except EOFError:
+                print()
+                print("pysh: py: unterminated block", file=sys.stderr)
+                self.last_status = 1
+                return None
+            except KeyboardInterrupt:
+                print()
+                self.last_status = 130
+                return None
+            if is_block_opener(cont):
+                print("pysh: py: nested py { ... } blocks are not supported", file=sys.stderr)
+                self.last_status = 1
+                return None
+            collected.append(cont)
+            if is_block_closer(cont):
+                return "\n".join(collected)
+
+    @staticmethod
+    def _continuation_prompt() -> str:
+        return "py> "
+
     # --------------------------------------------------------------- execute
     def execute(self, line: str) -> int:
         """Execute one shell line. Returns the exit status of the last command."""
         line = line.rstrip("\n").rstrip("\r")
         if not line.strip():
             return 0
+
+        # Multi-line ``py { ... }`` block: execute its body in the persistent
+        # Python runtime context. We accept either a fully collected block
+        # text (joined by ``\n``) or a bare ``py {`` line which is a usage
+        # error in single-line execution mode.
+        if self._is_python_block_text(line):
+            return self._run_python_block(line)
+        if is_block_opener(line.strip()) and "\n" not in line:
+            print(
+                "pysh: py: unterminated py { ... } block",
+                file=sys.stderr,
+            )
+            return 2
 
         # Apply command substitution before anything else so the substituted
         # text participates in chain splitting, alias expansion, etc.
@@ -401,6 +471,13 @@ class PyShell:
             "zsh": self._builtin_zsh,
             "zsh_fallback": self._builtin_zsh_fallback,
             "py": self._builtin_py,
+            "sys_info": self._builtin_sys_info,
+            "env_audit": self._builtin_env_audit,
+            "path_audit": self._builtin_path_audit,
+            "which_all": self._builtin_which_all,
+            "apt_check": self._builtin_apt_check,
+            "apt_search": self._builtin_apt_search,
+            "plan": self._builtin_plan,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -574,6 +651,35 @@ class PyShell:
             return 2
         return self._run_python_code(" ".join(args))
 
+    # ---------------------------------------------------------- system profile
+    def _builtin_sys_info(self, _args: list[str]) -> int:
+        return sys_info()
+
+    def _builtin_env_audit(self, _args: list[str]) -> int:
+        return env_audit()
+
+    def _builtin_path_audit(self, _args: list[str]) -> int:
+        return path_audit()
+
+    def _builtin_which_all(self, args: list[str]) -> int:
+        if not args:
+            print("which_all: usage: which_all <command>", file=sys.stderr)
+            return 2
+        return which_all(args[0])
+
+    def _builtin_apt_check(self, _args: list[str]) -> int:
+        return apt_check()
+
+    def _builtin_apt_search(self, args: list[str]) -> int:
+        if not args:
+            print("apt_search: usage: apt_search <query>", file=sys.stderr)
+            return 2
+        return apt_search(" ".join(args))
+
+    # ---------------------------------------------------------- command planning
+    def _builtin_plan(self, args: list[str]) -> int:
+        return run_plan(args, builtins=self.BUILTINS)
+
     def _builtin_exit(self, args: list[str]) -> int:
         code = 0
         if args:
@@ -731,6 +837,23 @@ class PyShell:
 
     def _run_python_code(self, code: str) -> int:
         return self.python_runtime.execute(code)
+
+    def _run_python_block(self, text: str) -> int:
+        try:
+            body = extract_block_body(text)
+        except ValueError as exc:
+            print(f"pysh: py: {exc}", file=sys.stderr)
+            return 2
+        return self.python_runtime.execute_block(body)
+
+    @staticmethod
+    def _is_python_block_text(text: str) -> bool:
+        if "\n" not in text:
+            return False
+        lines = text.split("\n")
+        if not is_block_opener(lines[0]):
+            return False
+        return is_block_closer(lines[-1])
 
     @staticmethod
     def _extract_direct_py_code(line: str) -> str | None:

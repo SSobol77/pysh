@@ -4,7 +4,7 @@ Copyright (c) 2026 Siergej Sobolewski
 Licensed under the GNU General Public License v3.0 or later.
 -->
 
-# Release process (v0.2.2)
+# Release process (v0.3.0)
 
 PySH is published to PyPI as **`pysh-shell`** through GitHub Actions and
 **PyPI Trusted Publishing**. The workflow lives at
@@ -24,8 +24,8 @@ the `pypi` GitHub environment.
    git pull --ff-only origin main
    ```
 2. Bump the version everywhere it appears:
-   - [`pyproject.toml`](../pyproject.toml) → `version = "0.2.2"`
-   - [`src/pysh/__init__.py`](../src/pysh/__init__.py) → `__version__ = "0.2.2"`
+   - [`pyproject.toml`](../pyproject.toml) → `version = "0.3.0"`
+   - [`src/pysh/__init__.py`](../src/pysh/__init__.py) → `__version__ = "0.3.0"`
    - Any user-facing version strings in [`README.md`](../README.md).
 3. Run the full quality gate locally:
    ```bash
@@ -61,18 +61,18 @@ the `pypi` GitHub environment.
    ```
 2. Create the version tag manually:
    ```bash
-   git tag v0.2.2
+   git tag v0.3.0
    ```
 3. Push the branch and the tag:
    ```bash
    git push origin main
-   git push origin v0.2.2
+   git push origin v0.3.0
    ```
 4. The `publish.yml` workflow runs on tag push, builds artifacts in an
    isolated CI environment, and uploads to PyPI using Trusted Publishing.
 5. Verify the release on
    [PyPI](https://pypi.org/project/pysh-shell/) and that the GitHub
-   release page lists `v0.2.2` under
+   release page lists `v0.3.0` under
    [Releases](https://github.com/SSobol77/pysh/releases).
 
 ## Post-release
@@ -83,7 +83,7 @@ the `pypi` GitHub environment.
   python3.13 -m venv /tmp/pysh-smoke
   . /tmp/pysh-smoke/bin/activate
   python -m pip install --upgrade pip
-  python -m pip install pysh-shell==0.2.2
+  python -m pip install pysh-shell==0.3.0
   pysh --version
   python -m pysh --version
   ```

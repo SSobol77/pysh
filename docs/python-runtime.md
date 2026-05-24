@@ -11,7 +11,7 @@ is a first-class PySH feature: it runs Python code in the shell process using
 the current Python 3.13+ runtime and keeps state for the duration of one PySH
 session.
 
-## Basic use
+## One-line use
 
 ```sh
 py print("hello from python")
@@ -19,19 +19,40 @@ py import platform; print(platform.platform())
 py from pathlib import Path; print(Path(".").resolve())
 ```
 
-The builtin accepts one line of Python code. Standard output and standard
-error behave normally.
+The one-line form accepts any Python statement that fits on a single line.
+
+## Multiline Python automation blocks
+
+PySH 0.3.0 introduces multiline Python automation blocks:
+
+```sh
+py {
+    import os
+    targets = [p for p in os.environ.get("PATH", "").split(":") if p]
+    print(f"PATH entries: {len(targets)}")
+}
+```
+
+- The opener is a line that, after stripping whitespace, is exactly `py {`.
+- The closer is a line that, after stripping whitespace, is exactly `}`.
+- The block body executes in the **same persistent Python runtime context**
+  as one-line `py` invocations.
+- Variables and imports flow in both directions between one-line and block
+  forms.
+
+In interactive mode, PySH displays the continuation prompt `py> ` until the
+closing `}` line is entered. In script/source mode, the block is collected
+before execution and unterminated blocks return non-zero.
 
 ## Persistent context
 
-Variables and imports persist across `py` invocations:
-
 ```sh
 py x = 10
-py print(x)
-
-py import pathlib
-py print(pathlib.Path(".").exists())
+py {
+    print(x + 1)
+    y = "shared"
+}
+py print(y)
 ```
 
 The context is per `PyShell` instance. Starting a new PySH process creates a
@@ -39,23 +60,26 @@ fresh Python runtime context.
 
 ## Failure behavior
 
-Python exceptions are contained inside the builtin:
-
 ```sh
 py 1 / 0
+py {
+    raise RuntimeError("oops")
+}
 py print("shell still alive")
 ```
 
-Exceptions are printed cleanly to stderr, the builtin returns non-zero, and
-the shell remains usable. The `py` builtin does not terminate the process on
-user-code exceptions.
+Exceptions are printed cleanly to stderr. The builtin returns non-zero and
+the shell stays usable. A `SyntaxError` inside a block is reported and
+returns non-zero. An unterminated block in script mode returns non-zero and
+does **not** execute any partial body.
 
-## Scope
+## Scope and limitations
 
-`py` is intentionally one-line execution in this release. It is suitable for
-interactive inspection, Python-native shell automation and gradual movement
-from shell snippets into Python. It is not a replacement for a full Python
-REPL, debugger or long-running script supervisor.
-
-Multiline Python blocks are planned for a future release, but PySH 0.2.2 does
-not expand the runtime scope beyond one-line persistent execution.
+- Nested `py { ... }` blocks are not supported. A second `py {` opener while
+  a block is open produces a deterministic error.
+- Block bodies are dedented (common leading whitespace is removed) so that
+  indented blocks inside scripts and plugins work without surprises.
+- The runtime is intentionally per-session: there is no globally persisted
+  Python state between PySH invocations.
+- This is not a full Python REPL replacement: there is no `help()` prompt,
+  no autocompletion of attribute names, and no debugger.

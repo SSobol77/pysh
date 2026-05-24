@@ -370,10 +370,15 @@ aid, not a compatibility guarantee.
 
 ## `py`
 
-Syntax: `py PYTHON_CODE...`
+Syntax: `py PYTHON_CODE...` or multiline block:
 
-Purpose: Execute one line of Python code in a persistent per-session runtime
-context.
+```sh
+py {
+    PYTHON_BODY
+}
+```
+
+Purpose: Execute Python code in a persistent per-session runtime context.
 
 Examples:
 
@@ -381,11 +386,155 @@ Examples:
 py import platform; print(platform.platform())
 py x = 10
 py print(x)
+
+py {
+    import math
+    print(math.tau)
+}
 ```
 
 Return behavior: returns 0 when Python execution succeeds and non-zero when
-the Python code raises an exception. Exceptions are printed to stderr and do
-not kill the shell.
+the Python code raises an exception. Exceptions are printed to stderr and
+do not kill the shell. An unterminated `py { ... }` block in a script
+returns non-zero.
 
-Limitations: PySH 0.2.2 supports one-line Python execution only. Multiline
-Python blocks are planned for a future release.
+Limitations: nested `py { ... }` blocks are rejected. See
+[python-runtime.md](python-runtime.md) for full behavior.
+
+## `sys_info`
+
+Syntax: `sys_info`
+
+Purpose: Print a concise, non-secret system summary (platform, Python,
+executable, cwd, user, home, shell, PATH entry count).
+
+Example:
+
+```sh
+sys_info
+```
+
+Return behavior: returns 0.
+
+Limitations: only stdlib-derived fields are reported; no secret values are
+printed.
+
+## `env_audit`
+
+Syntax: `env_audit`
+
+Purpose: Print a redacted environment audit summary. Lists the total number
+of variables, prints a curated whitelist of safe variables, and prints any
+variable whose name contains a sensitive token as `<redacted>`.
+
+Example:
+
+```sh
+env_audit
+```
+
+Return behavior: returns 0.
+
+Limitations: redaction is name-based. A name that does not contain `KEY`,
+`TOKEN`, `SECRET`, `PASSWORD`, `PASS`, `CREDENTIAL`, or `AUTH` is not
+treated as a secret.
+
+## `path_audit`
+
+Syntax: `path_audit`
+
+Purpose: Print per-entry status for every `$PATH` entry as
+`<status>\t<entry>` where status is one of `ok`, `missing`, `not_dir`,
+`duplicate`.
+
+Example:
+
+```sh
+path_audit
+```
+
+Return behavior: returns 0 when every entry is `ok` with no duplicates;
+returns 1 when any entry is `missing`, `not_dir`, or `duplicate`.
+
+Limitations: does not verify per-entry file permissions or symlink targets
+beyond `is_dir()`.
+
+## `which_all`
+
+Syntax: `which_all COMMAND`
+
+Purpose: Print every executable match for `COMMAND` along `$PATH`.
+
+Example:
+
+```sh
+which_all python3
+```
+
+Return behavior: returns 0 when at least one executable match exists, 1
+when none exist, and 2 when the command argument is missing.
+
+Limitations: matches files that are executable for the current user; does
+not consult `$PATHEXT` or shell-builtin lookup.
+
+## `apt_check`
+
+Syntax: `apt_check`
+
+Purpose: Probe available Debian package upgrades using `apt list
+--upgradable`. Never calls `sudo` and never modifies system state.
+
+Example:
+
+```sh
+apt_check
+```
+
+Return behavior: returns the apt exit code. Returns 127 with a
+deterministic message when `apt` is not found.
+
+Limitations: Debian-oriented helper; does not work on systems without
+`apt`. Some apt versions warn that the CLI is not stable for scripts; the
+warning is harmless and is forwarded as-is.
+
+## `apt_search`
+
+Syntax: `apt_search QUERY`
+
+Purpose: Run `apt search QUERY` safely without `shell=True`. Never calls
+`sudo`, never modifies system state.
+
+Example:
+
+```sh
+apt_search vim
+```
+
+Return behavior: returns the apt exit code. Returns 127 when `apt` is not
+found and 2 when the query argument is missing.
+
+Limitations: same as `apt_check`.
+
+## `plan`
+
+Syntax: `plan COMMAND...`
+
+Purpose: Preview how PySH would classify and execute `COMMAND` without
+running it. Prints `original=`, `kind=`, `execution=`, `risk=` and `reason=`
+lines.
+
+Examples:
+
+```sh
+plan ls -la
+plan echo a && echo b
+plan sudo apt update
+plan py print("x")
+```
+
+Return behavior: returns 0 for a successful plan and 2 when no command
+argument is supplied.
+
+Limitations: `plan` is advisory only. Policy enforcement is intentionally
+planned for a future release. See
+[command-planning.md](command-planning.md).

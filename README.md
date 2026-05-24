@@ -54,7 +54,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current development version: **0.2.2**. PySH targets **Python 3.13+** and is
+Current development version: **0.3.0**. PySH targets **Python 3.13+** and is
 validated primarily on **Debian 13** and Unix-like systems.
 
 ---
@@ -87,6 +87,12 @@ validated primarily on **Debian 13** and Unix-like systems.
   controlled fallback experiments.
 - **Python-native runtime bridge**: `py <code>` executes one-line Python code
   in a persistent per-session runtime context.
+- **Python automation blocks**: `py { ... }` runs a multiline Python block in
+  the same persistent runtime context as the one-line `py` form.
+- **Debian/system profile helpers**: `sys_info`, `env_audit`, `path_audit`,
+  `which_all`, `apt_check`, `apt_search` — non-mutating, never call `sudo`.
+- **Command planning**: `plan <command...>` previews how PySH would classify
+  and execute a command without running it.
 - Startup file `~/.pyshrc` plus a **plugin directory** at `~/.pyshrc.d/`
   whose `*.pysh` files load in deterministic lexicographic order.
 - **Mini rc-interpreter** for control flow inside `~/.pyshrc` and plugins:
@@ -168,6 +174,8 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 - [Python runtime](https://github.com/SSobol77/pysh/blob/main/docs/python-runtime.md) — persistent Python-native `py` execution context.
 - [Development](https://github.com/SSobol77/pysh/blob/main/docs/development.md) — running the test suite, linting, building artifacts, repository layout.
 - [Release process](https://github.com/SSobol77/pysh/blob/main/docs/release.md) — how PySH ships via GitHub Actions and PyPI Trusted Publishing.
+- [System profile](https://github.com/SSobol77/pysh/blob/main/docs/system-profile.md) — `sys_info`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search`.
+- [Command planning](https://github.com/SSobol77/pysh/blob/main/docs/command-planning.md) — `plan <command...>`, the advisory classifier.
 - [Limitations](https://github.com/SSobol77/pysh/blob/main/docs/limitations.md) — explicit non-goals and compatibility boundaries.
 - [Documentation policy](https://github.com/SSobol77/pysh/blob/main/docs/documentation-policy.md) — required coverage for new commands, parser behavior, migration helpers and limitations.
 
@@ -195,6 +203,13 @@ documented.
 | `zsh`      | Execute one command through real `zsh -lc`.              |
 | `zsh_fallback` | Enable or disable explicit zsh fallback mode.       |
 | `py`       | Execute Python code in the persistent PySH runtime.      |
+| `sys_info` | Print platform / Python / user / shell / PATH summary.   |
+| `env_audit` | Print a redacted environment audit summary.             |
+| `path_audit` | Report missing / duplicate / non-directory PATH entries. |
+| `which_all` | Print every executable match for a command in PATH.     |
+| `apt_check` | Run `apt list --upgradable` (Debian helper, no sudo).   |
+| `apt_search` | Run `apt search <query>` (Debian helper, no sudo).     |
+| `plan`     | Preview classification/execution of a command, advisory. |
 | `pushd`    | Push CWD onto the directory stack and `cd` to a path.    |
 | `popd`     | Pop the directory stack and `cd` to the popped entry.    |
 | `dirs`     | Print the current directory followed by the stack.       |
@@ -216,7 +231,7 @@ documented.
 Operators inside single or double quotes are treated as literal text.
 
 ```sh
-echo "🐍 PySH v0.2.2 | Python 3.13.5"
+echo "🐍 PySH v0.3.0 | Python 3.13.5"
 echo "Test | pipe & semicolon; && ok"
 python3.13 -c "import subprocess; print('ok')"
 ```
@@ -309,7 +324,7 @@ such as `alias ll='ls -lah'`, ignores comments and unsupported constructs,
 and never executes the file as code. It prints `imported=N skipped=M
 file=<path>` and reports malformed alias lines deterministically on stderr.
 
-`source_zsh_profile <file>` and `source_sh_aliases <file>` use the 0.2.2
+`source_zsh_profile <file>` and `source_sh_aliases <file>` use the 0.3.0
 static profile importer. They read files such as `~/.zshrc`, `.profile` and
 `.bash_aliases` without executing them, import supported simple aliases,
 exports and local assignments, and print `aliases=N exports=N vars=N
@@ -364,6 +379,60 @@ py print(pathlib.Path(".").exists())
 Exceptions are printed to stderr and return non-zero without terminating the
 shell.
 
+### Multiline Python automation blocks
+
+```sh
+py {
+    import os
+    targets = [p for p in os.environ.get("PATH", "").split(":") if p]
+    print(f"PATH entries: {len(targets)}")
+}
+```
+
+The opener line is exactly `py {`, the closer is a line that contains only
+`}`. Block bodies execute in the same persistent runtime context as one-line
+`py` invocations, so variables and imports flow in both directions.
+Unterminated blocks return non-zero in script/source mode; nested
+`py { ... }` blocks are rejected deterministically.
+
+---
+
+## System profile helpers
+
+PySH 0.3.0 adds a small, non-mutating Debian/system profile layer. None of
+these helpers call `sudo` or modify system state.
+
+```sh
+sys_info                # platform, Python, user, shell, PATH count
+env_audit               # safe env audit with secret redaction
+path_audit              # report missing / duplicate / non-directory entries
+which_all python3       # all executables for "python3" along PATH
+apt_check               # apt list --upgradable
+apt_search vim          # apt search vim
+```
+
+Variables whose name contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASS`,
+`CREDENTIAL`, or `AUTH` are replaced with `<redacted>` in `env_audit`. See
+[docs/system-profile.md](https://github.com/SSobol77/pysh/blob/main/docs/system-profile.md).
+
+---
+
+## Command planning
+
+`plan <command...>` previews how PySH would classify and execute a command
+without running it. It is advisory only — there is no policy enforcement.
+
+```sh
+plan ls -la
+plan echo a && echo b
+plan sudo apt update
+plan py print("x")
+```
+
+The output prints `original=`, `kind=`, `execution=`, `risk=` and `reason=`
+fields. See
+[docs/command-planning.md](https://github.com/SSobol77/pysh/blob/main/docs/command-planning.md).
+
 ---
 
 ## `~/.pyshrc` and `~/.pyshrc.d/`
@@ -406,7 +475,7 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "🐍 PySH 0.2.2 | Python 3.13+"
+echo "🐍 PySH 0.3.0 | Python 3.13+"
 echo "💡 Operators: && || ; | > >> < 2> 2>> &> &>>  + \$() and backticks"
 ```
 
@@ -539,6 +608,12 @@ paths for any word. Inaccessible directories are silently skipped.
   layer with safe static alias import and explicit delegation to real zsh.
 - `svc start` and `svc restart` to actually re-launch a process require a
   PyInit control interface; without one they return a deterministic error.
+- Multiline `py { ... }` blocks do not support nested blocks; the opener
+  must be exactly `py {` and the closer must be a line containing only `}`.
+- Debian helpers (`apt_check`, `apt_search`) require `apt` to exist; they
+  return 127 deterministically when it does not.
+- `plan` is advisory only. Policy enforcement is intentionally out of scope
+  in 0.3.0.
 
 ---
 

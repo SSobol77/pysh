@@ -16,3 +16,20 @@ def test_completion_exposes_migration_builtins() -> None:
     assert "source_sh_aliases" in builtins
     assert "run_script" in builtins
     assert "compat_check" in builtins
+
+
+def test_completion_exposes_system_profile_builtins() -> None:
+    builtins = set(Completer.BUILTINS)
+    for name in (
+        "sys_info",
+        "env_audit",
+        "path_audit",
+        "which_all",
+        "apt_check",
+        "apt_search",
+    ):
+        assert name in builtins
+
+
+def test_completion_exposes_plan_builtin() -> None:
+    assert "plan" in set(Completer.BUILTINS)

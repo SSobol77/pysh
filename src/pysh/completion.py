@@ -52,6 +52,13 @@ class Completer:
         "svc",
         "exit",
         "quit",
+        "sys_info",
+        "env_audit",
+        "path_audit",
+        "which_all",
+        "apt_check",
+        "apt_search",
+        "plan",
     )
 
     def __init__(self, get_aliases: Callable[[], Iterable[str]]) -> None:

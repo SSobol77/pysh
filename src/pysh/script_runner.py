@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pysh.parser import ChainOp, split_chain
+from pysh.python_runtime import is_block_opener, iter_logical_lines
 
 SUPPORTED_INTERPRETERS = frozenset({"zsh", "bash", "sh"})
 
@@ -101,14 +102,30 @@ class ScriptRunner:
             print(f"run_script: {path}: {exc}", file=sys.stderr)
             return 1
 
-        for raw_line in lines:
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            status = self._execute_line(line)
-            if status != 0 and not _line_has_error_operator(line):
+        try:
+            logical_lines = list(iter_logical_lines(lines))
+        except ValueError as exc:
+            print(f"run_script: {path}: {exc}", file=sys.stderr)
+            return 1
+
+        for raw_line in logical_lines:
+            status = self._dispatch_logical_line(raw_line)
+            if status is not None:
                 return status
         return 0
+
+    def _dispatch_logical_line(self, raw_line: str) -> int | None:
+        """Execute one logical line. Return non-None to abort the script."""
+        if "\n" in raw_line and is_block_opener(raw_line.split("\n", 1)[0]):
+            status = self._execute_line(raw_line)
+            return status if status != 0 else None
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            return None
+        status = self._execute_line(line)
+        if status != 0 and not _line_has_error_operator(line):
+            return status
+        return None
 
 
 def detect_script_type(path: Path) -> ScriptType:

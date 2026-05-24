@@ -38,7 +38,7 @@ twine check dist/*
 
 `pytest -q` should report **all tests passing**. `ruff check` should report
 **All checks passed!**. `python -m build` should produce
-`dist/pysh_shell-0.2.2.tar.gz` and `dist/pysh_shell-0.2.2-py3-none-any.whl`.
+`dist/pysh_shell-0.3.0.tar.gz` and `dist/pysh_shell-0.3.0-py3-none-any.whl`.
 `twine check` should report `PASSED` for both artifacts.
 
 ## Smoke tests
@@ -92,7 +92,9 @@ pysh/
 │       ├── script_runner.py    # Script transition runner
 │       ├── zsh_bridge.py       # Optional zsh -lc execution bridge
 │       ├── zsh_aliases.py      # Static zsh alias importer
-│       └── python_runtime.py   # Persistent Python runtime for py builtin
+│       ├── python_runtime.py   # Persistent Python runtime (py + py { ... })
+│       ├── system_profile.py   # Debian/system helpers (sys_info, apt_check, …)
+│       └── command_plan.py     # plan builtin: command classification
 └── tests/
     ├── test_parser.py
     ├── test_redirection.py
@@ -113,6 +115,8 @@ pysh/
     ├── test_profile_importer.py
     ├── test_script_runner.py
     ├── test_python_runtime.py
+    ├── test_system_profile.py
+    ├── test_command_plan.py
     └── test_cli.py
 ```
 
@@ -147,5 +151,5 @@ pytest -q tests/test_shell.py::test_cd_changes_directory
 
 # Build and inspect the wheel contents:
 python -m build
-unzip -l dist/pysh_shell-0.2.2-py3-none-any.whl
+unzip -l dist/pysh_shell-0.3.0-py3-none-any.whl
 ```

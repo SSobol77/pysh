@@ -21,6 +21,10 @@ documented.
 - Every zsh/bash/sh compatibility feature must be added to
   `docs/zsh-compatibility.md`.
 - Every Python runtime feature must be added to `docs/python-runtime.md`.
+- Every Debian/system profile helper must be added to
+  `docs/system-profile.md`.
+- Every command-planning behavior must be added to
+  `docs/command-planning.md`.
 - Every limitation must be added to `docs/limitations.md`.
 - Every CLI option must be documented in `README.md`, `docs/usage.md` and,
   when installation-related, `docs/installation.md`.

@@ -70,9 +70,25 @@ WHILE_ITER_LIMIT = 10_000
 
 
 def iter_rc_lines(lines: Iterable[str]) -> list[str]:
-    """Return executable lines from ``lines`` (comments and blanks dropped)."""
+    """Return executable lines from ``lines`` (comments and blanks dropped).
+
+    Multi-line ``py { ... }`` blocks are coalesced into a single logical
+    line (joined by ``\\n``) so that the mini-interpreter passes the whole
+    block straight to the executor.
+    """
+    from pysh.python_runtime import is_block_opener, iter_logical_lines
+
     cleaned: list[str] = []
-    for raw in lines:
+    raw_text = list(lines)
+    try:
+        logical = list(iter_logical_lines(raw_text))
+    except ValueError as exc:
+        print(f"pysh: rc: {exc}", file=sys.stderr)
+        logical = []
+    for raw in logical:
+        if "\n" in raw and is_block_opener(raw.split("\n", 1)[0]):
+            cleaned.append(raw)
+            continue
         line = raw.rstrip("\n").rstrip("\r")
         stripped = line.lstrip()
         if not stripped or stripped.startswith("#"):

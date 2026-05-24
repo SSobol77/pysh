@@ -67,8 +67,38 @@ as a claim that PySH is zsh-compatible.
 ## Python runtime
 
 `py <code>` supports one-line Python execution in a persistent session
-context. Multiline Python blocks are planned for a future release and are
-not implemented in 0.2.2.
+context. PySH 0.3.0 adds multiline `py { ... }` blocks that share the same
+persistent context. Limitations:
+
+- Nested `py { ... }` blocks are not supported.
+- The opener must be a line whose stripped form is exactly `py {`.
+- The closer must be a line whose stripped form is exactly `}`.
+- Unterminated blocks in script mode return non-zero and do not execute
+  any partial body.
+
+## Debian/system profile helpers
+
+`sys_info`, `env_audit`, `path_audit`, `which_all`, `apt_check` and
+`apt_search` are non-mutating diagnostic helpers:
+
+- `apt_check` and `apt_search` require `apt` to be installed; they return
+  127 deterministically when `apt` is missing.
+- These helpers never call `sudo` and never modify system state.
+- Secret redaction in `env_audit` is name-based; values whose key does not
+  match a sensitive token are not treated as secrets.
+
+## Command planning
+
+`plan <command...>` is advisory only:
+
+- It classifies the command into a kind / execution / risk triple and
+  prints a reason line.
+- It never executes the planned command.
+- It never modifies aliases, env vars, the working directory or files.
+- The risk model is coarse; a `low` classification is not a security
+  clearance.
+- Policy enforcement based on `plan` output is intentionally planned for a
+  later release.
 
 ## Service helper
 

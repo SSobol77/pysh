@@ -125,6 +125,13 @@ Aliases are expanded only for the first word of each pipeline stage.
 | `zsh`      | Execute one command through real `zsh -lc`.                |
 | `zsh_fallback` | Enable or disable optional zsh fallback mode.         |
 | `py`       | Execute Python code in the persistent PySH runtime.        |
+| `sys_info` | Print platform / Python / user / shell / PATH summary.     |
+| `env_audit` | Print a redacted environment audit summary.               |
+| `path_audit` | Report missing / duplicate / non-directory PATH entries. |
+| `which_all` | Print every executable match for a command in PATH.       |
+| `apt_check` | Debian `apt list --upgradable` helper (never uses sudo).  |
+| `apt_search` | Debian `apt search <query>` helper (never uses sudo).    |
+| `plan`     | Preview classification/execution of a command; advisory.   |
 | `pushd`    | Push CWD onto the directory stack and `cd` to a path.      |
 | `popd`     | Pop the directory stack and `cd` to the popped entry.      |
 | `dirs`     | Print the current directory followed by the stack.         |
@@ -199,6 +206,45 @@ py print(x)
 
 Imports and variables persist between `py` invocations. Exceptions are
 printed to stderr and return non-zero without terminating the shell.
+
+### Multiline Python automation blocks
+
+```sh
+py {
+    import os
+    print(len(os.environ.get("PATH", "").split(":")))
+}
+```
+
+The opener line is exactly `py {`, the closer line is exactly `}`. Block
+bodies share the persistent Python runtime with one-line `py` invocations.
+See [python-runtime.md](python-runtime.md).
+
+## System profile helpers
+
+```sh
+sys_info
+env_audit
+path_audit
+which_all python3
+apt_check
+apt_search vim
+```
+
+These helpers are non-mutating and never call `sudo`. See
+[system-profile.md](system-profile.md).
+
+## Command planning
+
+```sh
+plan ls -la
+plan echo a && echo b
+plan sudo apt update
+```
+
+`plan` prints a deterministic classification (`kind`, `execution`, `risk`,
+`reason`) without executing the command. See
+[command-planning.md](command-planning.md).
 
 ## Directory stack
 
