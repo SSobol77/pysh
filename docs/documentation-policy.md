@@ -26,6 +26,10 @@ documented.
 - Every command-planning behavior must be added to
   `docs/command-planning.md`.
 - Every limitation must be added to `docs/limitations.md`.
+- Every packaging change (artifact families, filenames, install
+  layout, CI/release workflows) must be reflected in
+  `docs/packaging.md`, `docs/installation.md` and
+  `docs/release.md`.
 - Every CLI option must be documented in `README.md`, `docs/usage.md` and,
   when installation-related, `docs/installation.md`.
 

@@ -36,6 +36,19 @@ python -m build
 twine check dist/*
 ```
 
+To build the full release artifact set locally (wheel, sdist, `.deb`,
+`.rpm`, `SHA256SUMS`), use:
+
+```bash
+bash scripts/build_release_artifacts.sh
+```
+
+See [`packaging.md`](packaging.md) for the canonical artifact naming
+contract and per-script details. `scripts/build_rpm.sh` needs the
+`rpm` package installed locally (`sudo apt-get install -y rpm` on
+Debian); if it is missing, the script fails fast with a deterministic
+message.
+
 `pytest -q` should report **all tests passing**. `ruff check` should report
 **All checks passed!**. `python -m build` should produce
 `dist/pysh_shell-0.3.0.tar.gz` and `dist/pysh_shell-0.3.0-py3-none-any.whl`.

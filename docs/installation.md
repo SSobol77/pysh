@@ -30,7 +30,53 @@ pysh --version
 python -m pysh --version
 ```
 
-Both commands must print `pysh 0.2.2`.
+Both commands must print `pysh 0.3.0` (or the current released version).
+
+## Install from a GitHub Release `.deb` (Debian / Ubuntu)
+
+For PySH version `X.Y.Z`, the canonical Debian artifact is:
+
+```
+pysh-shell_X.Y.Z-1_all.deb
+```
+
+```bash
+sudo apt install ./pysh-shell_X.Y.Z-1_all.deb
+pysh --version
+```
+
+The `.deb` installs the Python package under `/opt/pysh-shell/lib/pysh`
+and a wrapper at `/usr/bin/pysh`. Depends on `python3 (>= 3.13)`.
+
+## Install from a GitHub Release `.rpm` (Fedora / RHEL)
+
+For PySH version `X.Y.Z`, the canonical RPM artifact is:
+
+```
+pysh-shell-X.Y.Z-1.noarch.rpm
+```
+
+```bash
+sudo dnf install ./pysh-shell-X.Y.Z-1.noarch.rpm
+pysh --version
+```
+
+The `.rpm` shares the install layout with the Debian package and
+requires `python3 >= 3.13`.
+
+> The `.deb` and `.rpm` packages are GitHub Release artifacts. They
+> are **not** yet shipped via the official Debian, Ubuntu, Fedora or
+> RHEL/EPEL repositories.
+
+## Verify GitHub Release artifacts
+
+Each GitHub Release also publishes a `SHA256SUMS` file covering the
+wheel, sdist, `.deb` and `.rpm`. Download all artifacts to the same
+directory and run:
+
+```bash
+sha256sum -c SHA256SUMS
+```
 
 ## Development install (editable)
 

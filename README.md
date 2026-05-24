@@ -176,6 +176,7 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 - [Release process](https://github.com/SSobol77/pysh/blob/main/docs/release.md) — how PySH ships via GitHub Actions and PyPI Trusted Publishing.
 - [System profile](https://github.com/SSobol77/pysh/blob/main/docs/system-profile.md) — `sys_info`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search`.
 - [Command planning](https://github.com/SSobol77/pysh/blob/main/docs/command-planning.md) — `plan <command...>`, the advisory classifier.
+- [Packaging](https://github.com/SSobol77/pysh/blob/main/docs/packaging.md) — PyPI / `.deb` / `.rpm` artifact naming contract and build scripts.
 - [Limitations](https://github.com/SSobol77/pysh/blob/main/docs/limitations.md) — explicit non-goals and compatibility boundaries.
 - [Documentation policy](https://github.com/SSobol77/pysh/blob/main/docs/documentation-policy.md) — required coverage for new commands, parser behavior, migration helpers and limitations.
 

@@ -1,0 +1,18 @@
+Package: pysh-shell
+Version: @VERSION@-1
+Section: shells
+Priority: optional
+Architecture: all
+Maintainer: Siergej Sobolewski <ssobo77@gmail.com>
+Depends: python3 (>= 3.13)
+Homepage: https://github.com/SSobol77/pysh
+Description: Fast, Python-first universal interactive shell
+ PySH is a fast, Python-first universal interactive shell for Debian
+ and Unix-like systems. It provides a Bash-style interactive REPL,
+ quote-aware command parsing, pipelines, redirection, command
+ substitution, a persistent Python runtime accessible via the "py"
+ builtin, Debian/system profile helpers, and a static migration layer
+ for sh/bash/zsh aliases and simple profile entries.
+ .
+ PySH is implemented in pure Python (standard library only) and
+ installs under /opt/pysh-shell with a small wrapper at /usr/bin/pysh.

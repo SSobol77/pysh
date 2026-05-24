@@ -6,6 +6,11 @@ Licensed under the GNU General Public License v3.0 or later.
 
 # Release process (v0.3.0)
 
+> Each release ships **three** artifact families: PyPI (wheel + sdist),
+> Debian `.deb`, and Red Hat/Fedora `.rpm`. See
+> [`packaging.md`](packaging.md) for the canonical naming contract and
+> [`installation.md`](installation.md) for end-user install commands.
+
 PySH is published to PyPI as **`pysh-shell`** through GitHub Actions and
 **PyPI Trusted Publishing**. The workflow lives at
 [`.github/workflows/publish.yml`](../.github/workflows/publish.yml) and

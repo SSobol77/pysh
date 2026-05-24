@@ -33,10 +33,10 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install zsh for transition-layer tests
+      - name: Install zsh and packaging tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y zsh
+          sudo apt-get install -y zsh dpkg-dev fakeroot rpm
 
       - name: Upgrade pip
         run: python -m pip install --upgrade pip
@@ -72,3 +72,40 @@ jobs:
 
       - name: Smoke test (python -m pysh --version)
         run: python -m pysh --version
+
+      - name: Syntax-check packaging shell scripts
+        run: |
+          bash -n scripts/build_pysh_package.sh
+          bash -n scripts/build_deb.sh
+          bash -n scripts/build_rpm.sh
+          bash -n scripts/build_release_artifacts.sh
+          bash -n scripts/check_release_artifacts.sh
+
+      - name: Build Debian .deb (if dpkg-deb available)
+        run: |
+          if command -v dpkg-deb >/dev/null 2>&1; then
+            bash scripts/build_deb.sh
+          else
+            echo "dpkg-deb not available; skipping .deb build."
+          fi
+
+      - name: Build RPM .rpm (if rpmbuild available)
+        run: |
+          if command -v rpmbuild >/dev/null 2>&1; then
+            bash scripts/build_rpm.sh
+          else
+            echo "rpmbuild not available; skipping .rpm build."
+          fi
+
+      - name: Verify release artifacts + SHA256SUMS
+        run: |
+          if [ -f dist/os/deb/*.deb ] 2>/dev/null \
+              || ls dist/os/deb/*.deb >/dev/null 2>&1; then
+            if ls dist/os/rpm/*.rpm >/dev/null 2>&1; then
+              bash scripts/check_release_artifacts.sh
+            else
+              echo "Skipping check_release_artifacts.sh: .rpm missing."
+            fi
+          else
+            echo "Skipping check_release_artifacts.sh: .deb missing."
+          fi

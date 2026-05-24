@@ -1,0 +1,24 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Post-install script for pysh-shell. Deterministic and minimal: never
+# fetches anything from the network, never calls sudo, never modifies
+# files outside of the package's install prefix.
+set -eu
+
+case "$1" in
+    configure)
+        # Ensure the wrapper is executable. dpkg already preserves the
+        # mode but this guards against odd local archive states.
+        if [ -f /usr/bin/pysh ]; then
+            chmod 0755 /usr/bin/pysh || true
+        fi
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+    *)
+        echo "postinst called with unknown argument: $1" >&2
+        exit 1
+        ;;
+esac
+
+exit 0
