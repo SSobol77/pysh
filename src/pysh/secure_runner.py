@@ -26,6 +26,7 @@ import select
 import signal
 import sys
 import termios
+import time
 import tty
 from dataclasses import dataclass
 from typing import IO
@@ -114,11 +115,13 @@ class SecureRunner:
         input_fd: int | None = None,
         output_fd: int | None = None,
         env: dict[str, str] | None = None,
+        blink_delay: float = 0.03,
     ) -> None:
         self.config = config
         self.input_fd = input_fd
         self.output_fd = output_fd
         self.env = env
+        self.blink_delay = blink_delay
 
     def run(self, argv: list[str]) -> int:
         """Run ``argv`` behind a PTY and return the child exit status."""
@@ -300,6 +303,8 @@ class SecureRunner:
         if visible:
             self._write_text(out_fd, indicator.erase())
         self._write_text(out_fd, indicator.show_active())
+        if self.blink_delay > 0:
+            time.sleep(self.blink_delay)
         self._write_text(out_fd, indicator.erase())
         self._write_text(out_fd, indicator.show_idle())
         return True

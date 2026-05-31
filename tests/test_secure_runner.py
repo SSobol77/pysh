@@ -22,10 +22,12 @@ import threading
 
 import pytest
 
+import pysh.secure_runner as secure_runner
 from pysh.secure_runner import (
     KeypressIndicator,
     SecureRunner,
     SensitiveIndicatorConfig,
+    colors_enabled_for_fd,
 )
 
 ANSI_RE = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -82,8 +84,8 @@ def test_indicator_renders_one_visible_symbol() -> None:
 def test_indicator_applies_colors_when_enabled() -> None:
     indicator = KeypressIndicator(_config(), colors=True)
 
-    assert "\x1b[" in indicator.show_idle()
-    assert "\x1b[" in indicator.show_active()
+    assert indicator.show_idle() == "\x1b[97m*\x1b[0m"
+    assert indicator.show_active() == "\x1b[92m*\x1b[0m"
     assert ANSI_RE.sub(b"", indicator.show_idle().encode()) == b"*"
     assert ANSI_RE.sub(b"", indicator.show_active().encode()) == b"*"
 
@@ -93,6 +95,21 @@ def test_indicator_omits_colors_when_gate_disabled() -> None:
 
     assert indicator.show_idle() == "*"
     assert indicator.show_active() == "*"
+
+
+def test_indicator_disabled_renders_nothing() -> None:
+    indicator = KeypressIndicator(_config(enabled=False), colors=True)
+
+    assert indicator.show_idle() == ""
+    assert indicator.show_active() == ""
+
+
+def test_color_gate_respects_no_color_and_dumb_terminal(monkeypatch) -> None:
+    monkeypatch.setattr(secure_runner.os, "isatty", lambda _fd: True)
+
+    assert colors_enabled_for_fd(1, {"TERM": "xterm-256color"}) is True
+    assert colors_enabled_for_fd(1, {"TERM": "xterm-256color", "NO_COLOR": "1"}) is False
+    assert colors_enabled_for_fd(1, {"TERM": "dumb"}) is False
 
 
 @pytest.mark.skipif(os.name != "posix", reason="PTY tests require POSIX")
@@ -184,6 +201,56 @@ def test_indicator_does_not_grow_and_input_byte_is_not_echoed() -> None:
     assert b"done" in visible
     assert b"p" not in visible
     assert visible.count(b"*") <= 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="PTY tests require POSIX")
+def test_indicator_blinks_active_then_idle_on_echo_disabled_input(monkeypatch) -> None:
+    input_read, input_write = os.pipe()
+    output_read, output_write = os.pipe()
+    monkeypatch.setattr(secure_runner.os, "isatty", lambda fd: fd == output_write)
+    code = (
+        "import os, sys, termios;"
+        "fd=sys.stdin.fileno();"
+        "old=termios.tcgetattr(fd);"
+        "new=list(old);"
+        "new[3]=new[3] & ~(termios.ECHO | termios.ICANON);"
+        "termios.tcsetattr(fd, termios.TCSADRAIN, new);"
+        "sys.stdout.write('ready\\n'); sys.stdout.flush();"
+        "os.read(fd, 2);"
+        "termios.tcsetattr(fd, termios.TCSADRAIN, old);"
+        "sys.stdout.write('done\\n'); sys.stdout.flush()"
+    )
+    result: dict[str, int] = {}
+
+    def target() -> None:
+        result["status"] = SecureRunner(
+            _config(enabled=True),
+            input_fd=input_read,
+            output_fd=output_write,
+            env={"TERM": "xterm-256color"},
+            blink_delay=0,
+        ).run([sys.executable, "-c", code])
+
+    thread = threading.Thread(target=target)
+    thread.start()
+    first = _read_available(output_read, 1.0)
+    assert b"ready" in first
+    os.write(input_write, b"pw")
+    os.close(input_write)
+    thread.join(3)
+    os.close(output_write)
+    output = first + _read_available(output_read)
+    os.close(input_read)
+    os.close(output_read)
+
+    idle = b"\x1b[97m*\x1b[0m"
+    active = b"\x1b[92m*\x1b[0m"
+    active_pos = output.find(active)
+    assert result["status"] == 0
+    assert active_pos != -1
+    assert output.find(idle, active_pos + len(active)) != -1
+    assert b"p" not in _visible(output)
+    assert _visible(output).count(b"*") <= 1
 
 
 @pytest.mark.skipif(os.name != "posix", reason="PTY tests require POSIX")

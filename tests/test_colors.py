@@ -15,9 +15,11 @@ import pytest
 
 from pysh.colors import (
     RGB,
+    color_to_hex,
     colorize,
     nearest_ansi16,
     parse_color,
+    rgb_to_hex,
     sgr_ansi16,
     sgr_reset,
     sgr_truecolor,
@@ -28,11 +30,18 @@ def test_parse_named_colors_case_insensitive() -> None:
     assert parse_color("red") == RGB(255, 0, 0)
     assert parse_color(" RED ") == RGB(255, 0, 0)
     assert parse_color("Fuchsia") == RGB(255, 0, 255)
+    assert parse_color("orange") == RGB(255, 165, 0)
 
 
 def test_parse_hex_lowercase_and_uppercase() -> None:
     assert parse_color("#33ccff") == RGB(51, 204, 255)
     assert parse_color("#33CCFF") == RGB(51, 204, 255)
+
+
+def test_color_to_hex_canonicalizes_named_and_hex_values() -> None:
+    assert rgb_to_hex(RGB(255, 153, 0)) == "#FF9900"
+    assert color_to_hex("orange") == "#FFA500"
+    assert color_to_hex("#ff9900") == "#FF9900"
 
 
 @pytest.mark.parametrize("value", ["#RGB", "red;", "rgb(1,2,3)", "", "unknown", "#12zz45"])

@@ -12,6 +12,7 @@
 """Interactive shell implementation for PySH."""
 from __future__ import annotations
 
+import atexit
 import locale
 import os
 import re
@@ -28,10 +29,11 @@ from types import SimpleNamespace
 from typing import IO
 
 from pysh import __version__
-from pysh.colors import colorize, parse_color
+from pysh.colors import color_to_hex, colorize, parse_color
 from pysh.command_plan import plan as run_plan
 from pysh.completion import Completer
 from pysh.config_api import (
+    DEFAULT_CURSOR_OPTIONS,
     DEFAULT_EDITOR_OPTIONS,
     DEFAULT_PROMPT_COLOR_MODES,
     DEFAULT_PROMPT_COLORS,
@@ -40,6 +42,8 @@ from pysh.config_api import (
     PYSHRC_PY_PATH,
     ensure_default_config,
     load_python_config,
+    validate_cursor_color,
+    validate_cursor_color_enabled,
     validate_editor_option,
     validate_prompt_color,
     validate_prompt_color_mode,
@@ -123,6 +127,16 @@ _UNSET = object()
 _VERSION_RE = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
 
 
+def _osc_set_cursor_color(hex_color: str) -> str:
+    """Return OSC 12 sequence that requests terminal cursor color."""
+    return f"\x1b]12;{hex_color}\x07"
+
+
+def _osc_reset_cursor_color() -> str:
+    """Return OSC 112 sequence that requests terminal cursor color reset."""
+    return "\x1b]112\x07"
+
+
 class _ExitShell(Exception):
     """Raised by the ``exit``/``quit`` builtins to terminate the shell loop."""
 
@@ -195,6 +209,8 @@ class PyShell:
         self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
+        self.cursor_options: dict[str, object] = dict(DEFAULT_CURSOR_OPTIONS)
+        self._cursor_color_applied = False
         # Read only by the explicit secure <cmd> PTY wrapper. Normal command
         # execution, prompt rendering and line editing do not consult it.
         self.sensitive_input: dict[str, object] = dict(DEFAULT_SENSITIVE_INPUT)
@@ -231,6 +247,7 @@ class PyShell:
         if ensure_default_config():
             print(f"pysh: created {PYSHRC_PY_PATH}")
         load_python_config(self)
+        self._apply_cursor_color()
         try:
             while True:
                 try:
@@ -258,6 +275,7 @@ class PyShell:
                 except _ExitShell as exit_signal:
                     return exit_signal.code
         finally:
+            self._reset_cursor_color()
             self._save_history()
 
     def _collect_block_interactive(self, opener: str) -> str | None:
@@ -1023,7 +1041,7 @@ class PyShell:
         return text[:i], text[i:]
 
     # ----------------------------------------------- python config surface
-    # These three methods implement the ConfigurableShell protocol consumed by
+    # These methods implement the ConfigurableShell protocol consumed by
     # config_api.ShellConfigAPI. They are the only mutation points exposed to
     # ~/.pyshrc.py and mirror the semantics of the equivalent builtins.
     def register_alias(self, name: str, value: str) -> None:
@@ -1066,6 +1084,16 @@ class PyShell:
         validate_prompt_color_mode(name, value)
         self.prompt_color_modes[name] = value
 
+    def set_cursor_color_enabled(self, value: bool) -> None:
+        """Set validated terminal cursor color enable state."""
+        validate_cursor_color_enabled(value)
+        self.cursor_options["enabled"] = value
+
+    def set_cursor_color(self, color: str) -> None:
+        """Set validated terminal cursor color as canonical uppercase hex."""
+        validate_cursor_color(color)
+        self.cursor_options["color"] = color_to_hex(color)
+
     def set_sensitive_input_indicator(self, name: str, value: object) -> None:
         """Store a validated sensitive-input option (ConfigurableShell contract).
 
@@ -1077,6 +1105,46 @@ class PyShell:
         """
         validate_sensitive_input(name, value)
         self.sensitive_input[name] = value
+
+    def _apply_cursor_color(self) -> None:
+        """Apply configured terminal cursor color when the terminal gate allows it."""
+        if self._cursor_color_applied:
+            return
+        if not bool(self.cursor_options.get("enabled", False)):
+            return
+        if not self._cursor_color_terminal_enabled():
+            return
+        color = color_to_hex(str(self.cursor_options.get("color", "orange")))
+        try:
+            sys.stdout.write(_osc_set_cursor_color(color))
+            sys.stdout.flush()
+        except (OSError, ValueError):
+            return
+        self._cursor_color_applied = True
+        atexit.register(self._reset_cursor_color)
+
+    def _reset_cursor_color(self) -> None:
+        """Reset terminal cursor color if this shell applied it."""
+        if not self._cursor_color_applied:
+            return
+        try:
+            sys.stdout.write(_osc_reset_cursor_color())
+            sys.stdout.flush()
+        except (OSError, ValueError):
+            pass
+        self._cursor_color_applied = False
+
+    @staticmethod
+    def _cursor_color_terminal_enabled() -> bool:
+        if "NO_COLOR" in os.environ:
+            return False
+        term = os.environ.get("TERM", "")
+        if not term or term == "dumb":
+            return False
+        try:
+            return sys.stdout.isatty()
+        except (AttributeError, ValueError):
+            return False
 
     # ------------------------------------------------------------- presentation
     def _read_interactive_line(self) -> str:

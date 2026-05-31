@@ -43,7 +43,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Protocol, runtime_checkable
 
-from pysh.colors import parse_color
+from pysh.colors import color_to_hex, parse_color
 from pysh.lineedit.buffer import _display_width
 
 # Canonical location of the Python-native user configuration file.
@@ -113,6 +113,11 @@ EDITOR_OPTION_TYPES: dict[str, type] = {
 
 EDITOR_OPTION_VALUES: dict[str, frozenset[str]] = {
     "line_editor": frozenset({"auto", "readline", "basic"}),
+}
+
+DEFAULT_CURSOR_OPTIONS: dict[str, object] = {
+    "enabled": False,
+    "color": "orange",
 }
 
 DEFAULT_PROMPT_COLORS: dict[str, str] = {
@@ -220,6 +225,14 @@ class ConfigurableShell(Protocol):
         """Set a single validated secure-indicator option."""
         ...
 
+    def set_cursor_color_enabled(self, value: bool) -> None:
+        """Enable or disable terminal cursor color control."""
+        ...
+
+    def set_cursor_color(self, color: str) -> None:
+        """Set the configured terminal cursor color."""
+        ...
+
 
 def validate_prompt_option(name: str, value: object) -> None:
     """Validate a prompt option name/value pair.
@@ -257,6 +270,24 @@ def validate_editor_option(name: str, value: object) -> None:
     if allowed is not None and value not in allowed:
         allowed_text = ", ".join(sorted(allowed))
         raise ConfigError(f"editor option {name!r} must be one of: {allowed_text}")
+
+
+def validate_cursor_color_enabled(value: object) -> None:
+    """Validate the cursor color enable switch."""
+    if not isinstance(value, bool):
+        raise ConfigError(
+            f"cursor color enabled expects bool, got {type(value).__name__}"
+        )
+
+
+def validate_cursor_color(color: object) -> None:
+    """Validate a terminal cursor color value."""
+    if not isinstance(color, str):
+        raise ConfigError(f"cursor color expects str, got {type(color).__name__}")
+    try:
+        color_to_hex(color)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
 
 
 def validate_prompt_color(segment: str, color: str) -> None:
@@ -462,6 +493,26 @@ class ShellConfigAPI:
         validate_sensitive_input(name, value)
         self._shell.set_sensitive_input_indicator(name, value)
 
+    def set_cursor_color_enabled(self, value: bool) -> None:
+        """Enable or disable terminal cursor color control.
+
+        The setting uses OSC 12 where supported by the terminal and is reset on
+        shell exit. It is ignored automatically when stdout is not a TTY,
+        ``TERM=dumb``, or ``NO_COLOR`` is set.
+        """
+        validate_cursor_color_enabled(value)
+        self._shell.set_cursor_color_enabled(value)
+
+    def set_cursor_color(self, color: str) -> None:
+        """Set the terminal cursor color.
+
+        ``color`` accepts shared PySH color names, including ``orange``, or an
+        HTML-style ``#RRGGBB`` value. Values are stored as canonical uppercase
+        hex text by the shell.
+        """
+        validate_cursor_color(color)
+        self._shell.set_cursor_color(color)
+
 
 # --------------------------------------------------------------- default file
 DEFAULT_PYSHRC_PY = '''\
@@ -547,6 +598,14 @@ def configure(shell):
     #
     # Force the classic readline editor (no highlighting, no ghost text):
     # shell.set_editor_option("line_editor", "readline")
+
+    # --- Cursor color -------------------------------------------------------
+    # Disabled by default for maximum terminal compatibility.
+    # Uses OSC 12 where supported by the terminal and resets on exit.
+    #
+    # shell.set_cursor_color_enabled(True)
+    # shell.set_cursor_color("orange")
+    # shell.set_cursor_color("#FF9900")
 
     # --- Sensitive input indicator for explicit secure <cmd> only -----------
     # The secure builtin may show a single fixed keypress indicator while the

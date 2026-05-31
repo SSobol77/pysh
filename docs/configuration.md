@@ -114,6 +114,26 @@ line and show history autosuggestions. If the terminal is not capable, if
 `TERM=dumb`, if `NO_COLOR` is set, or if `line_editor="readline"` is configured,
 PySH falls back to the classic readline/input path without live input coloring.
 
+## Cursor Color
+
+Python-native configuration can request a terminal cursor color:
+
+```python
+def configure(shell):
+    shell.set_cursor_color_enabled(True)
+    shell.set_cursor_color("#FF9900")
+```
+
+Cursor color is disabled by default. When enabled, PySH emits OSC 12 after
+`~/.pyshrc.py` is loaded and resets the cursor with OSC 112 on shell exit. The
+control sequence is emitted only for interactive TTY output when `TERM` is set
+and not `dumb`, and `NO_COLOR` is not set. Terminals that do not implement OSC
+12 simply ignore the request.
+
+`set_cursor_color()` accepts the same named colors and `#RRGGBB` values as
+prompt colors. Named colors are stored as canonical uppercase hex; for example,
+`orange` becomes `#FFA500`.
+
 ## `~/.pyshrc` example
 
 ```sh

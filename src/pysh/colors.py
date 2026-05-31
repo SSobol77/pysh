@@ -44,6 +44,7 @@ HTML_NAMED_COLORS: dict[str, RGB] = {
     "green": RGB(0, 128, 0),
     "lime": RGB(0, 255, 0),
     "olive": RGB(128, 128, 0),
+    "orange": RGB(255, 165, 0),
     "yellow": RGB(255, 255, 0),
     "navy": RGB(0, 0, 128),
     "blue": RGB(0, 0, 255),
@@ -123,10 +124,19 @@ def sgr_reset() -> str:
     return "\x1b[0m"
 
 
+def rgb_to_hex(rgb: RGB) -> str:
+    """Return ``rgb`` as canonical uppercase ``#RRGGBB`` text."""
+    return f"#{rgb.r:02X}{rgb.g:02X}{rgb.b:02X}"
+
+
+def color_to_hex(value: str) -> str:
+    """Parse ``value`` and return canonical uppercase ``#RRGGBB`` text."""
+    return rgb_to_hex(parse_color(value))
+
+
 def colorize(text: str, rgb: RGB | None, *, enabled: bool, vga: bool) -> str:
     """Wrap ``text`` in SGR color if enabled and a color is configured."""
     if not enabled or rgb is None or not text:
         return text
     sgr = sgr_ansi16(rgb) if vga else sgr_truecolor(rgb)
     return f"{sgr}{text}{sgr_reset()}"
-
