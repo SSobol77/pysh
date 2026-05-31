@@ -46,7 +46,7 @@ htmlcov/
 .nox/
 *.cover
 *.log
-
+*.txt
 # Type checking
 .mypy_cache/
 .dmypy.json

@@ -15,7 +15,6 @@ from __future__ import annotations
 import locale
 import os
 import shlex
-import socket
 import subprocess
 import sys
 from collections.abc import Callable
@@ -25,13 +24,6 @@ from typing import IO
 from pysh import __version__
 from pysh.command_plan import plan as run_plan
 from pysh.completion import Completer
-from pysh.config_api import (
-    DEFAULT_PROMPT_OPTIONS,
-    PYSHRC_PY_PATH,
-    ensure_default_config,
-    load_python_config,
-    validate_prompt_option,
-)
 from pysh.highlighting import colors_enabled, diagnostic
 from pysh.history import DEFAULT_HISTORY_PATH, HistoryManager
 from pysh.parser import (
@@ -142,7 +134,6 @@ class PyShell:
         self.aliases: dict[str, str] = dict(self.DEFAULT_ALIASES)
         self.last_status: int = 0
         self.dir_stack: list[Path] = []
-        self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
         self.completer = Completer(lambda: list(self.aliases.keys()))
         self.history = HistoryManager(self.HISTORY_PATH)
         self.zsh_bridge = zsh_bridge if zsh_bridge is not None else ZshBridge()
@@ -165,12 +156,6 @@ class PyShell:
         self._setup_readline()
         load_default_rc(self.execute)
         load_plugins(self.execute, directory=PLUGIN_DIR)
-        # Python-native configuration runs last so that ~/.pyshrc.py has the
-        # final word over the legacy shell-syntax layers. Created on first
-        # launch so the file is discoverable; the generated body is inert.
-        if ensure_default_config():
-            print(f"pysh: created {PYSHRC_PY_PATH}")
-        load_python_config(self)
         try:
             while True:
                 try:
@@ -946,77 +931,17 @@ class PyShell:
             i += 1
         return text[:i], text[i:]
 
-    # ----------------------------------------------- python config surface
-    # These three methods implement the ConfigurableShell protocol consumed by
-    # config_api.ShellConfigAPI. They are the only mutation points exposed to
-    # ~/.pyshrc.py and mirror the semantics of the equivalent builtins.
-    def register_alias(self, name: str, value: str) -> None:
-        """Register or replace an alias (ConfigurableShell contract)."""
-        self.aliases[name] = value
-
-    def set_environment(self, name: str, value: str) -> None:
-        """Export an environment variable and mirror it into local vars.
-
-        Mirrors the behaviour of the ``export NAME=value`` builtin so that
-        ``$NAME`` / ``${NAME}`` expansion sees the value immediately.
-        """
-        os.environ[name] = value
-        self.local_vars[name] = value
-        if name == "PYSH_ZSH_FALLBACK":
-            self.zsh_fallback_enabled = value == "1"
-
-    def set_prompt_option(self, name: str, value: object) -> None:
-        """Set a validated prompt option (ConfigurableShell contract).
-
-        Validation is enforced here as well as in the public API so the
-        contract holds for any direct caller. Raises ``ValueError`` (via
-        ``ConfigError``) on an unknown name or wrong value type.
-        """
-        validate_prompt_option(name, value)
-        self.prompt_options[name] = value
-
     # ------------------------------------------------------------- presentation
     def _prompt(self) -> str:
-        """Render the interactive prompt from the active prompt options.
-
-        With default options the output is byte-identical to historical PySH:
-        ``<icon> <user>:<cwd>$ ``. Options can toggle the user/host identity,
-        append the active Python version, and change the trailing symbol.
-        """
-        options = self.prompt_options
-        segments: list[str] = [self._prompt_icon()]
-        identity = self._prompt_identity(options)
-        cwd_str = self._prompt_cwd()
-        segments.append(f"{identity}:{cwd_str}" if identity else cwd_str)
-        if bool(options.get("show_python_version", False)):
-            py = ".".join(str(p) for p in sys.version_info[:2])
-            segments.append(f"py{py}")
-        symbol = str(options.get("symbol", "$"))
-        return " ".join(segments) + symbol + " "
-
-    @staticmethod
-    def _prompt_identity(options: dict[str, object]) -> str:
-        """Build the ``user`` / ``host`` / ``user@host`` identity segment."""
         user = os.environ.get("USER") or os.environ.get("LOGNAME") or "user"
-        show_user = bool(options.get("show_user", True))
-        show_host = bool(options.get("show_host", False))
-        if show_user and show_host:
-            return f"{user}@{socket.gethostname()}"
-        if show_host:
-            return socket.gethostname()
-        if show_user:
-            return user
-        return ""
-
-    @staticmethod
-    def _prompt_cwd() -> str:
-        """Return the current directory with ``$HOME`` collapsed to ``~``."""
         cwd = Path.cwd()
         try:
             rel = cwd.relative_to(Path.home())
-            return "~" if str(rel) == "." else "~/" + str(rel)
+            cwd_str = "~" if str(rel) == "." else "~/" + str(rel)
         except ValueError:
-            return str(cwd)
+            cwd_str = str(cwd)
+        icon = self._prompt_icon()
+        return f"{icon} {user}:{cwd_str}$ "
 
     @staticmethod
     def _prompt_icon() -> str:
