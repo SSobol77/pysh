@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
+# Project: PySH - Python-first interactive shell for Debian and Unix-like systems
+# File: scripts/check_release_artifacts.sh
+# Repository: https://github.com/SSobol77/pysh
+# PyPI: https://pypi.org/project/pysh-shell
+#
+# Copyright (c) 2026 Siergej Sobolewski
+#
+# Licensed under the GNU General Public License v3.0 or later.
+# See the LICENSE file in the project root for full license text.
+#
 # Verify that the full release artifact set is present in dist/ and
 # dist/os/{deb,rpm}/, then produce dist/SHA256SUMS over them.
 #

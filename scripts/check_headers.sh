@@ -10,7 +10,7 @@
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See the LICENSE file in the project root for full license text.
-
+#
 set -u
 
 PROJECT='Project: PySH - Python-first interactive shell for Debian and Unix-like systems'
@@ -63,11 +63,7 @@ check_file() {
 }
 
 list_files() {
-    git ls-files | grep -E '^(src|tests|docs)/.*\.(py|md|sh|toml|yaml|yml)$|^[^/]+\.md$'
-
-    if [ -f scripts/check_headers.sh ]; then
-        printf '%s\n' scripts/check_headers.sh
-    fi
+    git ls-files | grep -E '^(src|tests|docs)/.*\.(py|md|sh|toml|yaml|yml)$|^scripts/.*\.sh$|^[^/]+\.md$'
 }
 
 while IFS= read -r path; do
@@ -76,6 +72,9 @@ while IFS= read -r path; do
             continue
             ;;
     esac
+    if [ ! -f "$path" ]; then
+        continue
+    fi
     check_file "$path"
 done < <(list_files | sort -u)
 
