@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import locale
 import os
+import re
 import shlex
+import shutil
 import socket
 import subprocess
 import sys
@@ -85,11 +87,25 @@ class GitPromptInfo:
 
 
 @dataclass(frozen=True)
-class ToolVersionInfo:
-    """Tool version descriptor used by prompt version detection."""
+class ToolVersionSpec:
+    """External tool version descriptor used by prompt rendering."""
 
+    option: str
     executable: str
-    label: str
+    label_prefix: str
+    cache_attr: str
+
+
+TOOL_VERSION_SPECS: tuple[ToolVersionSpec, ...] = (
+    ToolVersionSpec("show_uv_version", "uv", "uv", "_uv_version_cache"),
+    ToolVersionSpec("show_ruff_version", "ruff", "ruff", "_ruff_version_cache"),
+    ToolVersionSpec("show_rust_version", "rustc", "rust", "_rust_version_cache"),
+    ToolVersionSpec("show_node_version", "node", "node", "_node_version_cache"),
+    ToolVersionSpec("show_npm_version", "npm", "npm", "_npm_version_cache"),
+)
+
+_UNSET = object()
+_VERSION_RE = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
 
 
 class _ExitShell(Exception):
@@ -160,8 +176,8 @@ class PyShell:
         self.last_status: int = 0
         self.dir_stack: list[Path] = []
         self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
-        self._uv_version_cache: str | None | bool = None
-        self._ruff_version_cache: str | None | bool = None
+        for spec in TOOL_VERSION_SPECS:
+            setattr(self, spec.cache_attr, _UNSET)
         self.completer = Completer(lambda: list(self.aliases.keys()))
         self.history = HistoryManager(self.HISTORY_PATH)
         self.zsh_bridge = zsh_bridge if zsh_bridge is not None else ZshBridge()
@@ -1003,10 +1019,10 @@ class PyShell:
         """Build the informational portion shared by both prompt layouts.
 
         Order: optional virtualenv, icon, identity/current-directory, optional
-        Git segment, optional Python/uv/Ruff versions, and optional non-zero
-        last status. The returned string contains no trailing symbol and no
-        newline, so it can be used safely either inline or as a separate info
-        line before readline receives the command-line prompt.
+        Git segment, optional Python version, optional tool versions, and
+        optional non-zero last status. The returned string contains no trailing
+        symbol and no newline, so it can be used safely either inline or as a
+        separate info line before readline receives the command-line prompt.
         """
         segments: list[str] = []
 
@@ -1035,15 +1051,11 @@ class PyShell:
             py = ".".join(str(p) for p in sys.version_info[:2])
             segments.append(f"py{py}")
 
-        if bool(options.get("show_uv_version", False)):
-            uv = self._prompt_tool_version("uv", "uv", "_uv_version_cache")
-            if uv:
-                segments.append(uv)
-
-        if bool(options.get("show_ruff_version", False)):
-            ruff = self._prompt_tool_version("ruff", "ruff", "_ruff_version_cache")
-            if ruff:
-                segments.append(ruff)
+        for spec in TOOL_VERSION_SPECS:
+            if bool(options.get(spec.option, False)):
+                version = self._detect_tool_version(spec)
+                if version:
+                    segments.append(version)
 
         if bool(options.get("show_last_status", False)) and self.last_status != 0:
             segments.append(f"[{self.last_status}]")
@@ -1120,45 +1132,32 @@ class PyShell:
         name = Path(raw).name
         return name or None
 
-    def _prompt_tool_version(self, executable: str, prefix: str, cache_name: str) -> str:
-        """Return a cached prompt label for an external tool version."""
-        cached = getattr(self, cache_name)
-        if cached is False:
-            return ""
-        if isinstance(cached, str):
+    def _detect_tool_version(self, spec: ToolVersionSpec) -> str:
+        """Return a cached rendered label for one external tool version."""
+        cached = getattr(self, spec.cache_attr)
+        if cached is not _UNSET:
             return cached
 
-        info = ToolVersionInfo(executable=executable, label=prefix)
-        label = self._detect_tool_version(info)
-        setattr(self, cache_name, label if label else False)
-        return label
+        value = ""
+        if shutil.which(spec.executable) is not None:
+            try:
+                proc = subprocess.run(  # noqa: S603,S607 - explicit argv, bounded timeout.
+                    [spec.executable, "--version"],
+                    timeout=0.2,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if proc.returncode == 0:
+                    out = proc.stdout or proc.stderr or ""
+                    match = _VERSION_RE.search(out)
+                    if match is not None:
+                        value = f"{spec.label_prefix}{match.group(1)}"
+            except (OSError, subprocess.SubprocessError):
+                value = ""
 
-    @staticmethod
-    def _detect_tool_version(info: ToolVersionInfo) -> str:
-        try:
-            result = subprocess.run(  # noqa: S603,S607 - explicit argv, bounded timeout.
-                [info.executable, "--version"],
-                timeout=0.2,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return ""
-        if result.returncode != 0:
-            return ""
-        first_line = result.stdout.splitlines()[0].strip() if result.stdout else ""
-        parts = first_line.split()
-        if len(parts) < 2 or parts[0] != info.executable:
-            return ""
-        version = parts[1]
-        version_parts = version.split(".")
-        if (
-            len(version_parts) != 3
-            or not all(part.isdigit() for part in version_parts)
-        ):
-            return ""
-        return f"{info.label}{version}"
+        setattr(self, spec.cache_attr, value)
+        return value
 
     def _prompt_git_segment(self, options: dict[str, object]) -> str | None:
         """Return the Git prompt segment without invoking ``git``."""

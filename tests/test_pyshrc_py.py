@@ -53,9 +53,26 @@ def _write(path: Path, body: str) -> Path:
     return path
 
 
+@pytest.fixture(autouse=True)
+def _hide_external_prompt_tools(monkeypatch) -> None:
+    monkeypatch.setattr("pysh.shell.shutil.which", lambda _executable: None)
+
+
 def _use_legacy_single_line_prompt(shell: PyShell) -> None:
     shell.set_prompt_option("prompt_layout", "single")
     shell.set_prompt_option("symbol", "$")
+    shell.set_prompt_option("show_host", False)
+    shell.set_prompt_option("show_virtualenv", False)
+    shell.set_prompt_option("show_git_branch", False)
+    shell.set_prompt_option("show_git_dirty", False)
+    shell.set_prompt_option("show_python_version", False)
+    shell.set_prompt_option("show_uv_version", False)
+    shell.set_prompt_option("show_ruff_version", False)
+    shell.set_prompt_option("show_rust_version", False)
+    shell.set_prompt_option("show_node_version", False)
+    shell.set_prompt_option("show_npm_version", False)
+    shell.set_prompt_option("show_last_status", False)
+    shell.set_prompt_option("cwd_style", "full")
 
 
 # --------------------------------------------------------------- file creation
@@ -146,24 +163,30 @@ def test_api_set_prompt_option_applies() -> None:
 def test_default_prompt_options_match_contract() -> None:
     assert DEFAULT_PROMPT_OPTIONS == {
         "show_user": True,
-        "show_host": False,
-        "show_python_version": False,
-        "show_virtualenv": False,
-        "show_git_branch": False,
-        "show_git_dirty": False,
-        "show_last_status": False,
+        "show_host": True,
+        "show_virtualenv": True,
+        "show_git_branch": True,
+        "show_git_dirty": True,
+        "show_python_version": True,
+        "show_uv_version": True,
+        "show_ruff_version": True,
+        "show_rust_version": True,
+        "show_node_version": True,
+        "show_npm_version": True,
+        "show_last_status": True,
         "show_cwd": True,
-        "show_uv_version": False,
-        "show_ruff_version": False,
-        "cwd_style": "full",
-        "symbol": ">",
+        "cwd_style": "home",
         "prompt_layout": "two_line",
+        "symbol": ">",
     }
 
 
 @pytest.mark.parametrize(
     "name",
     [
+        "show_user",
+        "show_host",
+        "show_python_version",
         "show_virtualenv",
         "show_git_branch",
         "show_git_dirty",
@@ -171,6 +194,9 @@ def test_default_prompt_options_match_contract() -> None:
         "show_cwd",
         "show_uv_version",
         "show_ruff_version",
+        "show_rust_version",
+        "show_node_version",
+        "show_npm_version",
     ],
 )
 def test_validate_prompt_bool_options_reject_non_bool(name: str) -> None:
@@ -251,10 +277,15 @@ def test_load_invalid_config_call_is_contained(tmp_path: Path, capsys) -> None:
 def test_pyshell_default_prompt_is_two_line(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.setattr(socket, "gethostname", lambda: "vm")
     monkeypatch.chdir(tmp_path)
     shell = PyShell()
-    assert shell._prompt_info_line() == f"🐍 tester:{tmp_path}"
+    info_line = shell._prompt_info_line()
+    assert info_line.startswith(f"🐍 tester@vm:{tmp_path} py")
     assert shell._prompt() == "> "
+    assert "\n" not in shell._prompt()
+    assert info_line
 
 
 def test_pyshell_single_layout_uses_prompt_body(monkeypatch, tmp_path: Path) -> None:
@@ -312,36 +343,101 @@ def test_pyshell_prompt_custom_symbol(monkeypatch) -> None:
     assert shell._prompt().endswith("% ")
 
 
-def test_pyshell_prompt_tool_version_is_cached(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("option", "executable", "output", "expected"),
+    [
+        ("show_uv_version", "uv", "uv 0.9.16\n", "uv0.9.16"),
+        ("show_ruff_version", "ruff", "ruff 0.15.15\n", "ruff0.15.15"),
+        ("show_rust_version", "rustc", "rustc 1.83.0 (90b35a623 2024-11-26)\n", "rust1.83.0"),
+        ("show_node_version", "node", "v22.3.0\n", "node22.3.0"),
+        ("show_npm_version", "npm", "10.8.1\n", "npm10.8.1"),
+    ],
+)
+def test_pyshell_prompt_tool_version_segments(
+    monkeypatch,
+    option: str,
+    executable: str,
+    output: str,
+    expected: str,
+) -> None:
     calls: list[list[str]] = []
 
     class Result:
         returncode = 0
-        stdout = "uv 0.9.16\n"
+        stdout = output
+        stderr = ""
 
     def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - local subprocess test double.
         calls.append(argv)
         return Result()
 
+    monkeypatch.setattr("pysh.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
     monkeypatch.setattr("pysh.shell.subprocess.run", fake_run)
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
-    shell.set_prompt_option("show_uv_version", True)
-    assert " uv0.9.16$ " in shell._prompt()
-    assert " uv0.9.16$ " in shell._prompt()
-    assert calls == [["uv", "--version"]]
+    shell.set_prompt_option(option, True)
+    assert f" {expected}$ " in shell._prompt()
+    assert f" {expected}$ " in shell._prompt()
+    assert calls == [[executable, "--version"]]
 
 
 def test_pyshell_prompt_tool_version_malformed_output_is_hidden(monkeypatch) -> None:
     class Result:
         returncode = 0
         stdout = "uv unknown\n"
+        stderr = ""
 
+    monkeypatch.setattr("pysh.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
     monkeypatch.setattr("pysh.shell.subprocess.run", lambda *_args, **_kwargs: Result())
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_uv_version", True)
     assert " uv" not in shell._prompt()
+
+
+def test_pyshell_prompt_missing_tool_is_hidden(monkeypatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr("pysh.shell.shutil.which", lambda _exe: None)
+    monkeypatch.setattr("pysh.shell.subprocess.run", lambda argv, **_kwargs: calls.append(argv))
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_node_version", True)
+    assert " node" not in shell._prompt()
+    assert calls == []
+
+
+def test_pyshell_prompt_all_tool_versions_are_cached(monkeypatch) -> None:
+    calls: list[list[str]] = []
+    outputs = {
+        "uv": "uv 0.9.16\n",
+        "ruff": "ruff 0.15.15\n",
+        "rustc": "rustc 1.83.0 (90b35a623 2024-11-26)\n",
+        "node": "v22.3.0\n",
+        "npm": "10.8.1\n",
+    }
+
+    class Result:
+        def __init__(self, stdout: str) -> None:
+            self.returncode = 0
+            self.stdout = stdout
+            self.stderr = ""
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - local subprocess test double.
+        calls.append(argv)
+        return Result(outputs[argv[0]])
+
+    monkeypatch.setattr("pysh.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.shell.subprocess.run", fake_run)
+    shell = PyShell()
+    shell._prompt_info_line()
+    shell._prompt_info_line()
+    assert calls == [
+        ["uv", "--version"],
+        ["ruff", "--version"],
+        ["rustc", "--version"],
+        ["node", "--version"],
+        ["npm", "--version"],
+    ]
 
 
 def test_pyshell_set_environment_is_mirrored(monkeypatch) -> None:
@@ -533,28 +629,29 @@ def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path
         def __init__(self, stdout: str) -> None:
             self.returncode = 0
             self.stdout = stdout
+            self.stderr = ""
 
     def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - local subprocess test double.
         if argv[0] == "uv":
             return Result("uv 0.9.16\n")
         if argv[0] == "ruff":
             return Result("ruff 0.15.15\n")
+        if argv[0] == "rustc":
+            return Result("rustc 1.83.0 (90b35a623 2024-11-26)\n")
+        if argv[0] == "node":
+            return Result("v22.3.0\n")
+        if argv[0] == "npm":
+            return Result("10.8.1\n")
         raise AssertionError(f"unexpected argv: {argv!r}")
 
+    monkeypatch.setattr("pysh.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
     monkeypatch.setattr("pysh.shell.subprocess.run", fake_run)
     shell = PyShell()
-    shell.set_prompt_option("show_host", True)
-    shell.set_prompt_option("show_virtualenv", True)
-    shell.set_prompt_option("show_git_branch", True)
-    shell.set_prompt_option("show_git_dirty", True)
-    shell.set_prompt_option("show_python_version", True)
-    shell.set_prompt_option("show_uv_version", True)
-    shell.set_prompt_option("show_ruff_version", True)
     shell.set_prompt_option("cwd_style", "home")
     py = ".".join(str(p) for p in sys.version_info[:2])
 
     assert shell._prompt_info_line() == (
         "(.venv) 🐍 ssobol@sun:~/Code/Project_PySH/pysh/pysh "
-        f"git:main py{py} uv0.9.16 ruff0.15.15"
+        f"git:main py{py} uv0.9.16 ruff0.15.15 rust1.83.0 node22.3.0 npm10.8.1"
     )
     assert shell._prompt() == "> "

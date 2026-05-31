@@ -52,18 +52,21 @@ CONFIGURE_FUNCTION = "configure"
 # Default prompt options for the two-line prompt layout.
 DEFAULT_PROMPT_OPTIONS: dict[str, object] = {
     "show_user": True,
-    "show_host": False,
-    "show_python_version": False,
-    "show_virtualenv": False,
-    "show_git_branch": False,
-    "show_git_dirty": False,
-    "show_last_status": False,
+    "show_host": True,
+    "show_virtualenv": True,
+    "show_git_branch": True,
+    "show_git_dirty": True,
+    "show_python_version": True,
+    "show_uv_version": True,
+    "show_ruff_version": True,
+    "show_rust_version": True,
+    "show_node_version": True,
+    "show_npm_version": True,
+    "show_last_status": True,
     "show_cwd": True,
-    "show_uv_version": False,
-    "show_ruff_version": False,
-    "cwd_style": "full",
-    "symbol": ">",
+    "cwd_style": "home",
     "prompt_layout": "two_line",
+    "symbol": ">",
 }
 
 # Expected value type for each prompt option. ``bool`` is intentionally
@@ -80,6 +83,9 @@ PROMPT_OPTION_TYPES: dict[str, type] = {
     "show_cwd": bool,
     "show_uv_version": bool,
     "show_ruff_version": bool,
+    "show_rust_version": bool,
+    "show_node_version": bool,
+    "show_npm_version": bool,
     "cwd_style": str,
     "symbol": str,
     "prompt_layout": str,
@@ -200,18 +206,21 @@ class ShellConfigAPI:
         Recognised options (defaults in brackets):
 
         * ``show_user`` (bool) - show the current user [True]
-        * ``show_host`` (bool) - show ``user@host`` [False]
-        * ``show_python_version`` (bool) - append the active Python version [False]
-        * ``show_virtualenv`` (bool) - prepend the active virtualenv name [False]
-        * ``show_git_branch`` (bool) - append the current Git branch [False]
-        * ``show_git_dirty`` (bool) - append ``*`` for obvious dirty Git states [False]
-        * ``show_last_status`` (bool) - append non-zero last status [False]
+        * ``show_host`` (bool) - show ``user@host`` [True]
+        * ``show_virtualenv`` (bool) - prepend the active virtualenv name [True]
+        * ``show_git_branch`` (bool) - append the current Git branch [True]
+        * ``show_git_dirty`` (bool) - append ``*`` for obvious dirty Git states [True]
+        * ``show_python_version`` (bool) - append the active Python version [True]
+        * ``show_uv_version`` (bool) - append the active uv version [True]
+        * ``show_ruff_version`` (bool) - append the active Ruff version [True]
+        * ``show_rust_version`` (bool) - append the active rustc version [True]
+        * ``show_node_version`` (bool) - append the active Node.js version [True]
+        * ``show_npm_version`` (bool) - append the active npm version [True]
+        * ``show_last_status`` (bool) - append non-zero last status [True]
         * ``show_cwd`` (bool) - show the current directory [True]
-        * ``show_uv_version`` (bool) - append the active uv version [False]
-        * ``show_ruff_version`` (bool) - append the active Ruff version [False]
-        * ``cwd_style`` (str) - ``full``, ``home`` or ``basename`` ["full"]
-        * ``symbol`` (str) - command-line prompt symbol [">"]
+        * ``cwd_style`` (str) - ``full``, ``home`` or ``basename`` ["home"]
         * ``prompt_layout`` (str) - ``single`` or ``two_line`` ["two_line"]
+        * ``symbol`` (str) - command-line prompt symbol [">"]
         """
         validate_prompt_option(name, value)
         self._shell.set_prompt_option(name, value)
@@ -225,8 +234,8 @@ DEFAULT_PYSHRC_PY = '''\
 # ~/.pyshrc.d/*.pysh plugins, so anything configured here takes precedence.
 #
 # Define a top-level function named ``configure`` that receives the PySH
-# configuration API. Every call below is optional; the defaults reproduce the
-# historical PySH behaviour.
+# configuration API. The default is already the full two-line prompt with
+# environment, Git, language/tool versions, and last-status visibility.
 
 
 def configure(shell):
@@ -240,29 +249,31 @@ def configure(shell):
     # shell.env("EDITOR", "nano")
     # shell.env("PAGER", "less")
 
-    # Prompt options: shell.set_prompt_option(name, value)
-    #   show_user            (bool)  show the current user               [True]
-    #   show_host            (bool)  show user@host                      [False]
-    #   show_python_version  (bool)  append the active Python version    [False]
-    #   show_virtualenv      (bool)  prepend active virtualenv name      [False]
-    #   show_git_branch      (bool)  append current Git branch           [False]
-    #   show_git_dirty       (bool)  mark obvious dirty Git states       [False]
-    #   show_last_status     (bool)  append non-zero last status         [False]
-    #   show_cwd             (bool)  show current directory              [True]
-    #   show_uv_version      (bool)  append detected uv version          [False]
-    #   show_ruff_version    (bool)  append detected Ruff version        [False]
-    #   cwd_style            (str)   full | home | basename              ["full"]
-    #   symbol               (str)   command-line prompt symbol          [">"]
-    #   prompt_layout        (str)   single | two_line                   ["two_line"]
-    # shell.set_prompt_option("show_virtualenv", True)
-    # shell.set_prompt_option("show_git_branch", True)
-    # shell.set_prompt_option("show_git_dirty", True)
-    # shell.set_prompt_option("show_python_version", True)
-    # shell.set_prompt_option("show_uv_version", True)
-    # shell.set_prompt_option("show_ruff_version", True)
-    # shell.set_prompt_option("show_last_status", True)
-    # shell.set_prompt_option("cwd_style", "home")
+    # Variant A: classic minimal single-line prompt.
     # shell.set_prompt_option("prompt_layout", "single")
+    # shell.set_prompt_option("symbol", "$")
+    # shell.set_prompt_option("show_host", False)
+    # shell.set_prompt_option("show_virtualenv", False)
+    # shell.set_prompt_option("show_git_branch", False)
+    # shell.set_prompt_option("show_git_dirty", False)
+    # shell.set_prompt_option("show_python_version", False)
+    # shell.set_prompt_option("show_uv_version", False)
+    # shell.set_prompt_option("show_ruff_version", False)
+    # shell.set_prompt_option("show_rust_version", False)
+    # shell.set_prompt_option("show_node_version", False)
+    # shell.set_prompt_option("show_npm_version", False)
+    # shell.set_prompt_option("show_last_status", False)
+
+    # Variant B: keep two-line prompt but hide tool versions.
+    # shell.set_prompt_option("show_uv_version", False)
+    # shell.set_prompt_option("show_ruff_version", False)
+    # shell.set_prompt_option("show_rust_version", False)
+    # shell.set_prompt_option("show_node_version", False)
+    # shell.set_prompt_option("show_npm_version", False)
+
+    # Variant C: tweak path style and command-line symbol.
+    # shell.set_prompt_option("cwd_style", "basename")
+    # shell.set_prompt_option("symbol", "pysh>")
 
     return None
 '''
