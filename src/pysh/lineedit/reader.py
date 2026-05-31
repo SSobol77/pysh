@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import re
 import select
 import sys
 import termios
@@ -42,6 +43,22 @@ class _Options(Protocol):
 
 
 _saved_termios: dict[int, list[object]] = {}
+
+# Matches ANSI CSI sequences (e.g. SGR color codes like "\x1b[32m"). The prompt
+# string handed to the reader may already contain color escapes; those bytes
+# occupy zero display columns and must be excluded from cursor/width math.
+_ANSI_CSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _visible_width(text: str) -> int:
+    """Return the on-screen display width of ``text``, ignoring ANSI CSI codes.
+
+    The reader's cursor positioning is computed in terminal columns. Color
+    escape sequences in the prompt (e.g. ``\\x1b[32m> \\x1b[0m``) are not
+    visible columns, so they are stripped before measuring. The raw command
+    buffer never contains escapes and is measured directly elsewhere.
+    """
+    return _display_width(_ANSI_CSI_RE.sub("", text))
 
 
 def _restore_saved_termios() -> None:
@@ -240,7 +257,7 @@ class RawLineReader:
     ) -> None:
         out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
         width = self._terminal_width(out_fd)
-        prompt_width = _display_width(prompt)
+        prompt_width = _visible_width(prompt)
         rendered = highlighter.render(buffer.text, scheme, enabled=enabled)
         suggestion_text = ""
         if suggestion:
