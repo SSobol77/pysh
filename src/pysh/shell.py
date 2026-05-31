@@ -20,23 +20,30 @@ import shutil
 import socket
 import subprocess
 import sys
+import termios
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import IO
 
 from pysh import __version__
 from pysh.command_plan import plan as run_plan
 from pysh.completion import Completer
 from pysh.config_api import (
+    DEFAULT_EDITOR_OPTIONS,
     DEFAULT_PROMPT_OPTIONS,
     PYSHRC_PY_PATH,
     ensure_default_config,
     load_python_config,
+    validate_editor_option,
     validate_prompt_option,
 )
 from pysh.highlighting import colors_enabled, diagnostic
 from pysh.history import DEFAULT_HISTORY_PATH, HistoryManager
+from pysh.lineedit.autosuggest import AutoSuggester
+from pysh.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
+from pysh.lineedit.reader import RawLineReader
 from pysh.parser import (
     ChainOp,
     expand_command_substitution,
@@ -176,10 +183,14 @@ class PyShell:
         self.last_status: int = 0
         self.dir_stack: list[Path] = []
         self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
+        self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
         for spec in TOOL_VERSION_SPECS:
             setattr(self, spec.cache_attr, _UNSET)
         self.completer = Completer(lambda: list(self.aliases.keys()))
         self.history = HistoryManager(self.HISTORY_PATH)
+        self.autosuggester = AutoSuggester()
+        self.line_highlighter = LineHighlighter(self.BUILTINS)
+        self.line_reader = RawLineReader()
         self.zsh_bridge = zsh_bridge if zsh_bridge is not None else ZshBridge()
         self.zsh_fallback_enabled = os.environ.get("PYSH_ZSH_FALLBACK") == "1"
         self.python_runtime = PythonRuntime()
@@ -213,7 +224,7 @@ class PyShell:
                     if info_line:
                         sys.stdout.write(info_line + "\n")
                         sys.stdout.flush()
-                    line = input(self._prompt())
+                    line = self._read_interactive_line()
                 except EOFError:
                     print()
                     return 0
@@ -229,6 +240,7 @@ class PyShell:
                     line = collected
                 try:
                     self.last_status = self.execute(line)
+                    self.history.add(line)
                 except _ExitShell as exit_signal:
                     return exit_signal.code
         finally:
@@ -1014,7 +1026,57 @@ class PyShell:
         validate_prompt_option(name, value)
         self.prompt_options[name] = value
 
+    def set_editor_option(self, name: str, value: object) -> None:
+        """Set a validated line editor option (ConfigurableShell contract)."""
+        validate_editor_option(name, value)
+        self.editor_options[name] = value
+
     # ------------------------------------------------------------- presentation
+    def _read_interactive_line(self) -> str:
+        """Read one interactive command line via raw editor or readline."""
+        if self._should_use_raw_editor():
+            options = self._resolved_editor_options()
+            try:
+                return self.line_reader.read_line(
+                    self._prompt(),
+                    history=self.history.entries(),
+                    suggester=self.autosuggester,
+                    highlighter=self.line_highlighter,
+                    scheme=DEFAULT_SCHEME,
+                    options=options,
+                    completer=self.completer,
+                )
+            except (OSError, termios.error):
+                return input(self._prompt())
+        return input(self._prompt())
+
+    def _should_use_raw_editor(self) -> bool:
+        """Return True when the configured editor may use raw TTY mode."""
+        mode = str(self.editor_options.get("line_editor", "auto"))
+        if mode == "readline":
+            return False
+        if not self._stdio_is_tty():
+            return False
+        if mode == "auto" and not colors_enabled():
+            return False
+        return mode in {"auto", "basic"}
+
+    def _resolved_editor_options(self) -> SimpleNamespace:
+        mode = str(self.editor_options.get("line_editor", "auto"))
+        if mode == "basic":
+            return SimpleNamespace(autosuggest=False, syntax_highlight=False)
+        return SimpleNamespace(
+            autosuggest=bool(self.editor_options.get("autosuggest", True)),
+            syntax_highlight=bool(self.editor_options.get("syntax_highlight", True)),
+        )
+
+    @staticmethod
+    def _stdio_is_tty() -> bool:
+        try:
+            return sys.stdin.isatty() and sys.stdout.isatty()
+        except ValueError:
+            return False
+
     def _prompt_body(self, options: dict[str, object]) -> str:
         """Build the informational portion shared by both prompt layouts.
 

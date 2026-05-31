@@ -96,6 +96,22 @@ PROMPT_OPTION_VALUES: dict[str, frozenset[str]] = {
     "prompt_layout": frozenset({"single", "two_line"}),
 }
 
+DEFAULT_EDITOR_OPTIONS: dict[str, object] = {
+    "autosuggest": True,
+    "syntax_highlight": True,
+    "line_editor": "auto",
+}
+
+EDITOR_OPTION_TYPES: dict[str, type] = {
+    "autosuggest": bool,
+    "syntax_highlight": bool,
+    "line_editor": str,
+}
+
+EDITOR_OPTION_VALUES: dict[str, frozenset[str]] = {
+    "line_editor": frozenset({"auto", "readline", "basic"}),
+}
+
 _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # Monotonic counter guarantees a fresh module object on every load, which
@@ -132,6 +148,10 @@ class ConfigurableShell(Protocol):
         """Set a single validated prompt option."""
         ...
 
+    def set_editor_option(self, name: str, value: object) -> None:
+        """Set a single validated editor option."""
+        ...
+
 
 def validate_prompt_option(name: str, value: object) -> None:
     """Validate a prompt option name/value pair.
@@ -152,6 +172,23 @@ def validate_prompt_option(name: str, value: object) -> None:
     if allowed is not None and value not in allowed:
         allowed_text = ", ".join(sorted(allowed))
         raise ConfigError(f"prompt option {name!r} must be one of: {allowed_text}")
+
+
+def validate_editor_option(name: str, value: object) -> None:
+    """Validate a line editor option name/value pair."""
+    expected = EDITOR_OPTION_TYPES.get(name)
+    if expected is None:
+        known = ", ".join(sorted(EDITOR_OPTION_TYPES))
+        raise ConfigError(f"unknown editor option {name!r} (known: {known})")
+    if not isinstance(value, expected):
+        raise ConfigError(
+            f"editor option {name!r} expects {expected.__name__}, "
+            f"got {type(value).__name__}"
+        )
+    allowed = EDITOR_OPTION_VALUES.get(name)
+    if allowed is not None and value not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise ConfigError(f"editor option {name!r} must be one of: {allowed_text}")
 
 
 def _validate_alias_name(name: str) -> None:
@@ -225,6 +262,18 @@ class ShellConfigAPI:
         validate_prompt_option(name, value)
         self._shell.set_prompt_option(name, value)
 
+    def set_editor_option(self, name: str, value: object) -> None:
+        """Set a single line editor option.
+
+        Recognised options (defaults in brackets):
+
+        * ``autosuggest`` (bool) - show history ghost-text suggestions [True]
+        * ``syntax_highlight`` (bool) - colorize editable input [True]
+        * ``line_editor`` (str) - ``auto``, ``readline`` or ``basic`` ["auto"]
+        """
+        validate_editor_option(name, value)
+        self._shell.set_editor_option(name, value)
+
 
 # --------------------------------------------------------------- default file
 DEFAULT_PYSHRC_PY = '''\
@@ -274,6 +323,19 @@ def configure(shell):
     # Variant C: tweak path style and command-line symbol.
     # shell.set_prompt_option("cwd_style", "basename")
     # shell.set_prompt_option("symbol", "pysh>")
+
+    # --- Line editor (fish-style highlighting + autosuggestion) -------------
+    # Defaults: syntax highlighting ON, history autosuggestion ON, editor auto.
+    # A tool/segment renders nothing when unsupported by the terminal.
+    #
+    # Disable autosuggestion only:
+    # shell.set_editor_option("autosuggest", False)
+    #
+    # Disable syntax highlighting only:
+    # shell.set_editor_option("syntax_highlight", False)
+    #
+    # Force the classic readline editor (no highlighting, no ghost text):
+    # shell.set_editor_option("line_editor", "readline")
 
     return None
 '''

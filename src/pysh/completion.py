@@ -86,6 +86,25 @@ class Completer:
             return self._matches[state]
         return None
 
+    def complete_line(self, line: str, cursor: int) -> list[str]:
+        """Return completion matches for raw-mode editing."""
+        start = line.rfind(" ", 0, cursor) + 1
+        text = line[start:cursor]
+        is_first_word = line[:start].strip() == ""
+        matches: list[str] = []
+        if is_first_word:
+            for name in (*self.BUILTINS, *self._get_aliases()):
+                if name.startswith(text):
+                    matches.append(name)
+        matches.extend(self.filesystem_matches(text))
+        seen: set[str] = set()
+        unique: list[str] = []
+        for match in matches:
+            if match not in seen:
+                seen.add(match)
+                unique.append(match)
+        return unique
+
     def _build_matches(self, text: str) -> list[str]:
         try:
             import readline

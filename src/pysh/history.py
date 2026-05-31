@@ -124,3 +124,32 @@ class HistoryManager:
         except (FileNotFoundError, OSError):
             return []
         return split_history_lines(text)
+
+    def entries(self) -> list[str]:
+        """Return current readline history if available, else on-disk entries."""
+        try:
+            import readline
+        except ImportError:
+            return self.read_entries()
+        try:
+            length = readline.get_current_history_length()
+            return [
+                item
+                for i in range(1, length + 1)
+                if (item := readline.get_history_item(i)) is not None
+            ]
+        except Exception:  # noqa: BLE001 - backend failures must not break editing
+            return self.read_entries()
+
+    def add(self, line: str) -> None:
+        """Add one non-empty entry to readline history when available."""
+        if not line.strip():
+            return
+        try:
+            import readline
+        except ImportError:
+            return
+        try:
+            readline.add_history(line)
+        except Exception:  # noqa: BLE001 - history backend failures are non-fatal
+            return

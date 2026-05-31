@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from pysh.config_api import (
+    DEFAULT_EDITOR_OPTIONS,
     DEFAULT_PROMPT_OPTIONS,
     ConfigError,
     ShellConfigAPI,
@@ -36,6 +37,7 @@ class FakeShell:
         self.aliases: dict[str, str] = {}
         self.environment: dict[str, str] = {}
         self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
+        self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
 
     def register_alias(self, name: str, value: str) -> None:
         self.aliases[name] = value
@@ -46,6 +48,12 @@ class FakeShell:
     def set_prompt_option(self, name: str, value: object) -> None:
         validate_prompt_option(name, value)
         self.prompt_options[name] = value
+
+    def set_editor_option(self, name: str, value: object) -> None:
+        from pysh.config_api import validate_editor_option
+
+        validate_editor_option(name, value)
+        self.editor_options[name] = value
 
 
 def _write(path: Path, body: str) -> Path:
