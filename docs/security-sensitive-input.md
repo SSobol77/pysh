@@ -91,12 +91,13 @@ not parse prompts. Sensitive-input phase is inferred only from the child PTY
 terminal `ECHO` flag. If that termios state cannot be read, PySH treats the
 phase as inactive and shows no indicator.
 
-When configured and enabled, `secure` may show one fixed blinking symbol while
-the child PTY has echo disabled. The symbol can blink from idle color to active
-color and back to idle on keyboard activity. It must not grow one symbol per
-keypress, reveal password length, expose content, store input, log keystrokes,
-or infer password correctness. It must not become permanently green on success
-or red on failure.
+When configured and enabled, `secure` may show a fixed-width cyclic indicator
+while the child PTY has echo disabled. In ring mode, the indicator renders a
+constant number of slots such as `* * * * *`; each keypress advances one
+volatile active slot modulo the configured slot count. It must not grow one
+symbol per keypress, reveal password length, expose content, store input, log
+keystrokes, or infer password correctness. It must not become permanently green
+on success or red on failure.
 
 ## Indicator Configuration
 
@@ -107,8 +108,12 @@ PySH exposes configuration for the explicit `secure` indicator:
 - `idle_color`
 - `active_color`
 - `mode`
+- `slots`
 
 These options do not change the REPL, the raw line editor, prompt rendering, or
 normal external-command execution. Even when `enabled` is `True`, the indicator
 is active only inside an explicit `secure <cmd>` invocation. If `enabled` is
 `False`, `secure <cmd>` still runs the PTY bridge without the visual indicator.
+
+`mode="ring"` is the default indicator mode and accepts `slots` in the inclusive
+range `3..9`. `mode="single-blink"` remains available for compatibility.

@@ -158,7 +158,8 @@ DEFAULT_SENSITIVE_INPUT: dict[str, object] = {
     "symbol": "*",
     "idle_color": "white",
     "active_color": "lime",
-    "mode": "single-blink",
+    "mode": "ring",
+    "slots": 5,
 }
 
 SENSITIVE_INPUT_TYPES: dict[str, type] = {
@@ -167,10 +168,11 @@ SENSITIVE_INPUT_TYPES: dict[str, type] = {
     "idle_color": str,
     "active_color": str,
     "mode": str,
+    "slots": int,
 }
 
 SENSITIVE_INPUT_VALUES: dict[str, frozenset[str]] = {
-    "mode": frozenset({"single-blink"}),
+    "mode": frozenset({"ring", "single-blink"}),
 }
 
 _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -332,7 +334,8 @@ def validate_sensitive_input(name: str, value: object) -> None:
       Empty, multi-glyph and double-width (e.g. CJK) symbols are rejected so a
       keypress indicator can never encode password length information.
     * ``idle_color`` / ``active_color`` must parse via the shared color parser.
-    * ``mode`` must be ``"single-blink"`` (the only value defined so far).
+    * ``mode`` must be ``"ring"`` or ``"single-blink"``.
+    * ``slots`` must be an integer in the inclusive range 3..9.
     """
     expected = SENSITIVE_INPUT_TYPES.get(name)
     if expected is None:
@@ -358,6 +361,14 @@ def validate_sensitive_input(name: str, value: object) -> None:
             parse_color(value)
         except ValueError as exc:
             raise ConfigError(str(exc)) from exc
+    if name == "slots":
+        if isinstance(value, bool):
+            raise ConfigError("sensitive-input option 'slots' expects int, got bool")
+        assert isinstance(value, int)
+        if value < 3 or value > 9:
+            raise ConfigError(
+                "sensitive-input option 'slots' must be in the range 3..9"
+            )
     allowed = SENSITIVE_INPUT_VALUES.get(name)
     if allowed is not None and value not in allowed:
         allowed_text = ", ".join(sorted(allowed))
@@ -488,7 +499,8 @@ class ShellConfigAPI:
         * ``symbol`` (str) - exactly one display column ["*"]
         * ``idle_color`` (str) - color name or ``#RRGGBB`` ["white"]
         * ``active_color`` (str) - color name or ``#RRGGBB`` ["lime"]
-        * ``mode`` (str) - only ``"single-blink"`` ["single-blink"]
+        * ``mode`` (str) - ``"ring"`` or ``"single-blink"`` ["ring"]
+        * ``slots`` (int) - fixed ring slots, 3..9 [5]
         """
         validate_sensitive_input(name, value)
         self._shell.set_sensitive_input_indicator(name, value)
@@ -608,18 +620,19 @@ def configure(shell):
     # shell.set_cursor_color("#FF9900")
 
     # --- Sensitive input indicator for explicit secure <cmd> only -----------
-    # The secure builtin may show a single fixed keypress indicator while the
-    # child PTY has echo disabled, so you can tell a key registered. It NEVER
-    # reveals length or content, never logs, and never wraps ordinary
-    # sudo/ssh/su/gpg automatically. These calls have no effect outside an
-    # explicit secure <cmd> invocation.
+    # The secure builtin may show a fixed-size rotating keypress indicator
+    # while the child PTY has echo disabled, so you can tell keys registered.
+    # It NEVER grows with password length, reveals content, logs, or wraps
+    # ordinary sudo/ssh/su/gpg automatically. These calls have no effect
+    # outside an explicit secure <cmd> invocation.
     # See docs/security-sensitive-input.md.
     #
     # shell.set_sensitive_input_indicator("enabled", True)
     # shell.set_sensitive_input_indicator("symbol", "*")
     # shell.set_sensitive_input_indicator("idle_color", "white")
     # shell.set_sensitive_input_indicator("active_color", "lime")
-    # shell.set_sensitive_input_indicator("mode", "single-blink")
+    # shell.set_sensitive_input_indicator("mode", "ring")
+    # shell.set_sensitive_input_indicator("slots", 5)
 
     return None
 '''

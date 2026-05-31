@@ -19,6 +19,7 @@ import select
 import sys
 import termios
 import threading
+import time
 
 import pytest
 
@@ -34,12 +35,19 @@ ANSI_RE = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
 ERASE = b"\x08 \x08"
 
 
-def _config(*, enabled: bool = True) -> SensitiveIndicatorConfig:
+def _config(
+    *,
+    enabled: bool = True,
+    mode: str = "ring",
+    slots: int = 5,
+) -> SensitiveIndicatorConfig:
     return SensitiveIndicatorConfig(
         enabled=enabled,
         symbol="*",
         idle_color="white",
         active_color="lime",
+        mode=mode,
+        slots=slots,
         vga=True,
     )
 
@@ -73,16 +81,16 @@ def _read_available(fd: int, timeout: float = 1.0) -> bytes:
         timeout = 0.05
 
 
-def test_indicator_renders_one_visible_symbol() -> None:
-    indicator = KeypressIndicator(_config(), colors=False)
+def test_single_blink_indicator_renders_one_visible_symbol() -> None:
+    indicator = KeypressIndicator(_config(mode="single-blink"), colors=False)
 
     assert indicator.show_idle() == "*"
     assert indicator.show_active() == "*"
     assert indicator.erase() == "\b \b"
 
 
-def test_indicator_applies_colors_when_enabled() -> None:
-    indicator = KeypressIndicator(_config(), colors=True)
+def test_single_blink_indicator_applies_colors_when_enabled() -> None:
+    indicator = KeypressIndicator(_config(mode="single-blink"), colors=True)
 
     assert indicator.show_idle() == "\x1b[97m*\x1b[0m"
     assert indicator.show_active() == "\x1b[92m*\x1b[0m"
@@ -90,8 +98,8 @@ def test_indicator_applies_colors_when_enabled() -> None:
     assert ANSI_RE.sub(b"", indicator.show_active().encode()) == b"*"
 
 
-def test_indicator_omits_colors_when_gate_disabled() -> None:
-    indicator = KeypressIndicator(_config(), colors=False)
+def test_single_blink_indicator_omits_colors_when_gate_disabled() -> None:
+    indicator = KeypressIndicator(_config(mode="single-blink"), colors=False)
 
     assert indicator.show_idle() == "*"
     assert indicator.show_active() == "*"
@@ -102,6 +110,61 @@ def test_indicator_disabled_renders_nothing() -> None:
 
     assert indicator.show_idle() == ""
     assert indicator.show_active() == ""
+
+
+def test_ring_indicator_renders_fixed_slots() -> None:
+    indicator = KeypressIndicator(_config(slots=5), colors=False)
+
+    assert indicator.render() == "* * * * *"
+    assert indicator.render().count("*") == 5
+    assert indicator.visible_width() == 9
+
+
+def test_ring_indicator_advances_and_wraps_without_growth() -> None:
+    indicator = KeypressIndicator(_config(slots=5), colors=False)
+
+    states = [indicator.keypress() for _ in range(6)]
+
+    assert states[0] == "* * * * *"
+    assert states[1] == "* * * * *"
+    assert states[4] == "* * * * *"
+    assert states[5] == "* * * * *"
+    assert all(state.count("*") == 5 for state in states)
+    assert all(len(state) == len(states[0]) for state in states)
+
+
+def test_ring_indicator_colors_active_and_idle_slots() -> None:
+    indicator = KeypressIndicator(_config(slots=5), colors=True)
+
+    first = indicator.keypress()
+    second = indicator.keypress()
+    for _ in range(3):
+        indicator.keypress()
+    wrapped = indicator.keypress()
+
+    active = "\x1b[92m*\x1b[0m"
+    idle = "\x1b[97m*\x1b[0m"
+    assert first.startswith(active)
+    assert first.count(active) == 1
+    assert first.count(idle) == 4
+    assert second.split(" ")[0] == idle
+    assert second.split(" ")[1] == active
+    assert second.count(active) == 1
+    assert second.count(idle) == 4
+    assert wrapped.split(" ")[0] == active
+    assert wrapped.count(active) == 1
+
+
+def test_ring_indicator_erase_clears_full_width() -> None:
+    indicator = KeypressIndicator(_config(slots=5), colors=False)
+
+    assert indicator.erase() == "\b \b" * 9
+
+
+def test_ring_indicator_no_color_has_no_ansi_codes() -> None:
+    indicator = KeypressIndicator(_config(slots=5), colors=False)
+
+    assert "\x1b[" not in indicator.keypress()
 
 
 def test_color_gate_respects_no_color_and_dumb_terminal(monkeypatch) -> None:
@@ -200,11 +263,11 @@ def test_indicator_does_not_grow_and_input_byte_is_not_echoed() -> None:
     assert result["status"] == 0
     assert b"done" in visible
     assert b"p" not in visible
-    assert visible.count(b"*") <= 1
+    assert visible.count(b"*") <= 5
 
 
 @pytest.mark.skipif(os.name != "posix", reason="PTY tests require POSIX")
-def test_indicator_blinks_active_then_idle_on_echo_disabled_input(monkeypatch) -> None:
+def test_ring_indicator_rotates_on_echo_disabled_input(monkeypatch) -> None:
     input_read, input_write = os.pipe()
     output_read, output_write = os.pipe()
     monkeypatch.setattr(secure_runner.os, "isatty", lambda fd: fd == output_write)
@@ -216,7 +279,7 @@ def test_indicator_blinks_active_then_idle_on_echo_disabled_input(monkeypatch) -
         "new[3]=new[3] & ~(termios.ECHO | termios.ICANON);"
         "termios.tcsetattr(fd, termios.TCSADRAIN, new);"
         "sys.stdout.write('ready\\n'); sys.stdout.flush();"
-        "os.read(fd, 2);"
+        "[os.read(fd, 1) for _ in range(6)];"
         "termios.tcsetattr(fd, termios.TCSADRAIN, old);"
         "sys.stdout.write('done\\n'); sys.stdout.flush()"
     )
@@ -235,7 +298,9 @@ def test_indicator_blinks_active_then_idle_on_echo_disabled_input(monkeypatch) -
     thread.start()
     first = _read_available(output_read, 1.0)
     assert b"ready" in first
-    os.write(input_write, b"pw")
+    for byte in b"12BbcA":
+        os.write(input_write, bytes([byte]))
+        time.sleep(0.03)
     os.close(input_write)
     thread.join(3)
     os.close(output_write)
@@ -243,14 +308,12 @@ def test_indicator_blinks_active_then_idle_on_echo_disabled_input(monkeypatch) -
     os.close(input_read)
     os.close(output_read)
 
-    idle = b"\x1b[97m*\x1b[0m"
     active = b"\x1b[92m*\x1b[0m"
-    active_pos = output.find(active)
     assert result["status"] == 0
-    assert active_pos != -1
-    assert output.find(idle, active_pos + len(active)) != -1
-    assert b"p" not in _visible(output)
-    assert _visible(output).count(b"*") <= 1
+    assert output.count(active) >= 6
+    for byte in b"12BbcA":
+        assert bytes([byte]) not in _visible(output)
+    assert _visible(output).count(b"*") <= 5
 
 
 @pytest.mark.skipif(os.name != "posix", reason="PTY tests require POSIX")

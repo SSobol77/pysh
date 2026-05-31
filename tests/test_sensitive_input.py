@@ -67,7 +67,8 @@ def test_defaults_exact() -> None:
         "symbol": "*",
         "idle_color": "white",
         "active_color": "lime",
-        "mode": "single-blink",
+        "mode": "ring",
+        "slots": 5,
     }
 
 
@@ -86,7 +87,11 @@ def test_default_is_disabled() -> None:
         ("idle_color", "white"),
         ("active_color", "lime"),
         ("idle_color", "#FF8800"),
+        ("mode", "ring"),
         ("mode", "single-blink"),
+        ("slots", 3),
+        ("slots", 5),
+        ("slots", 9),
     ],
 )
 def test_api_accepts_valid(name: str, value: object) -> None:
@@ -109,6 +114,8 @@ def test_unknown_option_rejected() -> None:
         ("symbol", 42),       # not str
         ("idle_color", 0),    # not str
         ("mode", True),       # not str
+        ("slots", "5"),       # not int
+        ("slots", 5.0),       # not int
     ],
 )
 def test_wrong_type_rejected(name: str, value: object) -> None:
@@ -143,6 +150,12 @@ def test_invalid_mode_rejected() -> None:
         ShellConfigAPI(FakeShell()).set_sensitive_input_indicator("mode", "double-blink")
 
 
+@pytest.mark.parametrize("slots", [2, 10, 0, -1, True])
+def test_invalid_slots_rejected(slots: object) -> None:
+    with pytest.raises(ConfigError):
+        ShellConfigAPI(FakeShell()).set_sensitive_input_indicator("slots", slots)
+
+
 def test_validate_function_directly() -> None:
     validate_sensitive_input("symbol", "*")  # no raise
     with pytest.raises(ConfigError):
@@ -174,7 +187,8 @@ def _enable_all(shell: PyShell) -> None:
     shell.set_sensitive_input_indicator("symbol", "\u25cf")
     shell.set_sensitive_input_indicator("idle_color", "white")
     shell.set_sensitive_input_indicator("active_color", "lime")
-    shell.set_sensitive_input_indicator("mode", "single-blink")
+    shell.set_sensitive_input_indicator("mode", "ring")
+    shell.set_sensitive_input_indicator("slots", 5)
 
 
 def test_prompt_identical_enabled_vs_disabled(monkeypatch) -> None:

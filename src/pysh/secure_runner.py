@@ -42,30 +42,83 @@ class SensitiveIndicatorConfig:
     symbol: str
     idle_color: str
     active_color: str
+    mode: str
+    slots: int
     vga: bool
 
 
 class KeypressIndicator:
-    """Pure formatter for the fixed one-symbol keypress indicator."""
+    """Pure formatter for the fixed sensitive-input keypress indicator."""
 
     def __init__(self, config: SensitiveIndicatorConfig, *, colors: bool) -> None:
         self.config = config
         self.colors = colors
+        self._active_slot: int | None = None
 
     def show_idle(self) -> str:
         """Return the idle indicator rendering."""
-        return self._render(self.config.idle_color)
+        if self.config.mode == "ring":
+            self.reset()
+            return self.render()
+        return self._render_symbol(self.config.idle_color)
 
     def show_active(self) -> str:
         """Return the active indicator rendering."""
-        return self._render(self.config.active_color)
+        if self.config.mode == "ring":
+            return self.keypress()
+        return self._render_symbol(self.config.active_color)
 
-    @staticmethod
-    def erase() -> str:
-        """Return a control sequence that erases exactly one displayed column."""
-        return "\b \b"
+    def render(self) -> str:
+        """Return the current fixed-width indicator rendering."""
+        if not self.config.enabled:
+            return ""
+        if self.config.mode != "ring":
+            color = (
+                self.config.active_color
+                if self._active_slot is not None
+                else self.config.idle_color
+            )
+            return self._render_symbol(color)
+        parts = []
+        for slot in range(self.config.slots):
+            color = (
+                self.config.active_color
+                if slot == self._active_slot
+                else self.config.idle_color
+            )
+            parts.append(self._render_symbol(color))
+        return " ".join(parts)
 
-    def _render(self, color: str) -> str:
+    def keypress(self) -> str:
+        """Advance volatile activity state and return the updated rendering."""
+        if not self.config.enabled:
+            return ""
+        if self.config.mode == "ring":
+            if self._active_slot is None:
+                self._active_slot = 0
+            else:
+                self._active_slot = (self._active_slot + 1) % self.config.slots
+            return self.render()
+        self._active_slot = 0
+        return self._render_symbol(self.config.active_color)
+
+    def reset(self) -> None:
+        """Reset volatile sensitive-phase activity state."""
+        self._active_slot = None
+
+    def erase(self) -> str:
+        """Return a control sequence that erases the full indicator width."""
+        return "\b \b" * self.visible_width()
+
+    def visible_width(self) -> int:
+        """Return the number of terminal columns occupied by the indicator."""
+        if not self.config.enabled:
+            return 0
+        if self.config.mode == "ring":
+            return self.config.slots + max(0, self.config.slots - 1)
+        return 1
+
+    def _render_symbol(self, color: str) -> str:
         if not self.config.enabled:
             return ""
         return colorize(
@@ -101,6 +154,8 @@ def indicator_config_from_mapping(
         symbol=str(values.get("symbol", "*")),
         idle_color=str(values.get("idle_color", "white")),
         active_color=str(values.get("active_color", "lime")),
+        mode=str(values.get("mode", "ring")),
+        slots=int(values.get("slots", 5)),
         vga=vga,
     )
 
@@ -236,7 +291,8 @@ class SecureRunner:
                             pass
                     else:
                         if self._echo_disabled(master_fd):
-                            visible = self._blink(out_fd, indicator, visible)
+                            for _ in data:
+                                visible = self._blink(out_fd, indicator, visible)
                         try:
                             os.write(master_fd, data)
                         except OSError:
@@ -244,6 +300,7 @@ class SecureRunner:
                 status = self._wait_nonblocking(pid)
                 if status is not None:
                     self._drain_master(master_fd, out_fd, indicator, visible)
+                    indicator.reset()
                     visible = False
                     break
         except KeyboardInterrupt:
@@ -255,6 +312,7 @@ class SecureRunner:
         finally:
             if visible:
                 self._write_text(out_fd, indicator.erase())
+            indicator.reset()
         if status is None:
             status = self._wait_blocking(pid)
         return self._status_to_returncode(status)
@@ -285,10 +343,11 @@ class SecureRunner:
         if not self.config.enabled:
             return False
         if echo_disabled and not visible:
-            self._write_text(out_fd, indicator.show_idle())
+            self._write_text(out_fd, indicator.render())
             return True
         if not echo_disabled and visible:
             self._write_text(out_fd, indicator.erase())
+            indicator.reset()
             return False
         return visible
 
@@ -302,11 +361,16 @@ class SecureRunner:
             return False
         if visible:
             self._write_text(out_fd, indicator.erase())
-        self._write_text(out_fd, indicator.show_active())
-        if self.blink_delay > 0:
+        if self.config.mode == "single-blink":
+            self._write_text(out_fd, indicator.show_active())
+        else:
+            self._write_text(out_fd, indicator.keypress())
+        if self.config.mode == "single-blink" and self.blink_delay > 0:
             time.sleep(self.blink_delay)
-        self._write_text(out_fd, indicator.erase())
-        self._write_text(out_fd, indicator.show_idle())
+        if self.config.mode == "single-blink":
+            self._write_text(out_fd, indicator.erase())
+            indicator.reset()
+            self._write_text(out_fd, indicator.show_idle())
         return True
 
     @staticmethod
