@@ -64,7 +64,8 @@ validated primarily on **Debian 13** and Unix-like systems.
 - Interactive REPL with persistent history (`~/.pysh_history`).
 - Bash-like reverse incremental search bound to **Ctrl+R** when GNU readline
   is available; degrades silently on other backends.
-- Welcome banner and configurable prompt with user and CWD (`~` collapsed).
+- Welcome banner and two-line configurable prompt with user, host, CWD, Git,
+  tool version, virtualenv, and last-status segments.
 - Robust quote-aware parser:
   - Splits chains on `;`, `&&`, `||` only outside of quotes.
   - Splits pipelines on `|` only outside of quotes.

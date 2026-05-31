@@ -49,8 +49,7 @@ PYSHRC_PY_PATH = Path("~/.pyshrc.py").expanduser()
 # Name of the function PySH calls inside ``~/.pyshrc.py``.
 CONFIGURE_FUNCTION = "configure"
 
-# Default prompt options. Defaults are chosen so that an untouched
-# configuration reproduces the historical prompt byte-for-byte.
+# Default prompt options for the two-line prompt layout.
 DEFAULT_PROMPT_OPTIONS: dict[str, object] = {
     "show_user": True,
     "show_host": False,
@@ -60,8 +59,11 @@ DEFAULT_PROMPT_OPTIONS: dict[str, object] = {
     "show_git_dirty": False,
     "show_last_status": False,
     "show_cwd": True,
-    "cwd_style": "home",
-    "symbol": "$",
+    "show_uv_version": False,
+    "show_ruff_version": False,
+    "cwd_style": "full",
+    "symbol": ">",
+    "prompt_layout": "two_line",
 }
 
 # Expected value type for each prompt option. ``bool`` is intentionally
@@ -76,12 +78,16 @@ PROMPT_OPTION_TYPES: dict[str, type] = {
     "show_git_dirty": bool,
     "show_last_status": bool,
     "show_cwd": bool,
+    "show_uv_version": bool,
+    "show_ruff_version": bool,
     "cwd_style": str,
     "symbol": str,
+    "prompt_layout": str,
 }
 
 PROMPT_OPTION_VALUES: dict[str, frozenset[str]] = {
     "cwd_style": frozenset({"full", "home", "basename"}),
+    "prompt_layout": frozenset({"single", "two_line"}),
 }
 
 _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -201,8 +207,11 @@ class ShellConfigAPI:
         * ``show_git_dirty`` (bool) - append ``*`` for obvious dirty Git states [False]
         * ``show_last_status`` (bool) - append non-zero last status [False]
         * ``show_cwd`` (bool) - show the current directory [True]
-        * ``cwd_style`` (str) - ``full``, ``home`` or ``basename`` ["home"]
-        * ``symbol`` (str) - trailing prompt symbol ["$"]
+        * ``show_uv_version`` (bool) - append the active uv version [False]
+        * ``show_ruff_version`` (bool) - append the active Ruff version [False]
+        * ``cwd_style`` (str) - ``full``, ``home`` or ``basename`` ["full"]
+        * ``symbol`` (str) - command-line prompt symbol [">"]
+        * ``prompt_layout`` (str) - ``single`` or ``two_line`` ["two_line"]
         """
         validate_prompt_option(name, value)
         self._shell.set_prompt_option(name, value)
@@ -240,11 +249,20 @@ def configure(shell):
     #   show_git_dirty       (bool)  mark obvious dirty Git states       [False]
     #   show_last_status     (bool)  append non-zero last status         [False]
     #   show_cwd             (bool)  show current directory              [True]
-    #   cwd_style            (str)   full | home | basename              ["home"]
-    #   symbol               (str)   trailing prompt symbol              ["$"]
+    #   show_uv_version      (bool)  append detected uv version          [False]
+    #   show_ruff_version    (bool)  append detected Ruff version        [False]
+    #   cwd_style            (str)   full | home | basename              ["full"]
+    #   symbol               (str)   command-line prompt symbol          [">"]
+    #   prompt_layout        (str)   single | two_line                   ["two_line"]
     # shell.set_prompt_option("show_virtualenv", True)
     # shell.set_prompt_option("show_git_branch", True)
+    # shell.set_prompt_option("show_git_dirty", True)
     # shell.set_prompt_option("show_python_version", True)
+    # shell.set_prompt_option("show_uv_version", True)
+    # shell.set_prompt_option("show_ruff_version", True)
+    # shell.set_prompt_option("show_last_status", True)
+    # shell.set_prompt_option("cwd_style", "home")
+    # shell.set_prompt_option("prompt_layout", "single")
 
     return None
 '''

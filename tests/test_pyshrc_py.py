@@ -12,6 +12,8 @@
 """Tests for the Python-native configuration layer (``~/.pyshrc.py``)."""
 from __future__ import annotations
 
+import socket
+import sys
 from pathlib import Path
 
 import pytest
@@ -49,6 +51,11 @@ class FakeShell:
 def _write(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
+
+
+def _use_legacy_single_line_prompt(shell: PyShell) -> None:
+    shell.set_prompt_option("prompt_layout", "single")
+    shell.set_prompt_option("symbol", "$")
 
 
 # --------------------------------------------------------------- file creation
@@ -136,6 +143,46 @@ def test_api_set_prompt_option_applies() -> None:
     assert shell.prompt_options["show_python_version"] is True
 
 
+def test_default_prompt_options_match_contract() -> None:
+    assert DEFAULT_PROMPT_OPTIONS == {
+        "show_user": True,
+        "show_host": False,
+        "show_python_version": False,
+        "show_virtualenv": False,
+        "show_git_branch": False,
+        "show_git_dirty": False,
+        "show_last_status": False,
+        "show_cwd": True,
+        "show_uv_version": False,
+        "show_ruff_version": False,
+        "cwd_style": "full",
+        "symbol": ">",
+        "prompt_layout": "two_line",
+    }
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "show_virtualenv",
+        "show_git_branch",
+        "show_git_dirty",
+        "show_last_status",
+        "show_cwd",
+        "show_uv_version",
+        "show_ruff_version",
+    ],
+)
+def test_validate_prompt_bool_options_reject_non_bool(name: str) -> None:
+    with pytest.raises(ConfigError):
+        validate_prompt_option(name, "true")
+
+
+def test_validate_prompt_option_rejects_invalid_prompt_layout() -> None:
+    with pytest.raises(ConfigError):
+        validate_prompt_option("prompt_layout", "stacked")
+
+
 # ---------------------------------------------------------------- loader paths
 def test_load_missing_file_returns_zero(tmp_path: Path) -> None:
     assert load_python_config(FakeShell(), path=tmp_path / "nope.py") == 0
@@ -201,19 +248,50 @@ def test_load_invalid_config_call_is_contained(tmp_path: Path, capsys) -> None:
 
 
 # --------------------------------------------------- integration with PyShell
-def test_pyshell_default_prompt_is_unchanged(monkeypatch) -> None:
-    # Default options must reproduce "<icon> <user>:<cwd>$ ".
+def test_pyshell_default_prompt_is_two_line(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.chdir(tmp_path)
     shell = PyShell()
-    prompt = shell._prompt()
-    assert "tester:" in prompt
-    assert prompt.endswith("$ ")
-    assert " py" not in prompt
+    assert shell._prompt_info_line() == f"🐍 tester:{tmp_path}"
+    assert shell._prompt() == "> "
+
+
+def test_pyshell_single_layout_uses_prompt_body(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
+    monkeypatch.setenv("USER", "tester")
+    monkeypatch.chdir(tmp_path)
+    shell = PyShell()
+    shell.set_prompt_option("prompt_layout", "single")
+    assert shell._prompt_info_line() == ""
+    assert shell._prompt() == shell._prompt_body(shell.prompt_options) + "> "
+
+
+def test_pyshell_prompt_exact_compatibility_progression(monkeypatch) -> None:
+    monkeypatch.setenv("USER", "siergej")
+    monkeypatch.setattr(socket, "gethostname", lambda: "vm")
+    monkeypatch.setattr(Path, "cwd", classmethod(lambda cls: Path("/home/claude/work")))
+    monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
+    py = ".".join(str(p) for p in sys.version_info[:2])
+
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    assert shell._prompt() == "🐍 siergej:/home/claude/work$ "
+
+    shell.set_prompt_option("show_python_version", True)
+    assert shell._prompt() == f"🐍 siergej:/home/claude/work py{py}$ "
+
+    shell.set_prompt_option("show_host", True)
+    assert shell._prompt() == f"🐍 siergej@vm:/home/claude/work py{py}$ "
+
+    shell.set_prompt_option("symbol", "%")
+    assert shell._prompt() == f"🐍 siergej@vm:/home/claude/work py{py}% "
 
 
 def test_pyshell_prompt_python_version_segment(monkeypatch) -> None:
     monkeypatch.setenv("USER", "tester")
     shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_python_version", True)
     assert " py3." in shell._prompt()
 
@@ -221,6 +299,7 @@ def test_pyshell_prompt_python_version_segment(monkeypatch) -> None:
 def test_pyshell_prompt_host_segment(monkeypatch) -> None:
     monkeypatch.setenv("USER", "tester")
     shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_host", True)
     assert "tester@" in shell._prompt()
 
@@ -228,8 +307,41 @@ def test_pyshell_prompt_host_segment(monkeypatch) -> None:
 def test_pyshell_prompt_custom_symbol(monkeypatch) -> None:
     monkeypatch.setenv("USER", "tester")
     shell = PyShell()
+    shell.set_prompt_option("prompt_layout", "single")
     shell.set_prompt_option("symbol", "%")
     assert shell._prompt().endswith("% ")
+
+
+def test_pyshell_prompt_tool_version_is_cached(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "uv 0.9.16\n"
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - local subprocess test double.
+        calls.append(argv)
+        return Result()
+
+    monkeypatch.setattr("pysh.shell.subprocess.run", fake_run)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_uv_version", True)
+    assert " uv0.9.16$ " in shell._prompt()
+    assert " uv0.9.16$ " in shell._prompt()
+    assert calls == [["uv", "--version"]]
+
+
+def test_pyshell_prompt_tool_version_malformed_output_is_hidden(monkeypatch) -> None:
+    class Result:
+        returncode = 0
+        stdout = "uv unknown\n"
+
+    monkeypatch.setattr("pysh.shell.subprocess.run", lambda *_args, **_kwargs: Result())
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_uv_version", True)
+    assert " uv" not in shell._prompt()
 
 
 def test_pyshell_set_environment_is_mirrored(monkeypatch) -> None:
@@ -257,10 +369,24 @@ def test_pyshell_set_prompt_option_rejects_unknown() -> None:
         PyShell().set_prompt_option("unknown", True)
 
 
+def test_pyshell_set_prompt_option_rejects_invalid_prompt_layout() -> None:
+    with pytest.raises(ValueError):
+        PyShell().set_prompt_option("prompt_layout", "stacked")
+
+
+def test_pyshell_prompt_is_readline_safe(monkeypatch) -> None:
+    monkeypatch.setenv("USER", "tester")
+    shell = PyShell()
+    assert "\n" not in shell._prompt()
+    shell.set_prompt_option("prompt_layout", "single")
+    assert "\n" not in shell._prompt()
+
+
 def test_pyshell_prompt_virtualenv_segment(monkeypatch) -> None:
     monkeypatch.setenv("USER", "tester")
     monkeypatch.setenv("VIRTUAL_ENV", "/tmp/pysh-test-venv")
     shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_virtualenv", True)
     assert shell._prompt().startswith("(pysh-test-venv) ")
 
@@ -268,6 +394,7 @@ def test_pyshell_prompt_virtualenv_segment(monkeypatch) -> None:
 def test_pyshell_prompt_last_status_segment(monkeypatch) -> None:
     monkeypatch.setenv("USER", "tester")
     shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
     shell.last_status = 17
     shell.set_prompt_option("show_last_status", True)
     assert " [17]$ " in shell._prompt()
@@ -276,9 +403,19 @@ def test_pyshell_prompt_last_status_segment(monkeypatch) -> None:
 def test_pyshell_prompt_hides_zero_last_status(monkeypatch) -> None:
     monkeypatch.setenv("USER", "tester")
     shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
     shell.last_status = 0
     shell.set_prompt_option("show_last_status", True)
     assert " [0]" not in shell._prompt()
+
+
+def test_pyshell_two_line_last_status_segment(monkeypatch) -> None:
+    monkeypatch.setenv("USER", "tester")
+    shell = PyShell()
+    shell.set_prompt_option("show_last_status", True)
+    assert " [0]" not in shell._prompt_info_line()
+    shell.last_status = 17
+    assert " [17]" in shell._prompt_info_line()
 
 
 def test_pyshell_prompt_cwd_basename(monkeypatch, tmp_path: Path) -> None:
@@ -287,13 +424,39 @@ def test_pyshell_prompt_cwd_basename(monkeypatch, tmp_path: Path) -> None:
     project.mkdir()
     monkeypatch.chdir(project)
     shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("cwd_style", "basename")
     assert "tester:project" in shell._prompt()
+
+
+def test_pyshell_prompt_cwd_full(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("USER", "tester")
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("cwd_style", "full")
+    assert f"tester:{project}" in shell._prompt()
+
+
+def test_pyshell_prompt_cwd_home(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("USER", "tester")
+    home = tmp_path / "home"
+    project = home / "work"
+    project.mkdir(parents=True)
+    monkeypatch.chdir(project)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("cwd_style", "home")
+    assert "tester:~/work" in shell._prompt()
 
 
 def test_pyshell_prompt_cwd_can_be_hidden(monkeypatch) -> None:
     monkeypatch.setenv("USER", "tester")
     shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_cwd", False)
     assert "tester$ " in shell._prompt()
     assert "tester:" not in shell._prompt()
@@ -306,6 +469,7 @@ def test_pyshell_prompt_git_branch_from_git_directory(monkeypatch, tmp_path: Pat
     (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     monkeypatch.chdir(repo)
     shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_git_branch", True)
     assert " git:main$ " in shell._prompt()
 
@@ -319,6 +483,7 @@ def test_pyshell_prompt_git_branch_from_git_file(monkeypatch, tmp_path: Path) ->
     (real_git / "HEAD").write_text("ref: refs/heads/feature/prompt\n", encoding="utf-8")
     monkeypatch.chdir(worktree)
     shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_git_branch", True)
     assert " git:feature/prompt$ " in shell._prompt()
 
@@ -330,8 +495,9 @@ def test_pyshell_prompt_git_detached_head(monkeypatch, tmp_path: Path) -> None:
     (git_dir / "HEAD").write_text("0123456789abcdef0123456789abcdef01234567\n", encoding="utf-8")
     monkeypatch.chdir(repo)
     shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_git_branch", True)
-    assert " git:0123456789ab$ " in shell._prompt()
+    assert " git:detached-0123456$ " in shell._prompt()
 
 
 def test_pyshell_prompt_git_obvious_dirty_state(monkeypatch, tmp_path: Path) -> None:
@@ -342,6 +508,53 @@ def test_pyshell_prompt_git_obvious_dirty_state(monkeypatch, tmp_path: Path) -> 
     (git_dir / "index.lock").write_text("", encoding="utf-8")
     monkeypatch.chdir(repo)
     shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_git_branch", True)
     shell.set_prompt_option("show_git_dirty", True)
     assert " git:main*$ " in shell._prompt()
+
+
+def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path) -> None:
+    home = tmp_path / "home" / "ssobol"
+    cwd = home / "Code" / "Project_PySH" / "pysh" / "pysh"
+    git_dir = cwd / ".git"
+    git_dir.mkdir(parents=True)
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    venv = cwd / ".venv"
+    venv.mkdir()
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("USER", "ssobol")
+    monkeypatch.setenv("VIRTUAL_ENV", str(venv))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(socket, "gethostname", lambda: "sun")
+    monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
+
+    class Result:
+        def __init__(self, stdout: str) -> None:
+            self.returncode = 0
+            self.stdout = stdout
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - local subprocess test double.
+        if argv[0] == "uv":
+            return Result("uv 0.9.16\n")
+        if argv[0] == "ruff":
+            return Result("ruff 0.15.15\n")
+        raise AssertionError(f"unexpected argv: {argv!r}")
+
+    monkeypatch.setattr("pysh.shell.subprocess.run", fake_run)
+    shell = PyShell()
+    shell.set_prompt_option("show_host", True)
+    shell.set_prompt_option("show_virtualenv", True)
+    shell.set_prompt_option("show_git_branch", True)
+    shell.set_prompt_option("show_git_dirty", True)
+    shell.set_prompt_option("show_python_version", True)
+    shell.set_prompt_option("show_uv_version", True)
+    shell.set_prompt_option("show_ruff_version", True)
+    shell.set_prompt_option("cwd_style", "home")
+    py = ".".join(str(p) for p in sys.version_info[:2])
+
+    assert shell._prompt_info_line() == (
+        "(.venv) 🐍 ssobol@sun:~/Code/Project_PySH/pysh/pysh "
+        f"git:main py{py} uv0.9.16 ruff0.15.15"
+    )
+    assert shell._prompt() == "> "

@@ -63,9 +63,37 @@ expansion. Single quotes suppress expansion; double quotes do not.
 
 ## Prompt
 
-The prompt is rendered as `<icon> <user>:<cwd>$ ` where `<cwd>` is
-collapsed to `~` when inside your home directory. The icon is the snake
+The default prompt uses two lines: an informational line followed by a command
+line prompt. With no opt-in segments enabled it renders as:
+
+```text
+<icon> <user>:<cwd>
+>
+```
+
+`<cwd>` is the absolute current directory by default. The icon is the snake
 emoji on UTF-8 terminals and `$` otherwise.
+
+Python-native configuration can opt into additional prompt segments:
+
+```python
+def configure(shell):
+    shell.set_prompt_option("show_host", True)
+    shell.set_prompt_option("show_virtualenv", True)
+    shell.set_prompt_option("show_git_branch", True)
+    shell.set_prompt_option("show_git_dirty", True)
+    shell.set_prompt_option("show_python_version", True)
+    shell.set_prompt_option("show_uv_version", True)
+    shell.set_prompt_option("show_ruff_version", True)
+    shell.set_prompt_option("show_last_status", True)
+    shell.set_prompt_option("cwd_style", "home")
+    shell.set_prompt_option("prompt_layout", "single")
+```
+
+`cwd_style` accepts `full`, `home`, or `basename`. `prompt_layout` accepts
+`two_line` (default) or `single`. Git prompt metadata is read from `.git` files
+only; PySH does not invoke `git` while rendering prompts. uv and Ruff versions
+are detected with bounded subprocess calls and cached per shell instance.
 
 The welcome banner and diagnostics use ANSI colors when:
 
