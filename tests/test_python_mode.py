@@ -18,7 +18,12 @@ from pathlib import Path
 
 import pytest
 
-from pysh.python_mode import PythonCommandMode, _parse_directive, expand_tab
+from pysh.python_mode import (
+    PythonCommandMode,
+    _parse_directive,
+    complete_python_mode_path,
+    expand_tab,
+)
 from pysh.python_runtime import PythonRuntime
 from pysh.shell import PyShell
 
@@ -108,11 +113,14 @@ class TestParseDirective:
         assert error is not None
         assert "#open" in error or "open" in error
 
-    def test_save_missing_filename_is_error(self) -> None:
+    def test_save_without_filename_is_valid_directive(self) -> None:
+        # #save without arg is now valid at parse time; the handler checks active_file.
         result = _parse_directive("#save")
         assert result is not None
         name, arg, error = result
-        assert error is not None
+        assert name == "save"
+        assert arg is None
+        assert error is None  # no parse error; handler decides based on active_file
 
     def test_open_with_redirect_lt_is_error(self) -> None:
         result = _parse_directive("#open < file.py")
@@ -149,6 +157,34 @@ class TestParseDirective:
         assert name == "open"
         assert arg == "file.py"
         assert error is None
+
+    def test_show_without_filename_is_valid(self) -> None:
+        result = _parse_directive("#show")
+        assert result == ("show", None, None)
+
+    def test_show_with_filename_is_valid(self) -> None:
+        result = _parse_directive("#show main.py")
+        assert result is not None
+        name, arg, error = result
+        assert name == "show"
+        assert arg == "main.py"
+        assert error is None
+
+    def test_clear_is_valid(self) -> None:
+        assert _parse_directive("#clear") == ("clear", None, None)
+
+    def test_save_with_redirect_is_error(self) -> None:
+        result = _parse_directive("#save > file.py")
+        assert result is not None
+        _, _, error = result
+        assert error is not None
+        assert "redirection" in error.lower() or "not supported" in error.lower()
+
+    def test_show_with_redirect_is_error(self) -> None:
+        result = _parse_directive("#show < file.py")
+        assert result is not None
+        _, _, error = result
+        assert error is not None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -775,3 +811,439 @@ class TestShellIntegration:
         shell._run_external = fake_run_external  # type: ignore[method-assign]
         shell.execute("echo x #py")
         assert captured_argv and "#py" not in captured_argv[0]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Active file state management
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestActiveFile:
+    def test_open_sets_active_file(self, tmp_path: Path) -> None:
+        script = tmp_path / "hello.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(["#open hello.py", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._active_file is not None
+        assert mode._active_file.name == "hello.py"
+
+    def test_open_resolves_absolute_path(self, tmp_path: Path) -> None:
+        script = tmp_path / "abs.py"
+        script.write_text("y = 2\n", encoding="utf-8")
+        abs_str = str(script)
+        mode, out, err = _mode([f"#open {abs_str}", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._active_file == script.resolve()
+
+    def test_open_resolves_relative_subpath(self, tmp_path: Path) -> None:
+        sub = tmp_path / "src"
+        sub.mkdir()
+        script = sub / "mod.py"
+        script.write_text("z = 3\n", encoding="utf-8")
+        mode, out, err = _mode(["#open src/mod.py", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._active_file is not None
+        assert mode._active_file == script.resolve()
+
+    def test_save_with_filename_sets_active_file(self, tmp_path: Path) -> None:
+        mode, out, err = _mode(["x = 1", "#save out.py", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._active_file is not None
+        assert mode._active_file.name == "out.py"
+
+    def test_save_without_active_file_prints_error(self, tmp_path: Path) -> None:
+        mode, out, err = _mode(["x = 1", "#save", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert "no active file" in err.getvalue().lower()
+        assert "save" in err.getvalue().lower()
+
+    def test_save_to_active_file(self, tmp_path: Path) -> None:
+        script = tmp_path / "target.py"
+        script.write_text("# original\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open target.py", 'x = "updated"', "#save", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        content = script.read_text(encoding="utf-8")
+        assert "updated" in content
+        assert "saved: target.py" in out.getvalue()
+
+    def test_save_to_active_file_uses_filename_display(self, tmp_path: Path) -> None:
+        script = tmp_path / "disp.py"
+        script.write_text("pass\n", encoding="utf-8")
+        mode, out, err = _mode(["#open disp.py", "#save", "#exit"], cwd=tmp_path)
+        mode.run()
+        # Confirmation message should show the filename, not the full path.
+        assert "saved:" in out.getvalue()
+
+    def test_clear_keeps_active_file(self, tmp_path: Path) -> None:
+        script = tmp_path / "keep.py"
+        script.write_text("a = 1\n", encoding="utf-8")
+        mode, out, err = _mode(["#open keep.py", "#clear", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._active_file is not None
+        assert mode._active_file.name == "keep.py"
+
+    def test_reset_clears_active_file(self, tmp_path: Path) -> None:
+        script = tmp_path / "reset_me.py"
+        script.write_text("a = 1\n", encoding="utf-8")
+        mode, out, err = _mode(["#open reset_me.py", "#reset", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._active_file is None
+
+    def test_show_file_does_not_change_active_file(self, tmp_path: Path) -> None:
+        f1 = tmp_path / "f1.py"
+        f2 = tmp_path / "f2.py"
+        f1.write_text("a = 1\n", encoding="utf-8")
+        f2.write_text("b = 2\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open f1.py", "#show f2.py", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        # active_file must still be f1.py
+        assert mode._active_file is not None
+        assert mode._active_file.name == "f1.py"
+
+    def test_show_file_does_not_change_buffer(self, tmp_path: Path) -> None:
+        f1 = tmp_path / "f1.py"
+        f2 = tmp_path / "f2.py"
+        f1.write_text("a = 1\n", encoding="utf-8")
+        f2.write_text("b = 2\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open f1.py", "#show f2.py", "#show", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        text = out.getvalue()
+        # Buffer show must reflect f1.py content, not f2.py.
+        assert "a = 1" in text
+        assert "b = 2" not in text.split("1 |")[1] if "1 |" in text else True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #show file.py — cat-style file display
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestShowFile:
+    def test_show_file_prints_content(self, tmp_path: Path) -> None:
+        f = tmp_path / "view.py"
+        f.write_text('print("hello")\n', encoding="utf-8")
+        mode, out, err = _mode(["#show view.py", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert 'print("hello")' in out.getvalue()
+
+    def test_show_file_missing_prints_error(self, tmp_path: Path) -> None:
+        mode, out, err = _mode(["#show gone.py", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert "no such file" in err.getvalue().lower()
+
+    def test_show_file_directory_prints_error(self, tmp_path: Path) -> None:
+        (tmp_path / "d").mkdir()
+        mode, out, err = _mode(["#show d", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert "directory" in err.getvalue().lower()
+
+    def test_show_file_absolute_path(self, tmp_path: Path) -> None:
+        f = tmp_path / "abs.py"
+        f.write_text("absolute_content = True\n", encoding="utf-8")
+        mode, out, err = _mode([f"#show {f}", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert "absolute_content" in out.getvalue()
+
+    def test_show_buffer_still_works(self) -> None:
+        mode, out, err = _mode(["x = 1", "#show", "#exit"])
+        mode.run()
+        assert "x = 1" in out.getvalue()
+        assert "1 |" in out.getvalue()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #clear directive
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestClearDirective:
+    def test_clear_empties_buffer(self) -> None:
+        mode, out, err = _mode(["x = 1", "#clear", "#show", "#exit"])
+        mode.run()
+        assert "buffer empty" in out.getvalue()
+
+    def test_clear_prints_confirmation(self) -> None:
+        mode, out, err = _mode(["#clear", "#exit"])
+        mode.run()
+        assert "buffer cleared" in out.getvalue()
+
+    def test_clear_does_not_reset_runtime(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Define a variable, clear, then reference it — must still work.
+        mode, out, err = _mode(["y = 77", "#clear", "y", "#exit"])
+        mode.run()
+        assert "77" in capsys.readouterr().out
+
+    def test_clear_keeps_active_file(self, tmp_path: Path) -> None:
+        script = tmp_path / "stay.py"
+        script.write_text("pass\n", encoding="utf-8")
+        mode, out, err = _mode(["#open stay.py", "#clear", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._active_file is not None
+
+    def test_clear_keeps_mode_alive(self) -> None:
+        mode, out, err = _mode(["#clear", "1 + 1", "#exit"])
+        assert mode.run() == 0
+
+    def test_clear_then_save_to_active_file(self, tmp_path: Path) -> None:
+        script = tmp_path / "rewrite.py"
+        script.write_text("# old content\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open rewrite.py", "#clear", 'print("new")', "#save", "#exit"],
+            cwd=tmp_path,
+        )
+        mode.run()
+        content = script.read_text(encoding="utf-8")
+        assert "new" in content
+        assert "old content" not in content
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #reset updated semantics
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestResetUpdated:
+    def test_reset_prints_workspace_reset(self) -> None:
+        mode, out, err = _mode(["#reset", "#exit"])
+        mode.run()
+        assert "workspace reset" in out.getvalue()
+
+    def test_reset_clears_active_file(self, tmp_path: Path) -> None:
+        script = tmp_path / "wipe.py"
+        script.write_text("pass\n", encoding="utf-8")
+        mode, out, err = _mode(["#open wipe.py", "#reset", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._active_file is None
+
+    def test_reset_clears_buffer(self) -> None:
+        mode, out, err = _mode(["x = 1", "#reset", "#show", "#exit"])
+        mode.run()
+        assert "buffer empty" in out.getvalue()
+
+    def test_reset_resets_runtime(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        mode, out, err = _mode(["z = 55", "#reset", "z", "#exit"])
+        mode.run()
+        assert "NameError" in err.getvalue()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Path resolution — absolute and relative paths
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestPathResolution:
+    def test_open_relative_path(self, tmp_path: Path) -> None:
+        script = tmp_path / "rel.py"
+        script.write_text("rel = True\n", encoding="utf-8")
+        mode, out, err = _mode(["#open rel.py", "#show", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert "rel = True" in out.getvalue()
+
+    def test_open_relative_subdir_path(self, tmp_path: Path) -> None:
+        sub = tmp_path / "pkg"
+        sub.mkdir()
+        script = sub / "mod.py"
+        script.write_text("pkg_var = 1\n", encoding="utf-8")
+        mode, out, err = _mode(["#open pkg/mod.py", "#show", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert "pkg_var" in out.getvalue()
+
+    def test_open_absolute_path(self, tmp_path: Path) -> None:
+        script = tmp_path / "abs.py"
+        script.write_text("abs_var = 42\n", encoding="utf-8")
+        mode, out, err = _mode([f"#open {script}", "#show", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert "abs_var" in out.getvalue()
+
+    def test_save_creates_file_in_subdir(self, tmp_path: Path) -> None:
+        sub = tmp_path / "output"
+        sub.mkdir()
+        mode, out, err = _mode(
+            ["x = 1", "#save output/out.py", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        assert (sub / "out.py").exists()
+
+    def test_save_absolute_path(self, tmp_path: Path) -> None:
+        target = tmp_path / "direct.py"
+        mode, out, err = _mode(
+            ["y = 2", f"#save {target}", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        assert target.exists()
+        assert "y = 2" in target.read_text(encoding="utf-8")
+
+    def test_show_file_relative_subpath(self, tmp_path: Path) -> None:
+        sub = tmp_path / "data"
+        sub.mkdir()
+        f = sub / "info.py"
+        f.write_text("INFO = 99\n", encoding="utf-8")
+        mode, out, err = _mode(["#show data/info.py", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert "INFO = 99" in out.getvalue()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# complete_python_mode_path — pure completion function
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestCompletePathMode:
+    def test_no_directive_prefix_returns_empty(self, tmp_path: Path) -> None:
+        (tmp_path / "a.py").write_text("", encoding="utf-8")
+        result = complete_python_mode_path("x = 1", 5, tmp_path)
+        assert result == []
+
+    def test_tab_mid_code_returns_empty(self, tmp_path: Path) -> None:
+        result = complete_python_mode_path("def main():", 11, tmp_path)
+        assert result == []
+
+    def test_open_empty_partial_lists_all(self, tmp_path: Path) -> None:
+        (tmp_path / "alpha.py").write_text("", encoding="utf-8")
+        (tmp_path / "beta.py").write_text("", encoding="utf-8")
+        line = "#open "
+        result = complete_python_mode_path(line, len(line), tmp_path)
+        names = [r.rstrip("/") for r in result]
+        assert "alpha.py" in names
+        assert "beta.py" in names
+
+    def test_open_partial_stem_filters(self, tmp_path: Path) -> None:
+        (tmp_path / "main.py").write_text("", encoding="utf-8")
+        (tmp_path / "module.py").write_text("", encoding="utf-8")
+        (tmp_path / "other.py").write_text("", encoding="utf-8")
+        line = "#open ma"
+        result = complete_python_mode_path(line, len(line), tmp_path)
+        assert any("main.py" in r for r in result)
+        assert not any("other" in r for r in result)
+
+    def test_save_partial_stem_filters(self, tmp_path: Path) -> None:
+        (tmp_path / "save_me.py").write_text("", encoding="utf-8")
+        (tmp_path / "other.py").write_text("", encoding="utf-8")
+        line = "#save save"
+        result = complete_python_mode_path(line, len(line), tmp_path)
+        assert any("save_me.py" in r for r in result)
+        assert not any("other" in r for r in result)
+
+    def test_show_partial_stem_filters(self, tmp_path: Path) -> None:
+        (tmp_path / "show_me.py").write_text("", encoding="utf-8")
+        (tmp_path / "other.py").write_text("", encoding="utf-8")
+        line = "#show show"
+        result = complete_python_mode_path(line, len(line), tmp_path)
+        assert any("show_me.py" in r for r in result)
+        assert not any("other" in r for r in result)
+
+    def test_directory_suffix_added(self, tmp_path: Path) -> None:
+        (tmp_path / "subpkg").mkdir()
+        line = "#open sub"
+        result = complete_python_mode_path(line, len(line), tmp_path)
+        assert any(r.endswith("/") for r in result)
+
+    def test_subdir_completion(self, tmp_path: Path) -> None:
+        sub = tmp_path / "src"
+        sub.mkdir()
+        (sub / "main.py").write_text("", encoding="utf-8")
+        line = "#open src/"
+        result = complete_python_mode_path(line, len(line), tmp_path)
+        assert any("main.py" in r for r in result)
+
+    def test_absolute_path_completion(self, tmp_path: Path) -> None:
+        (tmp_path / "abs.py").write_text("", encoding="utf-8")
+        abs_prefix = str(tmp_path) + "/abs"
+        line = f"#open {abs_prefix}"
+        result = complete_python_mode_path(line, len(line), tmp_path)
+        assert any("abs.py" in r for r in result)
+
+    def test_returns_empty_on_nonexistent_dir(self, tmp_path: Path) -> None:
+        line = "#open nonexistent/"
+        result = complete_python_mode_path(line, len(line), tmp_path)
+        assert result == []
+
+    def test_cursor_mid_line_uses_prefix_only(self, tmp_path: Path) -> None:
+        (tmp_path / "zz.py").write_text("", encoding="utf-8")
+        line = "#open zz.py  # old"
+        # cursor is at end of "#open zz.py", NOT at end of line
+        cursor = len("#open zz.py")
+        result = complete_python_mode_path(line, cursor, tmp_path)
+        assert any("zz.py" in r for r in result)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Visual padding — disabled in test mode, enabled interactively
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestVisualPadding:
+    def test_padding_disabled_in_test_mode(self) -> None:
+        # When input_source is provided, visual_padding_lines must be 0.
+        mode, out, err = _mode(["#exit"])
+        assert mode._visual_padding_lines == 0
+
+    def test_padding_enabled_interactively(self) -> None:
+        # Without input_source, visual_padding_lines must be the configured value.
+        mode = PythonCommandMode(visual_padding_lines=2)
+        assert mode._visual_padding_lines == 2
+
+    def test_padding_default_is_two_interactively(self) -> None:
+        mode = PythonCommandMode()
+        assert mode._visual_padding_lines == 2
+
+    def test_explicit_zero_in_test_mode(self) -> None:
+        out = io.StringIO()
+        err = io.StringIO()
+        mode = PythonCommandMode(
+            input_source=["#exit"],
+            out_stream=out,
+            err_stream=err,
+            visual_padding_lines=0,
+        )
+        assert mode._visual_padding_lines == 0
+
+    def test_no_blank_lines_in_captured_test_output(self) -> None:
+        # Injected input_source → no blank lines from padding in output.
+        mode, out, err = _mode(["x = 1", "#exit"])
+        mode.run()
+        # Banner has intentional blank line; no additional padding blank lines.
+        lines = out.getvalue().splitlines()
+        # All blank lines must come from the banner only (none from padding).
+        padding_lines = [ln for ln in lines if ln == "" and "PySH" not in ln]
+        # Exactly one blank line from the banner trailing "\n".
+        # (The banner prints "Type #help for commands.\n" which creates one blank.)
+        assert len(padding_lines) <= 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #help includes new semantics
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestHelpUpdated:
+    def test_help_mentions_clear(self) -> None:
+        mode, out, err = _mode(["#help", "#exit"])
+        mode.run()
+        assert "#clear" in out.getvalue()
+
+    def test_help_mentions_optional_save_arg(self) -> None:
+        mode, out, err = _mode(["#help", "#exit"])
+        mode.run()
+        text = out.getvalue()
+        assert "#save" in text
+        # Help must document optional argument form.
+        assert "[file]" in text or "active file" in text.lower()
+
+    def test_help_mentions_show_file(self) -> None:
+        mode, out, err = _mode(["#help", "#exit"])
+        mode.run()
+        text = out.getvalue()
+        assert "#show" in text
+
+    def test_help_mentions_path_completion(self) -> None:
+        mode, out, err = _mode(["#help", "#exit"])
+        mode.run()
+        assert "completion" in out.getvalue().lower()
+
+    def test_help_mentions_tab_four_spaces(self) -> None:
+        mode, out, err = _mode(["#help", "#exit"])
+        mode.run()
+        assert "TAB" in out.getvalue()

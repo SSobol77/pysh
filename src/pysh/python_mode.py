@@ -11,13 +11,21 @@
 # See the LICENSE file in the project root for full license text.
 """Interactive Python Command Execution Layer for PySH.
 
-Entered from the normal PySH prompt with:
+Entered from the normal PySH prompt with::
 
     #py
 
-Exited with:
+Exited with::
 
     >>> #exit
+
+The mode maintains an *active edit workspace* consisting of:
+
+* ``source_buffer``  — Python source text (list of lines).
+* ``active_file``    — the :class:`~pathlib.Path` most recently opened or saved,
+  or ``None`` when no file is associated.
+* ``runtime``        — a :class:`~pysh.python_runtime.PythonRuntime` instance
+  that holds the persistent ``__main__`` namespace for the session.
 
 See docs/python-command-execution-layer.md for the full specification.
 """
@@ -39,18 +47,26 @@ _PROMPT_CONTINUATION = "... "
 # ---------------------------------------------------------------------------
 # Internal sentinels returned by _dispatch_directive()
 # ---------------------------------------------------------------------------
-_DIRECTIVE_EXIT = object()     # signals the run-loop to exit Python mode
-_DIRECTIVE_HANDLED = object()  # directive was recognised and handled (non-exit)
-_DIRECTIVE_NOT_FOUND = object()  # line is not a directive at all
+_DIRECTIVE_EXIT = object()       # signals the run-loop to exit Python mode
+_DIRECTIVE_HANDLED = object()    # directive recognised and handled (non-exit)
+_DIRECTIVE_NOT_FOUND = object()  # not a directive — treat as Python source
 
 # ---------------------------------------------------------------------------
-# Known directive tokens
+# Known directive token sets
 # ---------------------------------------------------------------------------
+# Exact directives take no arguments.
 _EXACT_DIRECTIVES: frozenset[str] = frozenset(
-    {"#exit", "#help", "#show", "#run", "#reset"}
+    {"#exit", "#help", "#run", "#clear", "#reset"}
 )
-_FILE_DIRECTIVES: frozenset[str] = frozenset({"#open", "#save"})
+# Optional-argument directives: bare form is valid; filename form is also valid.
+_OPT_ARG_DIRECTIVES: frozenset[str] = frozenset({"#save", "#show"})
+# Required-argument directives: must have a filename.
+_REQ_ARG_DIRECTIVES: frozenset[str] = frozenset({"#open"})
+# Explicitly forbidden shell-redirection patterns.
 _FORBIDDEN_DIRECTIVES: frozenset[str] = frozenset({"#echo"})
+
+# Directives that accept a file path argument (for completion).
+_FILE_ARG_DIRECTIVES: tuple[str, ...] = ("#open ", "#save ", "#show ")
 
 
 # ---------------------------------------------------------------------------
@@ -58,10 +74,12 @@ _FORBIDDEN_DIRECTIVES: frozenset[str] = frozenset({"#echo"})
 # ---------------------------------------------------------------------------
 
 def expand_tab(line: str, cursor: int) -> tuple[str, int]:
-    """Insert four spaces at *cursor* and return the updated (line, cursor).
+    """Insert four spaces at *cursor* and return the updated ``(line, cursor)``.
 
-    This is a pure function with no terminal dependency so it can be
-    unit-tested without a real TTY.
+    Pure function with no terminal dependency — unit-testable without a TTY.
+
+    Inside normal Python code blocks, ``<TAB>`` calls this function rather
+    than triggering shell-style path completion.
 
     Example::
 
@@ -70,6 +88,95 @@ def expand_tab(line: str, cursor: int) -> tuple[str, int]:
     """
     new_line = line[:cursor] + "    " + line[cursor:]
     return new_line, cursor + 4
+
+
+# ---------------------------------------------------------------------------
+# Path completion (pure, testable)
+# ---------------------------------------------------------------------------
+
+def complete_python_mode_path(
+    line: str,
+    cursor: int,
+    cwd: Path,
+) -> list[str]:
+    """Return filesystem path completion candidates for file directives.
+
+    Active only when ``line[:cursor]`` begins with one of::
+
+        #open <partial>
+        #save <partial>
+        #show <partial>
+
+    For any other input (including normal Python code lines), returns ``[]``
+    so that ``<TAB>`` behaviour falls back to :func:`expand_tab`.
+
+    Relative paths are resolved against *cwd*. Absolute paths are completed
+    directly.  Directories in the result set are suffixed with ``/``.
+
+    Parameters
+    ----------
+    line:
+        The current input buffer contents.
+    cursor:
+        The cursor position (index) inside *line*.
+    cwd:
+        The current PySH working directory used to anchor relative paths.
+
+    Returns
+    -------
+    list[str]
+        Candidate path strings that could replace the partial path portion of
+        the input.  Empty when not in a file-directive context.
+    """
+    prefix_up_to_cursor = line[:cursor]
+
+    partial = ""
+    for directive_prefix in _FILE_ARG_DIRECTIVES:
+        if prefix_up_to_cursor.startswith(directive_prefix):
+            partial = prefix_up_to_cursor[len(directive_prefix):]
+            break
+    else:
+        return []
+
+    is_absolute = partial.startswith("/")
+
+    # Determine which directory to scan and what stem to filter on.
+    if partial == "" or partial.endswith("/"):
+        # Complete directory contents.
+        if is_absolute:
+            search_dir = Path(partial) if partial else Path("/")
+        else:
+            search_dir = (cwd / partial).resolve() if partial else cwd
+        stem = ""
+    else:
+        partial_path = Path(partial)
+        if is_absolute:
+            search_dir = partial_path.parent
+            stem = partial_path.name
+        else:
+            search_dir = (cwd / partial_path.parent).resolve()
+            stem = partial_path.name
+
+    try:
+        raw_entries = sorted(search_dir.iterdir(), key=lambda e: (e.is_file(), e.name))
+    except OSError:
+        return []
+
+    matching = [e for e in raw_entries if e.name.startswith(stem)]
+
+    results: list[str] = []
+    for entry in matching:
+        suffix = "/" if entry.is_dir() else ""
+        if is_absolute:
+            results.append(str(entry) + suffix)
+        else:
+            try:
+                rel = entry.relative_to(cwd)
+                results.append(str(rel) + suffix)
+            except ValueError:
+                results.append(str(entry) + suffix)
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -83,29 +190,46 @@ def _parse_directive(
 
     Returns one of:
 
-    * ``(name, arg, None)``  — valid directive; *name* is the bare name
-      (without ``#``), *arg* is the filename argument or ``None``.
+    * ``(name, arg, None)``       — valid directive; *name* is the bare name
+      (no leading ``#``), *arg* is the filename or ``None``.
     * ``(None, None, error_msg)`` — malformed or forbidden directive syntax.
-    * ``None`` — *text* is not a directive at all (treat as Python source).
+    * ``None``                    — not a directive (normal Python source/comment).
 
-    Only exact supported patterns are recognised as directives. Everything
-    else that starts with ``#`` remains normal Python source/comment.
+    Directive argument rules
+    ------------------------
+    * ``#open`` requires a filename argument.
+    * ``#save`` and ``#show`` accept an optional filename argument.
+    * ``#exit``, ``#help``, ``#run``, ``#clear``, ``#reset`` take no arguments.
+    * Shell redirection tokens ``>`` and ``<`` are forbidden inside arguments.
+    * ``#echo`` is explicitly rejected with a readable error.
+    * Any other ``#...`` token is treated as a Python comment (returns ``None``).
     """
     stripped = text.strip()
     if not stripped.startswith("#"):
         return None
 
     parts = stripped.split(None, 1)
-    token: str = parts[0]           # e.g. "#exit", "#open", "#save"
+    token: str = parts[0]
     rest: str = parts[1].strip() if len(parts) > 1 else ""
 
+    # --- exact directives (no argument needed) ---
     if token in _EXACT_DIRECTIVES:
-        # These directives take no arguments; extra trailing content is ignored
-        # for user convenience (except that we still distinguish them from
-        # Python comments by the exact token match).
         return (token[1:], None, None)
 
-    if token in _FILE_DIRECTIVES:
+    # --- optional-argument directives ---
+    if token in _OPT_ARG_DIRECTIVES:
+        if rest and (">" in rest or "<" in rest):
+            return (
+                None,
+                None,
+                f"{token}: shell redirection syntax is not supported; "
+                f"use: {token} [filename]",
+            )
+        filename: str | None = rest.split()[0] if rest else None
+        return (token[1:], filename, None)
+
+    # --- required-argument directives ---
+    if token in _REQ_ARG_DIRECTIVES:
         if not rest:
             return (None, None, f"usage: {token} <filename>")
         if ">" in rest or "<" in rest:
@@ -115,10 +239,9 @@ def _parse_directive(
                 f"{token}: shell redirection syntax is not supported; "
                 f"use: {token} <filename>",
             )
-        # Use only the first whitespace-delimited word as the filename.
-        filename = rest.split()[0]
-        return (token[1:], filename, None)
+        return (token[1:], rest.split()[0], None)
 
+    # --- explicitly forbidden ---
     if token in _FORBIDDEN_DIRECTIVES:
         return (
             None,
@@ -127,7 +250,7 @@ def _parse_directive(
             "use Python's built-in print() or open() instead",
         )
 
-    # Unknown hash-prefixed token — ordinary Python comment or code.
+    # Unknown hash-prefixed token — ordinary Python comment.
     return None
 
 
@@ -138,29 +261,45 @@ def _parse_directive(
 class PythonCommandMode:
     """Interactive Python Command Execution Layer for PySH.
 
-    All I/O dependencies are injectable so the mode can be unit-tested
-    without a real terminal or PTY.
+    The mode maintains an *active edit workspace*:
+
+    * ``_buffer``      — Python source lines (the editable buffer).
+    * ``_active_file`` — resolved :class:`~pathlib.Path` of the currently
+      open/saved file, or ``None``.
+    * ``_runtime``     — persistent :class:`~pysh.python_runtime.PythonRuntime`.
+
+    Workspace state rules
+    ---------------------
+    * ``#open file``  sets ``_active_file``.
+    * ``#save file``  sets ``_active_file``.
+    * ``#save``       requires ``_active_file`` (errors if unset).
+    * ``#clear``      clears ``_buffer``; keeps ``_active_file`` and runtime.
+    * ``#reset``      clears ``_buffer``, clears ``_active_file``, resets runtime.
+    * ``#show file``  reads a file for display only; never touches ``_buffer``
+      or ``_active_file``.
+
+    All I/O dependencies are injectable for deterministic unit tests.
 
     Parameters
     ----------
     runtime:
-        The :class:`~pysh.python_runtime.PythonRuntime` instance to use.
-        When *None* a fresh instance is created per session; its state is
-        independent from the ``py`` builtin's runtime.
+        :class:`~pysh.python_runtime.PythonRuntime` instance.  When *None*
+        a fresh session-local instance is created (independent of the ``py``
+        builtin runtime).
     input_source:
-        An iterable of pre-supplied input lines used instead of ``input()``.
-        Each element is one logical line (no trailing newline required).
-        When exhausted, EOF / ``#exit`` semantics apply.
+        Iterable of pre-supplied lines used instead of ``input()``.
+        Exhaustion triggers EOF / ``#exit`` semantics.  When provided,
+        visual padding is automatically disabled.
     out_stream:
-        Destination for mode-level output (banners, help, ``#show``,
-        ``opened:`` / ``saved:`` messages).  Defaults to ``sys.stdout``.
+        Destination for mode-level output.  Defaults to ``sys.stdout``.
     err_stream:
-        Destination for mode-level errors (directive errors, file errors).
-        Defaults to ``sys.stderr``.  Python runtime exceptions are sent to
-        the same stream when *runtime* is created internally.
+        Destination for mode-level errors.  Defaults to ``sys.stderr``.
     cwd_provider:
-        Zero-argument callable returning the current :class:`~pathlib.Path`.
+        Zero-argument callable returning the current working directory.
         Defaults to :func:`pathlib.Path.cwd`.
+    visual_padding_lines:
+        Number of blank lines printed below the prompt in interactive mode.
+        Automatically set to 0 when *input_source* is provided (test mode).
     """
 
     def __init__(
@@ -171,11 +310,10 @@ class PythonCommandMode:
         out_stream: IO[str] | None = None,
         err_stream: IO[str] | None = None,
         cwd_provider: Callable[[], Path] | None = None,
+        visual_padding_lines: int = 2,
     ) -> None:
         self._out: IO[str] = out_stream if out_stream is not None else sys.stdout
         self._err: IO[str] = err_stream if err_stream is not None else sys.stderr
-        # Pass the same err_stream to the runtime so all error output is
-        # captured by the same stream in tests.
         self._runtime: PythonRuntime = (
             runtime
             if runtime is not None
@@ -187,32 +325,31 @@ class PythonCommandMode:
         self._cwd_provider: Callable[[], Path] = (
             cwd_provider if cwd_provider is not None else Path.cwd
         )
-        # Source buffer — stores Python source lines only (no prompts,
-        # no tracebacks, no directive lines).
+        # Active edit workspace state.
         self._buffer: list[str] = []
+        self._active_file: Path | None = None
+        # Disable visual padding in test/scripted mode (input_source provided).
+        self._visual_padding_lines: int = (
+            0 if input_source is not None else max(0, visual_padding_lines)
+        )
 
     # ------------------------------------------------------------------
     # Public entry point
     # ------------------------------------------------------------------
 
     def run(self) -> int:
-        """Run the interactive Python command loop.
-
-        Reads lines until the user types ``#exit`` or sends EOF at the
-        primary prompt.  Returns 0.
-        """
+        """Run the interactive Python command loop until ``#exit`` or EOF."""
         self._print_banner()
 
         at_primary = True
-        # Lines being accumulated for the current (possibly multi-line) block.
         pending: list[str] = []
 
         while True:
+            self._print_visual_padding()
             try:
                 line = self._read_line(at_primary)
             except EOFError:
                 if at_primary:
-                    # Ctrl+D at primary prompt → exit Python mode.
                     print("", file=self._out)
                     break
                 # Ctrl+D during continuation → cancel incomplete block.
@@ -235,14 +372,12 @@ class PythonCommandMode:
                     break
                 if action is _DIRECTIVE_HANDLED:
                     continue
-                # _DIRECTIVE_NOT_FOUND → fall through to runtime execution.
 
-            # Feed the line to the runtime.
+            # Feed the line to the Python runtime.
             pending.append(line)
             try:
                 more, status = self._runtime.push_interactive(line)
             except SystemExit:
-                # sys.exit() from user code exits Python mode, not PySH.
                 break
             except KeyboardInterrupt:
                 print("", file=self._out)
@@ -255,8 +390,6 @@ class PythonCommandMode:
                 at_primary = False
             else:
                 at_primary = True
-                # Append real source lines to the buffer (skip blank-only blocks
-                # and syntax-error lines).
                 if status != 2 and any(ln.strip() for ln in pending):
                     self._buffer.extend(pending)
                 pending.clear()
@@ -268,10 +401,10 @@ class PythonCommandMode:
     # ------------------------------------------------------------------
 
     def _dispatch_directive(self, line: str) -> object:
-        """Try to handle *line* as a Python-mode directive.
+        """Try to handle *line* as a directive.
 
-        Returns one of the three module-level sentinels:
-        ``_DIRECTIVE_EXIT``, ``_DIRECTIVE_HANDLED``, ``_DIRECTIVE_NOT_FOUND``.
+        Returns one of ``_DIRECTIVE_EXIT``, ``_DIRECTIVE_HANDLED``, or
+        ``_DIRECTIVE_NOT_FOUND``.
         """
         parsed = _parse_directive(line)
         if parsed is None:
@@ -290,11 +423,13 @@ class PythonCommandMode:
         elif name == "open":
             self._handle_open(arg)  # type: ignore[arg-type]
         elif name == "save":
-            self._handle_save(arg)  # type: ignore[arg-type]
+            self._handle_save(arg)
         elif name == "show":
-            self._handle_show()
+            self._handle_show(arg)
         elif name == "run":
             self._handle_run()
+        elif name == "clear":
+            self._handle_clear()
         elif name == "reset":
             self._handle_reset()
 
@@ -305,8 +440,8 @@ class PythonCommandMode:
     # ------------------------------------------------------------------
 
     def _handle_open(self, filename: str) -> int:
-        """Load *filename* into the source buffer without executing it."""
-        path = self._cwd_provider() / filename
+        """Load *filename* into the source buffer and set ``active_file``."""
+        path = self._resolve_path(filename)
         if path.is_dir():
             print(f"pysh(py): #open: {filename}: is a directory", file=self._err)
             return 1
@@ -315,41 +450,94 @@ class PythonCommandMode:
         except FileNotFoundError:
             print(f"pysh(py): #open: {filename}: no such file", file=self._err)
             return 1
+        except PermissionError:
+            print(f"pysh(py): #open: {filename}: permission denied", file=self._err)
+            return 1
+        except UnicodeDecodeError as exc:
+            print(f"pysh(py): #open: {filename}: decode error: {exc}", file=self._err)
+            return 1
         except OSError as exc:
             print(f"pysh(py): #open: {filename}: {exc}", file=self._err)
             return 1
         self._buffer = content.splitlines()
+        self._active_file = path
         print(f"opened: {filename}", file=self._out)
         return 0
 
-    def _handle_save(self, filename: str) -> int:
-        """Write the source buffer to *filename* (UTF-8, trailing newline)."""
-        path = self._cwd_provider() / filename
-        if path.is_dir():
-            print(f"pysh(py): #save: {filename}: is a directory", file=self._err)
+    def _handle_save(self, filename: str | None) -> int:
+        """Write the source buffer to *filename* or to ``active_file``.
+
+        * ``#save``         — writes to ``active_file``; errors if unset.
+        * ``#save file.py`` — writes to *file.py* and sets ``active_file``.
+        """
+        if filename is None:
+            if self._active_file is None:
+                print(
+                    "pysh(py): no active file; use #save file.py",
+                    file=self._err,
+                )
+                return 1
+            target = self._active_file
+            display = str(self._active_file.name)
+        else:
+            target = self._resolve_path(filename)
+            display = filename
+
+        if target.is_dir():
+            print(f"pysh(py): #save: {display}: is a directory", file=self._err)
             return 1
+
         source = "\n".join(self._buffer)
-        # Always end with a newline even for an empty buffer.
         if not source.endswith("\n"):
             source += "\n"
         try:
-            path.write_text(source, encoding="utf-8")
+            target.write_text(source, encoding="utf-8")
         except OSError as exc:
-            print(f"pysh(py): #save: {filename}: {exc}", file=self._err)
+            print(f"pysh(py): #save: {display}: {exc}", file=self._err)
             return 1
-        print(f"saved: {filename}", file=self._out)
+
+        if filename is not None:
+            self._active_file = target
+        print(f"saved: {display}", file=self._out)
         return 0
 
-    def _handle_show(self) -> None:
-        """Print the source buffer with line numbers."""
-        if not self._buffer:
-            print("buffer empty", file=self._out)
+    def _handle_show(self, filename: str | None) -> None:
+        """Show the active buffer (``#show``) or a file's contents (``#show file``).
+
+        ``#show`` without argument prints the source buffer with line numbers.
+        ``#show file.py`` prints the file content verbatim (like ``cat``).
+        Neither form modifies ``_buffer`` or ``_active_file``.
+        """
+        if filename is None:
+            # Show the active edit buffer.
+            if not self._buffer:
+                print("buffer empty", file=self._out)
+                return
+            for i, ln in enumerate(self._buffer, 1):
+                print(f"{i} | {ln}", file=self._out)
             return
-        for i, ln in enumerate(self._buffer, 1):
-            print(f"{i} | {ln}", file=self._out)
+
+        # Show a file (read-only, no buffer/active_file modification).
+        path = self._resolve_path(filename)
+        if path.is_dir():
+            print(f"pysh(py): #show: {filename}: is a directory", file=self._err)
+            return
+        try:
+            content = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            print(f"pysh(py): #show: {filename}: no such file", file=self._err)
+            return
+        except PermissionError:
+            print(f"pysh(py): #show: {filename}: permission denied", file=self._err)
+            return
+        except OSError as exc:
+            print(f"pysh(py): #show: {filename}: {exc}", file=self._err)
+            return
+        # Print plain file content (no line numbers for cat-style display).
+        print(content, end="" if content.endswith("\n") else "\n", file=self._out)
 
     def _handle_run(self) -> int:
-        """Execute the source buffer in the active runtime."""
+        """Execute the source buffer with exec semantics."""
         if not self._buffer:
             return 0
         source = "\n".join(self._buffer)
@@ -361,22 +549,44 @@ class PythonCommandMode:
             print("\nKeyboardInterrupt", file=self._err)
             return 130
 
-    def _handle_reset(self) -> None:
-        """Clear the source buffer and recreate the runtime namespace."""
+    def _handle_clear(self) -> None:
+        """Clear the source buffer and any incomplete input unit.
+
+        Keeps ``active_file`` and runtime globals intact.
+        """
         self._buffer.clear()
+        self._runtime.clear_input_buffer()
+        print("buffer cleared", file=self._out)
+
+    def _handle_reset(self) -> None:
+        """Full workspace reset: clears buffer, active_file, and runtime globals."""
+        self._buffer.clear()
+        self._active_file = None
         self._runtime.reset()
+        print("workspace reset", file=self._out)
+
+    # ------------------------------------------------------------------
+    # Path resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_path(self, arg: str) -> Path:
+        """Resolve *arg* to an absolute :class:`~pathlib.Path`.
+
+        Absolute paths (starting with ``/``) are used as-is (after resolving
+        symlinks).  Relative paths are anchored to the current PySH working
+        directory.
+        """
+        p = Path(arg)
+        if p.is_absolute():
+            return p.resolve()
+        return (self._cwd_provider() / p).resolve()
 
     # ------------------------------------------------------------------
     # I/O helpers
     # ------------------------------------------------------------------
 
     def _read_line(self, at_primary: bool) -> str:
-        """Read one input line.
-
-        When an ``input_source`` was injected (test mode), pulls from the
-        iterator and raises ``EOFError`` on exhaustion.  Otherwise calls
-        ``input()`` with the appropriate prompt.
-        """
+        """Read one input line from the injected source or ``input()``."""
         prompt = _PROMPT_PRIMARY if at_primary else _PROMPT_CONTINUATION
         if self._input_iter is not None:
             try:
@@ -384,6 +594,17 @@ class PythonCommandMode:
             except StopIteration:
                 raise EOFError from None
         return input(prompt)
+
+    def _print_visual_padding(self) -> None:
+        """Print blank lines below the prompt in interactive mode.
+
+        Only active in real interactive mode (``_input_iter is None``).
+        The number of lines is controlled by ``_visual_padding_lines``.
+        Automatically suppressed in test/scripted mode.
+        """
+        if self._visual_padding_lines > 0 and self._input_iter is None:
+            for _ in range(self._visual_padding_lines):
+                print(file=self._out)
 
     def _print_banner(self) -> None:
         vi = sys.version_info
@@ -397,22 +618,31 @@ class PythonCommandMode:
             "\n"
             "  #exit           Exit Python command mode.\n"
             "  #help           Show this help.\n"
-            "  #open <file>    Load a Python source file into the buffer.\n"
-            "  #save <file>    Save the source buffer to a file.\n"
-            "  #show           Display the source buffer with line numbers.\n"
+            "  #open <file>    Open a Python file into the editable buffer.\n"
+            "  #save [file]    Save the buffer to the active file or a new file.\n"
+            "  #show [file]    Show the active buffer, or print a file like cat.\n"
             "  #run            Execute the source buffer.\n"
-            "  #reset          Clear the buffer and reset the runtime.\n"
+            "  #clear          Clear the current edit buffer.\n"
+            "  #reset          Clear buffer, active file, and reset the runtime.\n"
             "\n"
-            "  TAB             Insert four spaces.\n"
+            "  TAB             Insert four spaces (inside Python code).\n"
             "  Ctrl+D          Exit (same as #exit).\n"
             "  Ctrl+C          Cancel current input.\n"
+            "\n"
+            "Path completion is available for #open, #save, and #show.\n"
+            "TAB inside Python code inserts four spaces.\n"
             "\n"
             "Normal Python code is executed interactively.\n"
             "Lines starting with # that are not exact directives are\n"
             "treated as Python comments.\n"
             "\n"
+            "Active file workflow:\n"
+            "  #open main.py   (load file into buffer, sets active file)\n"
+            "  # ... edit interactively ...\n"
+            "  #save           (save back to the same active file)\n"
+            "\n"
             "Clean file execution workflow:\n"
-            "  #reset          (clear previous state)\n"
+            "  #reset          (clear all state)\n"
             "  #open main.py   (load source into buffer)\n"
             "  #run            (execute the buffer)\n"
         )
