@@ -43,6 +43,7 @@ from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import IO
 
+from pysh.python_highlight import PythonSyntaxRenderer
 from pysh.python_runtime import PythonRuntime
 
 # ---------------------------------------------------------------------------
@@ -64,7 +65,7 @@ _DIRECTIVE_NOT_FOUND = object()  # not a directive — treat as Python source
 # Exact directives take no arguments (extra trailing text is ignored).
 # NOTE: #run is intentionally excluded — it has strict no-arg enforcement.
 _EXACT_DIRECTIVES: frozenset[str] = frozenset(
-    {"#exit", "#help", "#clear", "#reset", "#append"}
+    {"#exit", "#help", "#clear", "#reset", "#append", "#edit"}
 )
 # Optional-argument directives: bare form is valid; filename form is also valid.
 _OPT_ARG_DIRECTIVES: frozenset[str] = frozenset({"#save", "#show"})
@@ -434,6 +435,9 @@ class PythonCommandMode:
         self._active_file: Path | None = None
         self._edit_mode: bool = False
         self._pending_edit: _PendingEdit | None = None
+        # Syntax renderer — disabled for non-TTY streams automatically.
+        # Tests use StringIO (not a TTY) so they get plain output by default.
+        self._renderer = PythonSyntaxRenderer(stream=self._out)
         # Visual padding: auto-disabled in test/scripted mode.
         self._visual_padding_lines: int = (
             0 if input_source is not None else max(0, visual_padding_lines)
@@ -562,6 +566,8 @@ class PythonCommandMode:
             self._handle_show(arg)
         elif name == "run":
             self._handle_run()
+        elif name == "edit":
+            self._handle_edit()
         elif name == "append":
             self._handle_append()
         elif name == "insert":
@@ -650,15 +656,19 @@ class PythonCommandMode:
         """Show the active buffer (``#show``) or a file's contents (``#show f``).
 
         ``#show`` is read-only: it never modifies ``_buffer`` or ``_active_file``.
+        Source buffer lines are rendered with syntax highlighting when available.
+        ANSI escape sequences are only in the terminal output — the buffer stays clean.
         """
         if filename is None:
             if not self._buffer:
                 print("buffer empty", file=self._out)
                 return
             for i, ln in enumerate(self._buffer, 1):
-                print(f"{i} | {ln}", file=self._out)
+                hl = self._renderer.render_line(ln)
+                print(f"{i} | {hl}", file=self._out)
             return
 
+        # File display (cat-style, read-only).
         path = self._resolve_path(filename)
         if path.is_dir():
             print(f"pysh(py): #show: {filename}: is a directory", file=self._err)
@@ -674,7 +684,30 @@ class PythonCommandMode:
         except OSError as exc:
             print(f"pysh(py): #show: {filename}: {exc}", file=self._err)
             return
-        print(content, end="" if content.endswith("\n") else "\n", file=self._out)
+        # Render the file content with syntax highlighting.
+        # rstrip the trailing newline before rendering so Pygments does not
+        # double-up; print() adds the final newline.
+        rendered = self._renderer.render_code(content.rstrip("\n"))
+        print(rendered, file=self._out)
+
+    def _handle_edit(self) -> None:
+        """Render the active buffer with full Python syntax highlighting.
+
+        ``#edit`` is a read-only view command that displays the source buffer
+        with syntax highlighting applied.  It never modifies ``_buffer``,
+        ``_active_file``, or any file.  The ANSI escape sequences are only in
+        the terminal output — the buffer and saved files remain clean.
+
+        This is distinct from ``#show``:
+        * ``#show`` displays the buffer with line numbers.
+        * ``#edit`` displays the buffer as highlighted source (no line numbers).
+        """
+        if not self._buffer:
+            print("buffer empty", file=self._out)
+            return
+        source = "\n".join(self._buffer)
+        rendered = self._renderer.render_code(source)
+        print(rendered, file=self._out)
 
     def _handle_run(self) -> int:
         """Execute the source buffer with exec semantics (no expression echoing)."""
@@ -904,7 +937,8 @@ class PythonCommandMode:
             "  #help              Show this help.\n"
             "  #open <file>       Open a Python file into edit mode.\n"
             "  #save [file]       Save the active edit buffer.\n"
-            "  #show [file]       Show active buffer or print file contents.\n"
+            "  #show [file]       Show active buffer (numbered) or print file like cat.\n"
+            "  #edit              Show active buffer with full syntax highlighting.\n"
             "  #run               Execute the active edit buffer.\n"
             "  #clear             Clear the active edit buffer.\n"
             "  #reset             Reset buffer, active file, and runtime state.\n"
@@ -918,6 +952,12 @@ class PythonCommandMode:
             "  TAB                Insert four spaces (inside Python code).\n"
             "  Ctrl+D             Exit (same as #exit).\n"
             "  Ctrl+C             Cancel current input.\n"
+            "\n"
+            "Syntax highlighting:\n"
+            "  Python source shown in #py mode is syntax-highlighted when\n"
+            "  terminal color is enabled and Pygments is installed.\n"
+            "  Highlighting applies to #show, #show file.py, and #edit.\n"
+            "  Highlighting is visual only and is never saved to files.\n"
             "\n"
             "Path completion is available for #open, #save, and #show.\n"
             "TAB inside Python code inserts four spaces.\n"

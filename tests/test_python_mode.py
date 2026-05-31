@@ -1462,7 +1462,8 @@ class TestBufferPoisoning:
 
 class TestDirectiveErrors:
     def test_unknown_hash_directive_error(self) -> None:
-        mode, out, err = _mode(["#edit", "#exit"])
+        # #edit is now valid; use a truly unknown directive
+        mode, out, err = _mode(["#xyzzy", "#exit"])
         mode.run()
         assert "unknown" in err.getvalue().lower()
 
