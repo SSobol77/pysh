@@ -1467,7 +1467,7 @@ class TestDirectiveErrors:
         assert "unknown" in err.getvalue().lower()
 
     def test_unknown_directive_mentions_help(self) -> None:
-        mode, out, err = _mode(["#delete", "#exit"])
+        mode, out, err = _mode(["#foobar", "#exit"])
         mode.run()
         assert "help" in err.getvalue().lower()
 
@@ -1507,3 +1507,380 @@ class TestDirectiveErrors:
         mode.run()
         assert err.getvalue() == ""
         assert "2" in capsys.readouterr().out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Edit mode state: #open sets _edit_mode, prompt context
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestEditMode:
+    def test_open_sets_edit_mode(self, tmp_path: Path) -> None:
+        script = tmp_path / "a.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(["#open a.py", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._edit_mode is True
+
+    def test_open_reports_editing_filename(self, tmp_path: Path) -> None:
+        script = tmp_path / "a.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(["#open a.py", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert "editing: a.py" in out.getvalue()
+
+    def test_save_with_filename_sets_edit_mode(self, tmp_path: Path) -> None:
+        mode, out, err = _mode(["x = 1", "#save out.py", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._edit_mode is True
+
+    def test_clear_keeps_edit_mode(self, tmp_path: Path) -> None:
+        script = tmp_path / "e.py"
+        script.write_text("pass\n", encoding="utf-8")
+        mode, out, err = _mode(["#open e.py", "#clear", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._edit_mode is True
+
+    def test_reset_clears_edit_mode(self, tmp_path: Path) -> None:
+        script = tmp_path / "e.py"
+        script.write_text("pass\n", encoding="utf-8")
+        mode, out, err = _mode(["#open e.py", "#reset", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert mode._edit_mode is False
+
+    def test_edit_mode_prompt_differs(self, tmp_path: Path) -> None:
+        script = tmp_path / "prog.py"
+        script.write_text("pass\n", encoding="utf-8")
+        mode, out, err = _mode(["#open prog.py", "#exit"], cwd=tmp_path)
+        mode.run()
+        # In edit mode the primary prompt includes the filename.
+        prompt = mode._get_primary_prompt()
+        assert "prog.py" in prompt
+        assert "edit" in prompt
+
+    def test_no_edit_mode_prompt_is_default(self) -> None:
+        mode, out, err = _mode(["#exit"])
+        mode.run()
+        from pysh.python_mode import _PROMPT_PRIMARY
+        assert mode._get_primary_prompt() == _PROMPT_PRIMARY
+
+    def test_python_source_after_open_appends_to_buffer(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        script = tmp_path / "b.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open b.py", "y = 2", "#show", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        show_text = out.getvalue()
+        assert "y = 2" in show_text  # appended to buffer after #open
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #insert directive
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestInsert:
+    def test_insert_before_first_line(self, tmp_path: Path) -> None:
+        script = tmp_path / "ins.py"
+        script.write_text("b = 2\nc = 3\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open ins.py", "#insert 1", "a = 1", "#show", "#exit"],
+            cwd=tmp_path,
+        )
+        mode.run()
+        text = out.getvalue()
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        assert lines[0] == "a = 1"
+        assert lines[1] == "b = 2"
+
+    def test_insert_at_end_appends(self, tmp_path: Path) -> None:
+        script = tmp_path / "ins2.py"
+        script.write_text("a = 1\nb = 2\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open ins2.py", "#insert 3", "c = 3", "#show", "#exit"],
+            cwd=tmp_path,
+        )
+        mode.run()
+        text = out.getvalue()
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        assert lines[-1] == "c = 3"
+
+    def test_insert_invalid_line_reports_error(self, tmp_path: Path) -> None:
+        script = tmp_path / "ins3.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open ins3.py", "#insert 99", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        assert "out of range" in err.getvalue().lower()
+
+    def test_insert_non_integer_reports_error(self, tmp_path: Path) -> None:
+        script = tmp_path / "ins4.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open ins4.py", "#insert abc", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        assert err.getvalue() != ""
+
+    def test_insert_multiline_block(self, tmp_path: Path) -> None:
+        script = tmp_path / "ins5.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        # Insert a two-line def block before line 1
+        mode, out, err = _mode(
+            ["#open ins5.py", "#insert 1", "def f():", "    return 42", "", "#show", "#exit"],
+            cwd=tmp_path,
+        )
+        mode.run()
+        text = out.getvalue()
+        assert "def f():" in text
+        assert "    return 42" in text
+
+    def test_insert_content_not_auto_executed(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        script = tmp_path / "ins6.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open ins6.py", "#insert 1", 'print("AUTORUN")', "#exit"],
+            cwd=tmp_path,
+        )
+        mode.run()
+        assert "AUTORUN" not in capsys.readouterr().out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #replace directive
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestReplace:
+    def test_replace_first_line(self, tmp_path: Path) -> None:
+        script = tmp_path / "rep.py"
+        script.write_text("old = 1\nb = 2\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open rep.py", "#replace 1", "new = 99", "#show", "#exit"],
+            cwd=tmp_path,
+        )
+        mode.run()
+        text = out.getvalue()
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        assert lines[0] == "new = 99"
+        assert not any("old" in ln for ln in lines)
+
+    def test_replace_invalid_line_reports_error(self, tmp_path: Path) -> None:
+        script = tmp_path / "rep2.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open rep2.py", "#replace 99", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        assert "out of range" in err.getvalue().lower()
+
+    def test_replace_empty_buffer_reports_error(self) -> None:
+        mode, out, err = _mode(["#replace 1", "#exit"])
+        mode.run()
+        assert "empty" in err.getvalue().lower()
+
+    def test_replace_content_not_auto_executed(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        script = tmp_path / "rep3.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open rep3.py", "#replace 1", 'print("AUTORUN")', "#exit"],
+            cwd=tmp_path,
+        )
+        mode.run()
+        assert "AUTORUN" not in capsys.readouterr().out
+
+    def test_replace_full_workflow(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        script = tmp_path / "wf.py"
+        script.write_text('print("original")\n', encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open wf.py", "#replace 1", 'print("replaced")', "#run", "#exit"],
+            cwd=tmp_path,
+        )
+        mode.run()
+        assert "replaced" in capsys.readouterr().out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #delete directive
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestDelete:
+    def test_delete_single_line(self, tmp_path: Path) -> None:
+        script = tmp_path / "del.py"
+        script.write_text("a = 1\nb = 2\nc = 3\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open del.py", "#delete 2", "#show", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        text = out.getvalue()
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        assert lines == ["a = 1", "c = 3"]
+
+    def test_delete_first_line(self, tmp_path: Path) -> None:
+        script = tmp_path / "del2.py"
+        script.write_text("a = 1\nb = 2\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open del2.py", "#delete 1", "#show", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        text = out.getvalue()
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        assert lines[0] == "b = 2"
+
+    def test_delete_inclusive_range(self, tmp_path: Path) -> None:
+        script = tmp_path / "del3.py"
+        script.write_text("a = 1\nb = 2\nc = 3\nd = 4\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open del3.py", "#delete 2:3", "#show", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        text = out.getvalue()
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        assert lines == ["a = 1", "d = 4"]
+
+    def test_delete_invalid_line_reports_error(self, tmp_path: Path) -> None:
+        script = tmp_path / "del4.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open del4.py", "#delete 99", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        assert "out of range" in err.getvalue().lower()
+
+    def test_delete_invalid_range_reports_error(self, tmp_path: Path) -> None:
+        script = tmp_path / "del5.py"
+        script.write_text("x = 1\ny = 2\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open del5.py", "#delete 5:10", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        assert err.getvalue() != ""
+
+    def test_delete_empty_buffer_reports_error(self) -> None:
+        mode, out, err = _mode(["#delete 1", "#exit"])
+        mode.run()
+        assert "empty" in err.getvalue().lower()
+
+    def test_delete_does_not_execute_python(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        script = tmp_path / "del6.py"
+        script.write_text('print("SIDE_EFFECT")\nx = 1\n', encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open del6.py", "#delete 1", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        assert "SIDE_EFFECT" not in capsys.readouterr().out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #run executes edited buffer
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestRunEditedBuffer:
+    def test_run_after_replace(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        script = tmp_path / "r.py"
+        script.write_text('print("before")\n', encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open r.py", "#replace 1", 'print("after")', "#run", "#exit"],
+            cwd=tmp_path,
+        )
+        mode.run()
+        assert "after" in capsys.readouterr().out
+
+    def test_run_after_insert(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        script = tmp_path / "r2.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open r2.py", "#insert 2", "print(x)", "#run", "#exit"],
+            cwd=tmp_path,
+        )
+        mode.run()
+        assert "1" in capsys.readouterr().out
+
+    def test_run_after_delete(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        script = tmp_path / "r3.py"
+        script.write_text('print("keep")\nraise RuntimeError("del")\n', encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open r3.py", "#delete 2", "#run", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        assert "keep" in capsys.readouterr().out
+        assert "RuntimeError" not in err.getvalue()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #append directive
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestAppend:
+    def test_append_prints_mode_message(self) -> None:
+        mode, out, err = _mode(["#append", "#exit"])
+        mode.run()
+        assert "append" in out.getvalue().lower()
+
+    def test_append_keeps_mode_alive(self) -> None:
+        mode, out, err = _mode(["#append", "#exit"])
+        assert mode.run() == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# #help includes edit mode commands
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestHelpEditMode:
+    def _help_text(self) -> str:
+        mode, out, err = _mode(["#help", "#exit"])
+        mode.run()
+        return out.getvalue()
+
+    def test_help_has_insert(self) -> None:
+        assert "#insert" in self._help_text()
+
+    def test_help_has_replace(self) -> None:
+        assert "#replace" in self._help_text()
+
+    def test_help_has_delete(self) -> None:
+        assert "#delete" in self._help_text()
+
+    def test_help_has_append(self) -> None:
+        assert "#append" in self._help_text()
+
+    def test_help_mentions_edit_mode(self) -> None:
+        text = self._help_text()
+        assert "edit mode" in text.lower() or "edit" in text.lower()
+
+    def test_help_mentions_save_to_write_back(self) -> None:
+        assert "#save" in self._help_text()
+
+    def test_help_shows_delete_range_syntax(self) -> None:
+        text = self._help_text()
+        assert "a>:<b>" in text or "<a>:<b>" in text or "delete <a>:<b>" in text.lower()
+
+    def test_show_file_still_catlike(self, tmp_path: Path) -> None:
+        f = tmp_path / "cat.py"
+        f.write_text("cat_content = True\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["x = 1", "#show cat.py", "#show", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        text = out.getvalue()
+        # #show cat.py prints file content
+        assert "cat_content" in text
+        # Active buffer (#show no arg) shows the interactive "x = 1", not cat content
+        numbered = [ln for ln in text.splitlines() if " | " in ln]
+        assert any("x = 1" in ln for ln in numbered)
+        assert not any("cat_content" in ln for ln in numbered)
