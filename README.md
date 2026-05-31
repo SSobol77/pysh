@@ -177,7 +177,7 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 - [Release process](https://github.com/SSobol77/pysh/blob/main/docs/release.md) — how PySH ships via GitHub Actions and PyPI Trusted Publishing.
 - [System profile](https://github.com/SSobol77/pysh/blob/main/docs/system-profile.md) — `sys_info`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search`.
 - [Command planning](https://github.com/SSobol77/pysh/blob/main/docs/command-planning.md) — `plan <command...>`, the advisory classifier.
-- [Sensitive input](https://github.com/SSobol77/pysh/blob/main/docs/security-sensitive-input.md) — security boundary for password/passphrase prompts and reserved inert indicator configuration.
+- [Sensitive input](https://github.com/SSobol77/pysh/blob/main/docs/security-sensitive-input.md) — security boundary for password/passphrase prompts and the explicit `secure <cmd>` PTY runner.
 - [Packaging](https://github.com/SSobol77/pysh/blob/main/docs/packaging.md) — PyPI / `.deb` / `.rpm` artifact naming contract and build scripts.
 - [Limitations](https://github.com/SSobol77/pysh/blob/main/docs/limitations.md) — explicit non-goals and compatibility boundaries.
 - [Documentation policy](https://github.com/SSobol77/pysh/blob/main/docs/documentation-policy.md) — required coverage for new commands, parser behavior, migration helpers and limitations.
@@ -189,8 +189,8 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 For normal external commands such as `sudo`, `ssh`, `su`, and `gpg`, PySH does
 not intercept, read, count, store, log, or buffer password bytes. Those programs
 continue to read secrets directly from the controlling terminal. A keypress
-indicator for such prompts is therefore reserved for a possible future explicit
-PTY wrapper only, not ordinary command execution.
+indicator for such prompts is therefore available only through the explicit
+`secure <cmd>` PTY wrapper, not ordinary command execution.
 
 See [Sensitive input security boundary](https://github.com/SSobol77/pysh/blob/main/docs/security-sensitive-input.md).
 
@@ -210,6 +210,7 @@ documented.
 | `unalias`  | Remove one or more aliases.                              |
 | `export`   | Define or display exported environment vars.             |
 | `source`   | Execute commands from a file (also `.`).                 |
+| `secure`   | Explicit PTY runner for one command; never auto-wraps sudo/ssh/su/gpg. |
 | `source_zsh` | Safely import simple aliases from a zsh-compatible file. |
 | `source_zsh_profile` | Statically import simple zsh profile entries. |
 | `source_sh_aliases` | Statically import simple sh/bash aliases and vars. |

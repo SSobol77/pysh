@@ -39,7 +39,7 @@ color based on whether a secret is valid.
 
 PySH does not proxy, wrap, or mediate ordinary external commands automatically.
 Commands such as `sudo`, `ssh`, `su`, and `gpg` inherit the terminal unchanged
-unless the user explicitly invokes a future wrapper designed for that purpose.
+unless the user explicitly invokes `secure <cmd>`.
 
 PySH does not use `sudo -S`, parse prompts such as `[sudo] password`, or
 auto-wrap `sudo`.
@@ -65,27 +65,41 @@ new password-path component and therefore a new high-value failure mode.
 As a result, PySH cannot and must not show a keypress indicator for ordinary
 `sudo`, `ssh`, `su`, `gpg`, or similar commands.
 
-## Only Safe Future Direction
+## Explicit `secure <cmd>` Wrapper
 
-The only acceptable future design is an explicit user-invoked PTY wrapper, for
-example `secure <cmd>` or `pty <cmd>`. The command name, semantics, warnings,
-and implementation details are not active today.
+PySH provides one explicit PTY wrapper:
 
-Such a wrapper would have to be opt-in for each invocation. It may show one
-fixed blinking symbol on keyboard activity, changing for example from white to
-green and back to white. It must not show one symbol per keypress, reveal
-password length, expose content, store input, write secret-adjacent data to
-history, log keystrokes, or infer password correctness.
+```sh
+secure <command> [args ...]
+```
 
-The wrapper would also need separate design and verification evidence for
-terminal restoration, signal forwarding, echo-mode transitions, child exit
-handling, paste handling, audit behavior, plugin isolation, and failure modes.
-None of that runtime behavior exists in this release.
+For example:
 
-## Reserved Configuration Surface
+```sh
+secure sudo -v
+```
 
-PySH reserves an inert configuration surface for a possible future sensitive
-input indicator. The options are validated and stored only:
+This wrapper is opt-in for each invocation. It is not applied to ordinary
+commands, aliases, command substitution, or the normal external-command path.
+The command `sudo apt upgrade` still runs exactly as a normal external command;
+only `secure sudo apt upgrade` uses the PTY bridge.
+
+The wrapper forwards bytes between the user's terminal and the child PTY. It
+does not persist password bytes, does not append PTY input to history, and does
+not parse prompts. Sensitive-input phase is inferred only from the child PTY
+terminal `ECHO` flag. If that termios state cannot be read, PySH treats the
+phase as inactive and shows no indicator.
+
+When configured and enabled, `secure` may show one fixed blinking symbol while
+the child PTY has echo disabled. The symbol can blink from idle color to active
+color and back to idle on keyboard activity. It must not grow one symbol per
+keypress, reveal password length, expose content, store input, log keystrokes,
+or infer password correctness. It must not become permanently green on success
+or red on failure.
+
+## Indicator Configuration
+
+PySH exposes configuration for the explicit `secure` indicator:
 
 - `enabled`
 - `symbol`
@@ -94,6 +108,6 @@ input indicator. The options are validated and stored only:
 - `mode`
 
 These options do not change the REPL, the raw line editor, prompt rendering, or
-external-command execution. They are activated only by a future explicit PTY
-wrapper if that wrapper is designed, implemented, reviewed, and tested
-separately.
+normal external-command execution. Even when `enabled` is `True`, the indicator
+is active only inside an explicit `secure <cmd>` invocation. If `enabled` is
+`False`, `secure <cmd>` still runs the PTY bridge without the visual indicator.

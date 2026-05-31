@@ -9,12 +9,11 @@
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See the LICENSE file in the project root for full license text.
-"""Tests for the RESERVED, inert sensitive-input indicator configuration.
+"""Tests for sensitive-input indicator configuration validation.
 
-These tests assert validation behaviour and, crucially, that the option store
-is write-only: enabling the indicator must not change any observable runtime
-behaviour. There are deliberately no PTY, password, or runtime-indicator tests
-because no runtime behaviour exists yet.
+These tests assert validation behaviour and that the option store does not
+affect ordinary shell runtime paths. The only runtime consumer is the explicit
+``secure <cmd>`` PTY wrapper, covered separately in secure runner tests.
 """
 from __future__ import annotations
 
@@ -73,7 +72,6 @@ def test_defaults_exact() -> None:
 
 
 def test_default_is_disabled() -> None:
-    # The reserved feature must ship disabled.
     assert DEFAULT_SENSITIVE_INPUT["enabled"] is False
 
 
@@ -170,7 +168,7 @@ def test_pyshell_rejects_invalid() -> None:
         PyShell().set_sensitive_input_indicator("symbol", "ab")
 
 
-# ------------------------------------------------------------------ inertness
+# --------------------------------------------- ordinary runtime non-interference
 def _enable_all(shell: PyShell) -> None:
     shell.set_sensitive_input_indicator("enabled", True)
     shell.set_sensitive_input_indicator("symbol", "\u25cf")
@@ -203,7 +201,7 @@ def test_prompt_identical_enabled_vs_disabled(monkeypatch) -> None:
     enabled = PyShell()
     _deterministic(enabled)
     _enable_all(enabled)
-    # The reserved option must not influence prompt rendering at all.
+    # The secure-only option must not influence prompt rendering at all.
     assert enabled._prompt() == disabled._prompt()
     assert enabled._prompt_info_line() == disabled._prompt_info_line()
     assert enabled._prompt_body(enabled.prompt_options) == disabled._prompt_body(
@@ -220,16 +218,11 @@ def test_editor_strategy_unaffected(monkeypatch) -> None:
 
 
 def test_no_runtime_path_reads_sensitive_input() -> None:
-    # Static guarantee: outside the config storage surface, no method body in
-    # shell.py references self.sensitive_input. This keeps the feature inert.
-    source = inspect.getsource(PyShell)
-    occurrences = source.count("sensitive_input")
-    # Allowed references: the __init__ assignment and the setter (store + its
-    # docstring mention). Anything reading it elsewhere would exceed this.
-    setter = inspect.getsource(PyShell.set_sensitive_input_indicator)
-    reads_outside_setter = occurrences - setter.count("sensitive_input")
-    # __init__ assigns it exactly once.
-    assert reads_outside_setter == 1, (
-        "self.sensitive_input is referenced outside __init__ and its setter; "
-        "the reserved feature must remain inert"
-    )
+    readers = []
+    for name, member in inspect.getmembers(PyShell, inspect.isfunction):
+        if name == "__init__" or name == "set_sensitive_input_indicator":
+            continue
+        if "sensitive_input" in inspect.getsource(member):
+            readers.append(name)
+
+    assert readers == ["_builtin_secure"]

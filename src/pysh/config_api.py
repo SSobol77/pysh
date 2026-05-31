@@ -142,13 +142,12 @@ PROMPT_COLOR_MODE_TYPES: dict[str, type] = {
 }
 
 # --------------------------------------------------------- sensitive input
-# RESERVED / INERT. These options describe a future keypress indicator that
-# may only ever be activated by an EXPLICIT, user-invoked PTY wrapper command
-# (e.g. "secure sudo ..."). They MUST NOT influence any runtime path: not the
-# REPL, not the raw line editor, not the external-command path. PySH never
-# reads, counts, stores or logs password bytes for ordinary commands; those
-# are owned by the child process and the terminal. See
-# docs/security-sensitive-input.md for the full boundary.
+# These options describe the fixed keypress indicator used only by the
+# EXPLICIT, user-invoked ``secure <cmd>`` PTY wrapper. They MUST NOT influence
+# ordinary runtime paths: not the REPL, not the raw line editor, and not the
+# normal external-command path. PySH never reads, counts, stores or logs
+# password bytes for ordinary commands; those are owned by the child process
+# and the terminal. See docs/security-sensitive-input.md for the full boundary.
 DEFAULT_SENSITIVE_INPUT: dict[str, object] = {
     "enabled": False,
     "symbol": "*",
@@ -218,7 +217,7 @@ class ConfigurableShell(Protocol):
         ...
 
     def set_sensitive_input_indicator(self, name: str, value: object) -> None:
-        """Set a single validated (inert/reserved) sensitive-input option."""
+        """Set a single validated secure-indicator option."""
         ...
 
 
@@ -289,12 +288,11 @@ def validate_prompt_color_mode(name: str, value: object) -> None:
 
 
 def validate_sensitive_input(name: str, value: object) -> None:
-    """Validate a sensitive-input indicator option (RESERVED / inert).
+    """Validate a sensitive-input indicator option.
 
-    These options describe a future, explicitly user-invoked PTY-wrapper
-    keypress indicator. They never affect runtime behaviour in this release.
-    Validation is enforced now so that a ``~/.pyshrc.py`` written today remains
-    valid when the feature ships.
+    These options describe the keypress indicator used only by explicit
+    ``secure <cmd>`` PTY-wrapper invocations. They never affect ordinary
+    external commands, prompt rendering, or the line editor.
 
     Rules:
 
@@ -441,21 +439,21 @@ class ShellConfigAPI:
         self._shell.set_prompt_color_mode(name, value)
 
     def set_sensitive_input_indicator(self, name: str, value: object) -> None:
-        """Configure the RESERVED sensitive-input keypress indicator.
+        """Configure the explicit ``secure <cmd>`` keypress indicator.
 
-        This API is validated and stored but has **no runtime effect** in this
-        release. It exists so configuration written today stays valid when the
-        feature ships as part of an explicit, user-invoked PTY wrapper command.
+        This API is validated and stored. It affects only explicit
+        ``secure <cmd>`` invocations; it has no effect on the REPL, the raw
+        line editor, prompt rendering, or ordinary external commands.
 
         PySH never intercepts, counts, stores or logs password input for
         ordinary commands (sudo/ssh/su/gpg); those are owned by the child
-        process and the terminal. The future indicator is a single fixed glyph
-        that blinks on keyboard activity only, never revealing length or
-        content. See ``docs/security-sensitive-input.md``.
+        process and the terminal. The indicator is a single fixed glyph that
+        blinks on keyboard activity only, never revealing length or content.
+        See ``docs/security-sensitive-input.md``.
 
         Recognised options:
 
-        * ``enabled`` (bool) - reserved master switch [False]
+        * ``enabled`` (bool) - enable the visual indicator inside ``secure`` [False]
         * ``symbol`` (str) - exactly one display column ["*"]
         * ``idle_color`` (str) - color name or ``#RRGGBB`` ["white"]
         * ``active_color`` (str) - color name or ``#RRGGBB`` ["lime"]
@@ -550,12 +548,12 @@ def configure(shell):
     # Force the classic readline editor (no highlighting, no ghost text):
     # shell.set_editor_option("line_editor", "readline")
 
-    # --- Sensitive input (RESERVED / not yet active) ------------------------
-    # A future, explicitly user-invoked PTY wrapper command may show a single
-    # fixed keypress indicator while typing a password, so you can tell a key
-    # registered. It will NEVER reveal length or content, never log, and never
-    # wrap ordinary sudo/ssh/su/gpg automatically. These calls are validated
-    # and stored today but have NO effect until that wrapper ships.
+    # --- Sensitive input indicator for explicit secure <cmd> only -----------
+    # The secure builtin may show a single fixed keypress indicator while the
+    # child PTY has echo disabled, so you can tell a key registered. It NEVER
+    # reveals length or content, never logs, and never wraps ordinary
+    # sudo/ssh/su/gpg automatically. These calls have no effect outside an
+    # explicit secure <cmd> invocation.
     # See docs/security-sensitive-input.md.
     #
     # shell.set_sensitive_input_indicator("enabled", True)

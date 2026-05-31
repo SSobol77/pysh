@@ -73,6 +73,7 @@ from pysh.python_runtime import (
 from pysh.rc import RC_PATH, execute_rc, load_default_rc
 from pysh.redirection import RedirectionSpec, parse_redirections
 from pysh.script_runner import ScriptRunner
+from pysh.secure_runner import SecureRunner, indicator_config_from_mapping
 from pysh.service import (
     DEFAULT_PID_ROOT,
     ServiceClient,
@@ -171,6 +172,7 @@ class PyShell:
             "apt_check",
             "apt_search",
             "plan",
+            "secure",
         }
     )
 
@@ -193,8 +195,8 @@ class PyShell:
         self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
-        # RESERVED / inert: stored for forward-compatible configuration only.
-        # No runtime path reads this; activated by a future explicit PTY wrapper.
+        # Read only by the explicit secure <cmd> PTY wrapper. Normal command
+        # execution, prompt rendering and line editing do not consult it.
         self.sensitive_input: dict[str, object] = dict(DEFAULT_SENSITIVE_INPUT)
         for spec in TOOL_VERSION_SPECS:
             setattr(self, spec.cache_attr, _UNSET)
@@ -556,6 +558,7 @@ class PyShell:
             "apt_check": self._builtin_apt_check,
             "apt_search": self._builtin_apt_search,
             "plan": self._builtin_plan,
+            "secure": self._builtin_secure,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -757,6 +760,16 @@ class PyShell:
     # ---------------------------------------------------------- command planning
     def _builtin_plan(self, args: list[str]) -> int:
         return run_plan(args, builtins=self.BUILTINS)
+
+    def _builtin_secure(self, args: list[str]) -> int:
+        if not args:
+            print("secure: usage: secure <command> [args ...]", file=sys.stderr)
+            return 2
+        config = indicator_config_from_mapping(
+            self.sensitive_input,
+            vga=bool(self.prompt_color_modes.get("vga", True)),
+        )
+        return SecureRunner(config).run(args)
 
     def _builtin_exit(self, args: list[str]) -> int:
         code = 0
@@ -1056,12 +1069,11 @@ class PyShell:
     def set_sensitive_input_indicator(self, name: str, value: object) -> None:
         """Store a validated sensitive-input option (ConfigurableShell contract).
 
-        RESERVED / inert: this only validates and stores the value. No runtime
-        path (REPL, raw line editor, external-command execution) consults
-        ``self.sensitive_input``. PySH never intercepts, counts, stores or logs
+        Only the explicit ``secure <cmd>`` builtin reads this storage. The
+        REPL, raw line editor, prompt rendering, and normal external-command
+        path do not consult it. PySH never intercepts, counts, stores or logs
         password bytes for ordinary commands; those are owned by the child
-        process and the terminal. Activation is deferred to a future explicit
-        PTY wrapper command. See ``docs/security-sensitive-input.md``.
+        process and the terminal. See ``docs/security-sensitive-input.md``.
         """
         validate_sensitive_input(name, value)
         self.sensitive_input[name] = value

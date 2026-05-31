@@ -122,6 +122,31 @@ Limitations: `source` executes the file through PySH's rc interpreter. Do not
 use it for arbitrary zsh/bash profile migration; use `source_zsh_profile` or
 `source_sh_aliases` for static import.
 
+## `secure`
+
+Syntax: `secure COMMAND [ARGS ...]`
+
+Purpose: Run a command behind an explicit PTY bridge. This is opt-in per
+invocation and is intended for commands that may temporarily disable terminal
+echo for sensitive input. Normal commands such as `sudo`, `ssh`, `su`, and
+`gpg` are not wrapped automatically.
+
+Example:
+
+```sh
+secure sudo -v
+```
+
+Return behavior: returns the child command's exit status. Missing arguments
+return 2. A command that cannot be executed returns a deterministic exec
+failure status such as 127 for command-not-found.
+
+Security boundary: `secure` forwards terminal bytes but does not store, log,
+count, or expose password bytes. When the sensitive-input indicator is enabled,
+it renders at most one fixed symbol while the child PTY has echo disabled. It
+does not show one symbol per character, does not reveal password length, and
+does not indicate password correctness.
+
 ## `.`
 
 Syntax: `. FILE`
