@@ -62,6 +62,7 @@ from pysh.parser import (
     parse_assignment,
     split_chain,
     split_pipeline,
+    strip_comments,
 )
 from pysh.plugins import PLUGIN_DIR, load_plugins
 from pysh.profile_importer import (
@@ -313,6 +314,7 @@ class PyShell:
     def execute(self, line: str) -> int:
         """Execute one shell line. Returns the exit status of the last command."""
         line = line.rstrip("\n").rstrip("\r")
+        line = strip_comments(line)
         if not line.strip():
             return 0
 

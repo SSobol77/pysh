@@ -291,6 +291,60 @@ def expand_variables(
     return "".join(out)
 
 
+def strip_comments(line: str) -> str:
+    """Remove a shell-style comment from ``line``.
+
+    A ``#`` starts a comment only when it is unquoted and immediately follows
+    whitespace (or is at the very start of the line, possibly preceded by
+    whitespace). Everything from that ``#`` through the end of the line is
+    discarded. The result is rstripped.
+
+    Characters inside single or double quotes are never treated as comment
+    delimiters. A backslash outside quotes escapes the following character.
+    """
+    in_single = False
+    in_double = False
+    at_token_boundary = True  # True when we are between tokens (whitespace)
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if in_single:
+            if c == "'":
+                in_single = False
+            at_token_boundary = False
+            i += 1
+            continue
+        if in_double:
+            if c == "\\" and i + 1 < n and line[i + 1] in ('"', "\\", "$", "`"):
+                i += 2
+                at_token_boundary = False
+                continue
+            if c == '"':
+                in_double = False
+            at_token_boundary = False
+            i += 1
+            continue
+        # Outside quotes
+        if c == "\\" and i + 1 < n:
+            i += 2
+            at_token_boundary = False
+            continue
+        if c in " \t":
+            at_token_boundary = True
+            i += 1
+            continue
+        if c == "#" and at_token_boundary:
+            return line[:i].rstrip()
+        if c == "'":
+            in_single = True
+        elif c == '"':
+            in_double = True
+        at_token_boundary = False
+        i += 1
+    return line.rstrip()
+
+
 _ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
 
