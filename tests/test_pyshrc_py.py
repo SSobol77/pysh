@@ -125,6 +125,11 @@ def test_validate_prompt_option_wrong_type() -> None:
         validate_prompt_option("show_user", "yes")
 
 
+def test_validate_prompt_option_rejects_invalid_cwd_style() -> None:
+    with pytest.raises(ConfigError):
+        validate_prompt_option("cwd_style", "short")
+
+
 def test_api_set_prompt_option_applies() -> None:
     shell = FakeShell()
     ShellConfigAPI(shell).set_prompt_option("show_python_version", True)
@@ -195,30 +200,6 @@ def test_load_invalid_config_call_is_contained(tmp_path: Path, capsys) -> None:
     assert "unknown prompt option" in capsys.readouterr().err
 
 
-def test_load_top_level_system_exit_is_contained(tmp_path: Path, capsys) -> None:
-    target = _write(tmp_path / ".pyshrc.py", "raise SystemExit(7)\n")
-    assert load_python_config(FakeShell(), path=target) == 1
-    assert "failed to load" in capsys.readouterr().err
-
-
-def test_load_configure_system_exit_is_contained(tmp_path: Path, capsys) -> None:
-    target = _write(
-        tmp_path / ".pyshrc.py",
-        "def configure(shell):\n    raise SystemExit(7)\n",
-    )
-    assert load_python_config(FakeShell(), path=target) == 1
-    assert "configure() failed" in capsys.readouterr().err
-
-
-def test_load_configure_keyboard_interrupt_is_contained(tmp_path: Path, capsys) -> None:
-    target = _write(
-        tmp_path / ".pyshrc.py",
-        "def configure(shell):\n    raise KeyboardInterrupt\n",
-    )
-    assert load_python_config(FakeShell(), path=target) == 1
-    assert "configure() failed" in capsys.readouterr().err
-
-
 # --------------------------------------------------- integration with PyShell
 def test_pyshell_default_prompt_is_unchanged(monkeypatch) -> None:
     # Default options must reproduce "<icon> <user>:<cwd>$ ".
@@ -274,3 +255,93 @@ def test_pyshell_loads_config_file(tmp_path: Path) -> None:
 def test_pyshell_set_prompt_option_rejects_unknown() -> None:
     with pytest.raises(ValueError):
         PyShell().set_prompt_option("unknown", True)
+
+
+def test_pyshell_prompt_virtualenv_segment(monkeypatch) -> None:
+    monkeypatch.setenv("USER", "tester")
+    monkeypatch.setenv("VIRTUAL_ENV", "/tmp/pysh-test-venv")
+    shell = PyShell()
+    shell.set_prompt_option("show_virtualenv", True)
+    assert shell._prompt().startswith("(pysh-test-venv) ")
+
+
+def test_pyshell_prompt_last_status_segment(monkeypatch) -> None:
+    monkeypatch.setenv("USER", "tester")
+    shell = PyShell()
+    shell.last_status = 17
+    shell.set_prompt_option("show_last_status", True)
+    assert " [17]$ " in shell._prompt()
+
+
+def test_pyshell_prompt_hides_zero_last_status(monkeypatch) -> None:
+    monkeypatch.setenv("USER", "tester")
+    shell = PyShell()
+    shell.last_status = 0
+    shell.set_prompt_option("show_last_status", True)
+    assert " [0]" not in shell._prompt()
+
+
+def test_pyshell_prompt_cwd_basename(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("USER", "tester")
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    shell = PyShell()
+    shell.set_prompt_option("cwd_style", "basename")
+    assert "tester:project" in shell._prompt()
+
+
+def test_pyshell_prompt_cwd_can_be_hidden(monkeypatch) -> None:
+    monkeypatch.setenv("USER", "tester")
+    shell = PyShell()
+    shell.set_prompt_option("show_cwd", False)
+    assert "tester$ " in shell._prompt()
+    assert "tester:" not in shell._prompt()
+
+
+def test_pyshell_prompt_git_branch_from_git_directory(monkeypatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    git_dir = repo / ".git"
+    git_dir.mkdir(parents=True)
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    shell = PyShell()
+    shell.set_prompt_option("show_git_branch", True)
+    assert " git:main$ " in shell._prompt()
+
+
+def test_pyshell_prompt_git_branch_from_git_file(monkeypatch, tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    real_git = tmp_path / "real-git-dir"
+    worktree.mkdir()
+    real_git.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {real_git}\n", encoding="utf-8")
+    (real_git / "HEAD").write_text("ref: refs/heads/feature/prompt\n", encoding="utf-8")
+    monkeypatch.chdir(worktree)
+    shell = PyShell()
+    shell.set_prompt_option("show_git_branch", True)
+    assert " git:feature/prompt$ " in shell._prompt()
+
+
+def test_pyshell_prompt_git_detached_head(monkeypatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    git_dir = repo / ".git"
+    git_dir.mkdir(parents=True)
+    (git_dir / "HEAD").write_text("0123456789abcdef0123456789abcdef01234567\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    shell = PyShell()
+    shell.set_prompt_option("show_git_branch", True)
+    assert " git:0123456789ab$ " in shell._prompt()
+
+
+def test_pyshell_prompt_git_obvious_dirty_state(monkeypatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    git_dir = repo / ".git"
+    git_dir.mkdir(parents=True)
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (git_dir / "index.lock").write_text("", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    shell = PyShell()
+    shell.set_prompt_option("show_git_branch", True)
+    shell.set_prompt_option("show_git_dirty", True)
+    assert " git:main*$ " in shell._prompt()

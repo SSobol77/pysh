@@ -19,6 +19,7 @@ import socket
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
@@ -73,6 +74,19 @@ from pysh.system_profile import (
 )
 from pysh.zsh_aliases import parse_zsh_aliases
 from pysh.zsh_bridge import ZshBridge
+
+
+@dataclass(frozen=True)
+class GitPromptInfo:
+    """Minimal Git metadata required by the prompt renderer.
+
+    The prompt engine intentionally does not spawn ``git``. It reads only
+    stable metadata files from ``.git`` and therefore stays fast, deterministic
+    and dependency-free inside the interactive input loop.
+    """
+
+    git_dir: Path
+    branch: str
 
 
 class _ExitShell(Exception):
@@ -979,18 +993,42 @@ class PyShell:
     def _prompt(self) -> str:
         """Render the interactive prompt from the active prompt options.
 
-        With default options the output is byte-identical to historical PySH:
-        ``<icon> <user>:<cwd>$ ``. Options can toggle the user/host identity,
-        append the active Python version, and change the trailing symbol.
+        Defaults are backward-compatible with the historical PySH prompt:
+        ``<icon> <user>:<cwd>$ ``. Optional segments can be enabled from
+        ``~/.pyshrc.py`` through ``shell.set_prompt_option(...)`` without
+        changing the default behaviour for existing users.
         """
         options = self.prompt_options
-        segments: list[str] = [self._prompt_icon()]
+        segments: list[str] = []
+
+        if bool(options.get("show_virtualenv", False)):
+            virtualenv = self._prompt_virtualenv()
+            if virtualenv:
+                segments.append(f"({virtualenv})")
+
+        segments.append(self._prompt_icon())
+
         identity = self._prompt_identity(options)
-        cwd_str = self._prompt_cwd()
-        segments.append(f"{identity}:{cwd_str}" if identity else cwd_str)
+        show_cwd = bool(options.get("show_cwd", True))
+        cwd_str = self._prompt_cwd(str(options.get("cwd_style", "home"))) if show_cwd else ""
+        if identity and cwd_str:
+            segments.append(f"{identity}:{cwd_str}")
+        elif identity:
+            segments.append(identity)
+        elif cwd_str:
+            segments.append(cwd_str)
+
+        git_segment = self._prompt_git_segment(options)
+        if git_segment:
+            segments.append(git_segment)
+
         if bool(options.get("show_python_version", False)):
             py = ".".join(str(p) for p in sys.version_info[:2])
             segments.append(f"py{py}")
+
+        if bool(options.get("show_last_status", False)) and self.last_status != 0:
+            segments.append(f"[{self.last_status}]")
+
         symbol = str(options.get("symbol", "$"))
         return " ".join(segments) + symbol + " "
 
@@ -1009,14 +1047,131 @@ class PyShell:
         return ""
 
     @staticmethod
-    def _prompt_cwd() -> str:
-        """Return the current directory with ``$HOME`` collapsed to ``~``."""
+    def _prompt_cwd(style: str = "home") -> str:
+        """Return the current directory formatted for prompt display.
+
+        ``full`` keeps the absolute path, ``home`` collapses ``$HOME`` to
+        ``~`` and ``basename`` shows only the final path component. The
+        configuration API validates the option value, but this method remains
+        defensive and falls back to the historical ``home`` style.
+        """
         cwd = Path.cwd()
+        if style == "full":
+            return str(cwd)
+        if style == "basename":
+            if cwd == Path(cwd.anchor):
+                return cwd.anchor
+            return cwd.name or str(cwd)
+
         try:
             rel = cwd.relative_to(Path.home())
             return "~" if str(rel) == "." else "~/" + str(rel)
         except ValueError:
             return str(cwd)
+
+    @staticmethod
+    def _prompt_virtualenv() -> str | None:
+        """Return the active virtualenv name, if ``VIRTUAL_ENV`` is set."""
+        raw = os.environ.get("VIRTUAL_ENV")
+        if not raw:
+            return None
+        name = Path(raw).name
+        return name or None
+
+    def _prompt_git_segment(self, options: dict[str, object]) -> str | None:
+        """Return the Git prompt segment without invoking ``git``."""
+        if not bool(options.get("show_git_branch", False)):
+            return None
+        info = self._discover_git_prompt_info(Path.cwd())
+        if info is None:
+            return None
+        dirty = ""
+        if bool(options.get("show_git_dirty", False)) and self._git_has_obvious_dirty_state(
+            info.git_dir
+        ):
+            dirty = "*"
+        return f"git:{info.branch}{dirty}"
+
+    @classmethod
+    def _discover_git_prompt_info(cls, start: Path) -> GitPromptInfo | None:
+        """Discover Git branch metadata by walking up from ``start``.
+
+        Supports both normal repositories where ``.git`` is a directory and
+        worktrees/submodules where ``.git`` is a file containing
+        ``gitdir: <path>``. Detached HEADs are shown as a short commit id.
+        """
+        git_dir = cls._find_git_dir(start)
+        if git_dir is None:
+            return None
+        head_path = git_dir / "HEAD"
+        try:
+            head = head_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        if not head:
+            return None
+        if head.startswith("ref:"):
+            ref = head[4:].strip()
+            if ref.startswith("refs/heads/"):
+                branch = ref.removeprefix("refs/heads/")
+            else:
+                branch = ref.removeprefix("refs/")
+            return GitPromptInfo(git_dir=git_dir, branch=branch)
+        return GitPromptInfo(git_dir=git_dir, branch=head[:12])
+
+    @classmethod
+    def _find_git_dir(cls, start: Path) -> Path | None:
+        """Return the repository git-dir for ``start`` or one of its parents."""
+        current = start.resolve()
+        while True:
+            dotgit = current / ".git"
+            if dotgit.is_dir():
+                return dotgit
+            if dotgit.is_file():
+                git_dir = cls._read_gitdir_file(dotgit)
+                if git_dir is not None:
+                    return git_dir
+            if current.parent == current:
+                return None
+            current = current.parent
+
+    @staticmethod
+    def _read_gitdir_file(path: Path) -> Path | None:
+        """Parse a worktree/submodule ``.git`` file."""
+        try:
+            line = path.read_text(encoding="utf-8").splitlines()[0].strip()
+        except (IndexError, OSError):
+            return None
+        prefix = "gitdir:"
+        if not line.lower().startswith(prefix):
+            return None
+        raw = line[len(prefix) :].strip()
+        if not raw:
+            return None
+        git_dir = Path(raw)
+        if not git_dir.is_absolute():
+            git_dir = (path.parent / git_dir).resolve()
+        return git_dir if git_dir.is_dir() else None
+
+    @staticmethod
+    def _git_has_obvious_dirty_state(git_dir: Path) -> bool:
+        """Detect only obvious non-clean Git states without false positives.
+
+        A full dirty check would require reimplementing substantial Git index
+        logic or invoking ``git status``. PySH intentionally does neither in
+        the prompt path. This method marks only unambiguous states that are
+        represented by Git metadata files/directories.
+        """
+        obvious_files = (
+            "index.lock",
+            "MERGE_HEAD",
+            "CHERRY_PICK_HEAD",
+            "REVERT_HEAD",
+            "BISECT_LOG",
+        )
+        if any((git_dir / name).exists() for name in obvious_files):
+            return True
+        return (git_dir / "rebase-apply").exists() or (git_dir / "rebase-merge").exists()
 
     @staticmethod
     def _prompt_icon() -> str:

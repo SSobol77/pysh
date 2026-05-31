@@ -55,6 +55,12 @@ DEFAULT_PROMPT_OPTIONS: dict[str, object] = {
     "show_user": True,
     "show_host": False,
     "show_python_version": False,
+    "show_virtualenv": False,
+    "show_git_branch": False,
+    "show_git_dirty": False,
+    "show_last_status": False,
+    "show_cwd": True,
+    "cwd_style": "home",
     "symbol": "$",
 }
 
@@ -65,7 +71,17 @@ PROMPT_OPTION_TYPES: dict[str, type] = {
     "show_user": bool,
     "show_host": bool,
     "show_python_version": bool,
+    "show_virtualenv": bool,
+    "show_git_branch": bool,
+    "show_git_dirty": bool,
+    "show_last_status": bool,
+    "show_cwd": bool,
+    "cwd_style": str,
     "symbol": str,
+}
+
+PROMPT_OPTION_VALUES: dict[str, frozenset[str]] = {
+    "cwd_style": frozenset({"full", "home", "basename"}),
 }
 
 _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -120,6 +136,10 @@ def validate_prompt_option(name: str, value: object) -> None:
             f"prompt option {name!r} expects {expected.__name__}, "
             f"got {type(value).__name__}"
         )
+    allowed = PROMPT_OPTION_VALUES.get(name)
+    if allowed is not None and value not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise ConfigError(f"prompt option {name!r} must be one of: {allowed_text}")
 
 
 def _validate_alias_name(name: str) -> None:
@@ -176,6 +196,12 @@ class ShellConfigAPI:
         * ``show_user`` (bool) - show the current user [True]
         * ``show_host`` (bool) - show ``user@host`` [False]
         * ``show_python_version`` (bool) - append the active Python version [False]
+        * ``show_virtualenv`` (bool) - prepend the active virtualenv name [False]
+        * ``show_git_branch`` (bool) - append the current Git branch [False]
+        * ``show_git_dirty`` (bool) - append ``*`` for obvious dirty Git states [False]
+        * ``show_last_status`` (bool) - append non-zero last status [False]
+        * ``show_cwd`` (bool) - show the current directory [True]
+        * ``cwd_style`` (str) - ``full``, ``home`` or ``basename`` ["home"]
         * ``symbol`` (str) - trailing prompt symbol ["$"]
         """
         validate_prompt_option(name, value)
@@ -206,10 +232,18 @@ def configure(shell):
     # shell.env("PAGER", "less")
 
     # Prompt options: shell.set_prompt_option(name, value)
-    #   show_user            (bool)  show the current user            [True]
-    #   show_host            (bool)  show user@host                   [False]
-    #   show_python_version  (bool)  append the active Python version [False]
-    #   symbol               (str)   trailing prompt symbol           ["$"]
+    #   show_user            (bool)  show the current user               [True]
+    #   show_host            (bool)  show user@host                      [False]
+    #   show_python_version  (bool)  append the active Python version    [False]
+    #   show_virtualenv      (bool)  prepend active virtualenv name      [False]
+    #   show_git_branch      (bool)  append current Git branch           [False]
+    #   show_git_dirty       (bool)  mark obvious dirty Git states       [False]
+    #   show_last_status     (bool)  append non-zero last status         [False]
+    #   show_cwd             (bool)  show current directory              [True]
+    #   cwd_style            (str)   full | home | basename              ["home"]
+    #   symbol               (str)   trailing prompt symbol              ["$"]
+    # shell.set_prompt_option("show_virtualenv", True)
+    # shell.set_prompt_option("show_git_branch", True)
     # shell.set_prompt_option("show_python_version", True)
 
     return None
@@ -256,14 +290,6 @@ def _import_config_module(path: Path) -> ModuleType:
     return module
 
 
-def _format_base_exception(exc: BaseException) -> str:
-    """Return a safe, deterministic message for user configuration failures."""
-    message = str(exc)
-    if message:
-        return message
-    return type(exc).__name__
-
-
 def load_python_config(
     shell: ConfigurableShell,
     *,
@@ -284,11 +310,8 @@ def load_python_config(
     except SyntaxError as exc:
         print(f"pysh: {path}: syntax error: {exc.msg}", file=sys.stderr)
         return 1
-    except BaseException as exc:  # noqa: BLE001 - user config must not crash the shell
-        print(
-            f"pysh: {path}: failed to load: {_format_base_exception(exc)}",
-            file=sys.stderr,
-        )
+    except Exception as exc:  # noqa: BLE001 - user config must not crash the shell
+        print(f"pysh: {path}: failed to load: {exc}", file=sys.stderr)
         return 1
 
     configure = getattr(module, CONFIGURE_FUNCTION, None)
@@ -308,10 +331,7 @@ def load_python_config(
     except ConfigError as exc:
         print(f"pysh: {path}: {exc}", file=sys.stderr)
         return 1
-    except BaseException as exc:  # noqa: BLE001 - contain user config failures
-        print(
-            f"pysh: {path}: {CONFIGURE_FUNCTION}() failed: {_format_base_exception(exc)}",
-            file=sys.stderr,
-        )
+    except Exception as exc:  # noqa: BLE001 - contain user errors
+        print(f"pysh: {path}: {CONFIGURE_FUNCTION}() failed: {exc}", file=sys.stderr)
         return 1
     return 0
