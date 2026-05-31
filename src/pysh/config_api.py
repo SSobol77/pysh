@@ -530,26 +530,214 @@ class ShellConfigAPI:
 DEFAULT_PYSHRC_PY = '''\
 # PySH Python-native configuration: ~/.pyshrc.py
 #
-# This file is loaded *after* the legacy ~/.pyshrc and the
-# ~/.pyshrc.d/*.pysh plugins, so anything configured here takes precedence.
+# This file is loaded after the legacy ~/.pyshrc file and after all
+# ~/.pyshrc.d/*.pysh plugin snippets. Values configured here have the final
+# priority for the interactive PySH session.
 #
-# Define a top-level function named ``configure`` that receives the PySH
-# configuration API. The default is already the full two-line prompt with
-# environment, Git, language/tool versions, and last-status visibility.
+# The file is ordinary Python. Keep all configuration inside configure(shell).
+# Every setting below is optional. Comment out any block you do not want.
+#
+# Security note:
+# PySH does not intercept passwords for ordinary commands such as:
+#
+#     sudo apt upgrade
+#     ssh host
+#     su
+#     gpg
+#
+# Sensitive input indication is available only for explicit secure commands:
+#
+#     secure sudo -v
+#     secure sudo apt upgrade
+#
+# The secure indicator never shows one symbol per password character and never
+# reveals password length. It uses a fixed-size rotating activity indicator.
 
 
 def configure(shell):
     """Configure the interactive PySH session."""
 
-    # Aliases: shell.alias(name, expansion)
-    # shell.alias("ll", "ls -la --color=auto -F")
-    # shell.alias("gs", "git status -sb")
+    # ----------------------------------------------------------------------
+    # Aliases
+    # ----------------------------------------------------------------------
+    # Aliases are expanded on the first word of each command or pipeline stage.
+    # Keep aliases simple and deterministic.
 
-    # Environment variables: shell.env(name, value)
-    # shell.env("EDITOR", "nano")
-    # shell.env("PAGER", "less")
+    shell.alias("ll", "ls -la --color=auto -F")
+    shell.alias("la", "ls -la --color=auto -F")
+    shell.alias("gs", "git status -sb")
+    shell.alias("gd", "git diff")
+    shell.alias("gl", "git log --oneline --decorate --graph -20")
+    shell.alias("pyv", "python -V")
+    shell.alias("uvt", "uv run pytest -q")
+    shell.alias("uvr", "uv run ruff check src tests")
+    shell.alias("uvpysh", "uv run pysh")
 
-    # Variant A: classic minimal single-line prompt.
+    # ----------------------------------------------------------------------
+    # Environment
+    # ----------------------------------------------------------------------
+    # These values are exported for child processes and also mirrored into
+    # PySH local variable expansion.
+
+    shell.env("EDITOR", "nano")
+    shell.env("PAGER", "less")
+    shell.env("PYTHONDONTWRITEBYTECODE", "1")
+
+    # ----------------------------------------------------------------------
+    # Prompt layout and prompt segments
+    # ----------------------------------------------------------------------
+    # PySH supports a two-line prompt:
+    #
+    #   (.venv) 🐍 user@host:~/project git:main py3.13 uv0.11.17 ...
+    #   >
+    #
+    # The command prompt symbol is separate from the information line, which
+    # keeps the raw-mode editor stable and readline-safe.
+
+    shell.set_prompt_option("prompt_layout", "two_line")
+    shell.set_prompt_option("symbol", ">")
+
+    # Identity and location.
+    shell.set_prompt_option("show_user", True)
+    shell.set_prompt_option("show_host", True)
+    shell.set_prompt_option("show_cwd", True)
+    shell.set_prompt_option("cwd_style", "home")  # full | home | basename
+
+    # Runtime / project context.
+    shell.set_prompt_option("show_virtualenv", True)
+    shell.set_prompt_option("show_git_branch", True)
+    shell.set_prompt_option("show_git_dirty", True)
+    shell.set_prompt_option("show_last_status", True)
+
+    # Language and tool versions.
+    shell.set_prompt_option("show_python_version", True)
+    shell.set_prompt_option("show_uv_version", True)
+    shell.set_prompt_option("show_ruff_version", True)
+    shell.set_prompt_option("show_rust_version", True)
+    shell.set_prompt_option("show_node_version", True)
+    shell.set_prompt_option("show_npm_version", True)
+
+    # ----------------------------------------------------------------------
+    # Prompt colors
+    # ----------------------------------------------------------------------
+    # Colors accept canonical names or #RRGGBB values.
+    #
+    # VGA mode:
+    #   True  -> map colors to nearest ANSI/VGA 16-color foreground.
+    #   False -> emit ANSI 24-bit truecolor.
+    #
+    # Use VGA=True for maximum terminal compatibility.
+    # Use VGA=False for richer modern terminals.
+
+    shell.set_prompt_color_mode("vga", True)
+
+    shell.set_prompt_color("venv", "fuchsia")
+    shell.set_prompt_color("icon", "lime")
+    shell.set_prompt_color("user", "lime")
+    shell.set_prompt_color("host", "aqua")
+    shell.set_prompt_color("cwd", "yellow")
+    shell.set_prompt_color("git", "green")
+    shell.set_prompt_color("python", "blue")
+    shell.set_prompt_color("uv", "purple")
+    shell.set_prompt_color("ruff", "teal")
+    shell.set_prompt_color("rust", "#FF6600")
+    shell.set_prompt_color("node", "lime")
+    shell.set_prompt_color("npm", "red")
+    shell.set_prompt_color("status", "red")
+    shell.set_prompt_color("symbol", "white")
+
+    # ----------------------------------------------------------------------
+    # Terminal cursor color
+    # ----------------------------------------------------------------------
+    # Cursor coloring uses terminal OSC 12 when supported.
+    # It is best-effort and resets when PySH exits.
+    #
+    # Recommended orange cursor:
+    #
+    #   #FF9900
+    #
+    # If your terminal does not support OSC 12, this setting is simply ignored
+    # by the terminal.
+
+    shell.set_cursor_color_enabled(True)
+    shell.set_cursor_color("#FF9900")
+
+    # ----------------------------------------------------------------------
+    # Line editor
+    # ----------------------------------------------------------------------
+    # line_editor:
+    #   auto     -> use PySH raw-mode editor on capable TTYs.
+    #   readline -> force classic readline/input fallback.
+    #   basic    -> raw editor without highlighting/autosuggest.
+    #
+    # autosuggest:
+    #   Shows fish-style ghost-text suggestions from history.
+    #
+    # syntax_highlight:
+    #   Colors the editable command line while typing.
+
+    shell.set_editor_option("line_editor", "auto")
+    shell.set_editor_option("autosuggest", True)
+    shell.set_editor_option("syntax_highlight", True)
+
+    # Emergency fallback if the terminal behaves incorrectly:
+    #
+    # shell.set_editor_option("line_editor", "readline")
+
+    # ----------------------------------------------------------------------
+    # Sensitive input indicator for explicit secure commands
+    # ----------------------------------------------------------------------
+    # This applies ONLY to:
+    #
+    #     secure <command> [args...]
+    #
+    # It does NOT affect ordinary commands.
+    #
+    # Security model:
+    # - The indicator is fixed-size.
+    # - It never grows with typed password length.
+    # - It never shows one star per character.
+    # - It never reveals the password length.
+    # - It never indicates password correctness.
+    # - It never turns permanently green on success or red on failure.
+    #
+    # Ring mode:
+    # - Displays a fixed indicator, for example:
+    #
+    #     * * * * *
+    #
+    # - Each keypress advances the active green slot by one position.
+    # - All other slots remain idle/white.
+    # - After the last slot, the active slot wraps back to the first one.
+    #
+    # Example:
+    #   key 1 -> slot 1 active
+    #   key 2 -> slot 2 active
+    #   key 3 -> slot 3 active
+    #   key 4 -> slot 4 active
+    #   key 5 -> slot 5 active
+    #   key 6 -> slot 1 active again
+
+    shell.set_sensitive_input_indicator("enabled", True)
+    shell.set_sensitive_input_indicator("symbol", "*")
+    shell.set_sensitive_input_indicator("idle_color", "white")
+    shell.set_sensitive_input_indicator("active_color", "lime")
+    shell.set_sensitive_input_indicator("mode", "ring")
+    shell.set_sensitive_input_indicator("slots", 5)
+
+    # For a smaller indicator:
+    #
+    # shell.set_sensitive_input_indicator("slots", 3)
+    #
+    # For compatibility with the old one-symbol blink mode:
+    #
+    # shell.set_sensitive_input_indicator("mode", "single-blink")
+
+    # ----------------------------------------------------------------------
+    # Optional classic minimal prompt profile
+    # ----------------------------------------------------------------------
+    # Uncomment this block if you want a small historical prompt:
+    #
     # shell.set_prompt_option("prompt_layout", "single")
     # shell.set_prompt_option("symbol", "$")
     # shell.set_prompt_option("show_host", False)
@@ -564,76 +752,6 @@ def configure(shell):
     # shell.set_prompt_option("show_npm_version", False)
     # shell.set_prompt_option("show_last_status", False)
 
-    # Variant B: keep two-line prompt but hide tool versions.
-    # shell.set_prompt_option("show_uv_version", False)
-    # shell.set_prompt_option("show_ruff_version", False)
-    # shell.set_prompt_option("show_rust_version", False)
-    # shell.set_prompt_option("show_node_version", False)
-    # shell.set_prompt_option("show_npm_version", False)
-
-    # Variant C: tweak path style and command-line symbol.
-    # shell.set_prompt_option("cwd_style", "basename")
-    # shell.set_prompt_option("symbol", "pysh>")
-
-    # --- Prompt colors ------------------------------------------------------
-    # Colors accept canonical names (red, green, blue, fuchsia, aqua, ...)
-    # or #RRGGBB HTML-style values. With VGA mode enabled, colors are mapped
-    # to the nearest ANSI/VGA 16-color foreground. With VGA mode disabled,
-    # PySH emits ANSI 24-bit truecolor.
-    #
-    # shell.set_prompt_color_mode("vga", True)   # nearest ANSI/VGA 16-color
-    # shell.set_prompt_color_mode("vga", False)  # ANSI 24-bit truecolor
-    #
-    # shell.set_prompt_color("venv", "fuchsia")
-    # shell.set_prompt_color("user", "lime")
-    # shell.set_prompt_color("host", "aqua")
-    # shell.set_prompt_color("cwd", "yellow")
-    # shell.set_prompt_color("git", "green")
-    # shell.set_prompt_color("python", "#33CCFF")
-    # shell.set_prompt_color("uv", "purple")
-    # shell.set_prompt_color("ruff", "teal")
-    # shell.set_prompt_color("rust", "#FF6600")
-    # shell.set_prompt_color("node", "lime")
-    # shell.set_prompt_color("npm", "red")
-    # shell.set_prompt_color("status", "red")
-    # shell.set_prompt_color("symbol", "white")
-
-    # --- Line editor (fish-style highlighting + autosuggestion) -------------
-    # Defaults: syntax highlighting ON, history autosuggestion ON, editor auto.
-    # A tool/segment renders nothing when unsupported by the terminal.
-    #
-    # Disable autosuggestion only:
-    # shell.set_editor_option("autosuggest", False)
-    #
-    # Disable syntax highlighting only:
-    # shell.set_editor_option("syntax_highlight", False)
-    #
-    # Force the classic readline editor (no highlighting, no ghost text):
-    # shell.set_editor_option("line_editor", "readline")
-
-    # --- Cursor color -------------------------------------------------------
-    # Disabled by default for maximum terminal compatibility.
-    # Uses OSC 12 where supported by the terminal and resets on exit.
-    #
-    # shell.set_cursor_color_enabled(True)
-    # shell.set_cursor_color("orange")
-    # shell.set_cursor_color("#FF9900")
-
-    # --- Sensitive input indicator for explicit secure <cmd> only -----------
-    # The secure builtin may show a fixed-size rotating keypress indicator
-    # while the child PTY has echo disabled, so you can tell keys registered.
-    # It NEVER grows with password length, reveals content, logs, or wraps
-    # ordinary sudo/ssh/su/gpg automatically. These calls have no effect
-    # outside an explicit secure <cmd> invocation.
-    # See docs/security-sensitive-input.md.
-    #
-    # shell.set_sensitive_input_indicator("enabled", True)
-    # shell.set_sensitive_input_indicator("symbol", "*")
-    # shell.set_sensitive_input_indicator("idle_color", "white")
-    # shell.set_sensitive_input_indicator("active_color", "lime")
-    # shell.set_sensitive_input_indicator("mode", "ring")
-    # shell.set_sensitive_input_indicator("slots", 5)
-
     return None
 '''
 
@@ -643,8 +761,7 @@ def ensure_default_config(path: Path = PYSHRC_PY_PATH) -> bool:
 
     Returns ``True`` only when a new file was written. Returns ``False`` if
     the file already exists or could not be created (the error is reported on
-    stderr). The generated file is inert by default: its ``configure`` body is
-    entirely commented out, so first-run creation never changes behaviour.
+    stderr). Existing user configuration is never overwritten.
     """
     if path.exists():
         return False
