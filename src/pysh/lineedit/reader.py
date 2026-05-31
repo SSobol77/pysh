@@ -76,6 +76,7 @@ class RawLineReader:
         completer: Completer | None = None,
     ) -> str:
         """Read a command line, raising EOF/KeyboardInterrupt for Ctrl-D/C."""
+        self._start_rows = 0
         in_fd = self.input_fd if self.input_fd is not None else sys.stdin.fileno()
         out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
         old_state = termios.tcgetattr(in_fd)
@@ -220,24 +221,13 @@ class RawLineReader:
                 return
 
     def _complete(self, buffer: LineBuffer, completer: Completer) -> None:
-        start = buffer.text.rfind(" ", 0, buffer.cursor) + 1
-        prefix = buffer.text[start : buffer.cursor]
-        matches: list[str] = []
-        if hasattr(completer, "complete_line"):
-            matches = completer.complete_line(buffer.text, buffer.cursor)
-        else:
-            state = 0
-            while True:
-                match = completer.complete(prefix, state)
-                if match is None:
-                    break
-                matches.append(match)
-                state += 1
-        if len(matches) == 1:
-            buffer.set(buffer.text[:start] + matches[0] + buffer.text[buffer.cursor :])
-            buffer.cursor = start + len(matches[0])
-        elif matches:
-            self._write("\r\n" + "  ".join(matches) + "\r\n", self.output_fd)
+        result = completer.raw_completion(buffer.text, buffer.cursor)
+        if len(result.candidates) == 1:
+            text, cursor = completer.apply_raw_completion(buffer.text, result)
+            buffer.set(text, cursor)
+        elif result.candidates:
+            self._write("\r\n" + "  ".join(result.candidates) + "\r\n", self.output_fd)
+            self._start_rows = 0
 
     def _redraw(
         self,

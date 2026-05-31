@@ -26,6 +26,12 @@ import os
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from pysh.lineedit.completion import (
+    CompletionResult,
+    apply_single_completion,
+    complete_line,
+)
+
 
 class Completer:
     """Readline completion driver."""
@@ -88,22 +94,20 @@ class Completer:
 
     def complete_line(self, line: str, cursor: int) -> list[str]:
         """Return completion matches for raw-mode editing."""
-        start = line.rfind(" ", 0, cursor) + 1
-        text = line[start:cursor]
-        is_first_word = line[:start].strip() == ""
-        matches: list[str] = []
-        if is_first_word:
-            for name in (*self.BUILTINS, *self._get_aliases()):
-                if name.startswith(text):
-                    matches.append(name)
-        matches.extend(self.filesystem_matches(text))
-        seen: set[str] = set()
-        unique: list[str] = []
-        for match in matches:
-            if match not in seen:
-                seen.add(match)
-                unique.append(match)
-        return unique
+        return list(self.raw_completion(line, cursor).candidates)
+
+    def raw_completion(self, line: str, cursor: int) -> CompletionResult:
+        """Return raw-mode completion metadata."""
+        return complete_line(
+            line,
+            cursor,
+            builtins=self.BUILTINS,
+            aliases=self._get_aliases(),
+        )
+
+    def apply_raw_completion(self, line: str, result: CompletionResult) -> tuple[str, int]:
+        """Apply a single raw-mode completion candidate."""
+        return apply_single_completion(line, result)
 
     def _build_matches(self, text: str) -> list[str]:
         try:
