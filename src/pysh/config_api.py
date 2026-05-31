@@ -44,6 +44,7 @@ from types import ModuleType
 from typing import Protocol, runtime_checkable
 
 from pysh.colors import parse_color
+from pysh.lineedit.buffer import _display_width
 
 # Canonical location of the Python-native user configuration file.
 PYSHRC_PY_PATH = Path("~/.pyshrc.py").expanduser()
@@ -112,6 +113,26 @@ EDITOR_OPTION_TYPES: dict[str, type] = {
 
 EDITOR_OPTION_VALUES: dict[str, frozenset[str]] = {
     "line_editor": frozenset({"auto", "readline", "basic"}),
+}
+
+DEFAULT_SENSITIVE_INPUT: dict[str, object] = {
+    "enabled": False,
+    "symbol": "*",
+    "idle_color": "white",
+    "active_color": "lime",
+    "mode": "single-blink",
+}
+
+SENSITIVE_INPUT_TYPES: dict[str, type] = {
+    "enabled": bool,
+    "symbol": str,
+    "idle_color": str,
+    "active_color": str,
+    "mode": str,
+}
+
+SENSITIVE_INPUT_VALUES: dict[str, frozenset[str]] = {
+    "mode": frozenset({"single-blink"}),
 }
 
 DEFAULT_PROMPT_COLORS: dict[str, str] = {
@@ -188,6 +209,10 @@ class ConfigurableShell(Protocol):
         """Set a single validated prompt color mode."""
         ...
 
+    def set_sensitive_input_indicator(self, name: str, value: object) -> None:
+        """Store one reserved sensitive-input indicator option."""
+        ...
+
 
 def validate_prompt_option(name: str, value: object) -> None:
     """Validate a prompt option name/value pair.
@@ -225,6 +250,34 @@ def validate_editor_option(name: str, value: object) -> None:
     if allowed is not None and value not in allowed:
         allowed_text = ", ".join(sorted(allowed))
         raise ConfigError(f"editor option {name!r} must be one of: {allowed_text}")
+
+
+def validate_sensitive_input(name: str, value: object) -> None:
+    """Validate a reserved sensitive-input indicator option.
+
+    The validated values are storage-only. They are not read by the REPL, the
+    raw line editor, or external-command execution.
+    """
+    expected = SENSITIVE_INPUT_TYPES.get(name)
+    if expected is None:
+        known = ", ".join(sorted(SENSITIVE_INPUT_TYPES))
+        raise ConfigError(f"unknown sensitive input option {name!r} (known: {known})")
+    if not isinstance(value, expected):
+        raise ConfigError(
+            f"sensitive input option {name!r} expects {expected.__name__}, "
+            f"got {type(value).__name__}"
+        )
+    if name == "symbol" and (len(value) != 1 or _display_width(value) != 1):
+        raise ConfigError("sensitive input symbol must be exactly one display column")
+    if name in {"idle_color", "active_color"}:
+        try:
+            parse_color(value)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
+    allowed = SENSITIVE_INPUT_VALUES.get(name)
+    if allowed is not None and value not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise ConfigError(f"sensitive input option {name!r} must be one of: {allowed_text}")
 
 
 def validate_prompt_color(segment: str, color: str) -> None:
@@ -358,6 +411,21 @@ class ShellConfigAPI:
         validate_prompt_color_mode(name, value)
         self._shell.set_prompt_color_mode(name, value)
 
+    def set_sensitive_input_indicator(self, name: str, value: object) -> None:
+        """Store one reserved sensitive-input indicator option.
+
+        Recognised options are storage-only and have no runtime effect until a
+        future explicit PTY wrapper is designed and implemented:
+
+        * ``enabled`` (bool) - reserved; does not enable behavior today [False]
+        * ``symbol`` (str) - reserved; exactly one display column ["*"]
+        * ``idle_color`` (str) - reserved; parsed color name or ``#RRGGBB`` ["white"]
+        * ``active_color`` (str) - reserved; parsed color name or ``#RRGGBB`` ["lime"]
+        * ``mode`` (str) - reserved; only ``single-blink`` ["single-blink"]
+        """
+        validate_sensitive_input(name, value)
+        self._shell.set_sensitive_input_indicator(name, value)
+
 
 # --------------------------------------------------------------- default file
 DEFAULT_PYSHRC_PY = '''\
@@ -443,6 +511,17 @@ def configure(shell):
     #
     # Force the classic readline editor (no highlighting, no ghost text):
     # shell.set_editor_option("line_editor", "readline")
+
+    # --- Sensitive input indicator (reserved; inert) -----------------------
+    # These options are validated and stored only. They have no effect until a
+    # future explicit PTY wrapper command ships. Normal sudo/ssh/su/gpg input
+    # is never proxied, read, counted, logged, or wrapped by PySH.
+    #
+    # shell.set_sensitive_input_indicator("enabled", False)
+    # shell.set_sensitive_input_indicator("symbol", "*")
+    # shell.set_sensitive_input_indicator("idle_color", "white")
+    # shell.set_sensitive_input_indicator("active_color", "lime")
+    # shell.set_sensitive_input_indicator("mode", "single-blink")
 
     return None
 '''

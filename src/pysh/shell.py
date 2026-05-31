@@ -36,6 +36,7 @@ from pysh.config_api import (
     DEFAULT_PROMPT_COLOR_MODES,
     DEFAULT_PROMPT_COLORS,
     DEFAULT_PROMPT_OPTIONS,
+    DEFAULT_SENSITIVE_INPUT,
     PYSHRC_PY_PATH,
     ensure_default_config,
     load_python_config,
@@ -43,6 +44,7 @@ from pysh.config_api import (
     validate_prompt_color,
     validate_prompt_color_mode,
     validate_prompt_option,
+    validate_sensitive_input,
 )
 from pysh.highlighting import colors_enabled, diagnostic
 from pysh.history import DEFAULT_HISTORY_PATH, HistoryManager
@@ -191,6 +193,7 @@ class PyShell:
         self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
+        self.sensitive_input: dict[str, object] = dict(DEFAULT_SENSITIVE_INPUT)
         for spec in TOOL_VERSION_SPECS:
             setattr(self, spec.cache_attr, _UNSET)
         self.completer = Completer(lambda: list(self.aliases.keys()))
@@ -1047,6 +1050,15 @@ class PyShell:
         """Set a validated prompt color mode (ConfigurableShell contract)."""
         validate_prompt_color_mode(name, value)
         self.prompt_color_modes[name] = value
+
+    def set_sensitive_input_indicator(self, name: str, value: object) -> None:
+        """Store a reserved sensitive-input option (ConfigurableShell contract).
+
+        This is storage only. The REPL, raw line editor, and external-command
+        path must not read these options until an explicit PTY wrapper exists.
+        """
+        validate_sensitive_input(name, value)
+        self.sensitive_input[name] = value
 
     # ------------------------------------------------------------- presentation
     def _read_interactive_line(self) -> str:
