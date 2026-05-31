@@ -28,6 +28,53 @@ constructs documented below.
 A failing line is reported on stderr and the next line is still executed.
 A broken plugin does not prevent later plugins from loading.
 
+## Python-native configuration: ~/.pyshrc.py
+
+PySH supports a Python-native configuration file at `~/.pyshrc.py`. On the
+first interactive launch, PySH creates this file automatically from a
+production-quality commented template — if and only if the file does not already
+exist. **An existing `~/.pyshrc.py` is never overwritten.**
+
+The file is loaded last, after `~/.pyshrc` and after all plugins in
+`~/.pyshrc.d/`, so Python-native settings have the final word over the
+shell-syntax startup layers.
+
+The generated template documents every configurable option inline with
+comments. Open it to see the current options:
+
+```sh
+${EDITOR:-nano} ~/.pyshrc.py
+```
+
+The file exports a single `configure(shell)` function. PySH calls it once
+with the live shell instance:
+
+```python
+def configure(shell):
+    # Prompt segments
+    shell.set_prompt_option("show_git_branch", True)
+    shell.set_prompt_option("show_last_status", True)
+    shell.set_prompt_option("cwd_style", "home")
+
+    # Per-segment prompt colors (named colors or #RRGGBB)
+    shell.set_prompt_color("cwd", "cyan")
+    shell.set_prompt_color("git", "#888888")
+
+    # Terminal cursor color (disabled by default)
+    shell.set_cursor_color_enabled(True)
+    shell.set_cursor_color("#FFA500")
+
+    # Line editor behavior
+    shell.set_editor_option("autosuggest", True)
+    shell.set_editor_option("syntax_highlight", True)
+
+    # Aliases
+    shell.register_alias("ll", "ls --color=auto -laF")
+```
+
+The `configure` function is optional; an empty file or a file that defines no
+`configure` function is silently ignored without error.
+
 ## Aliases
 
 ```sh
@@ -158,7 +205,7 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "PySH 0.4.0 | Python 3.13+"
+echo "PySH 0.5.0 | Python 3.13+"
 ```
 
 Plugins may also contain multiline Python automation blocks. The block

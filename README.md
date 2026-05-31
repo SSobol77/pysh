@@ -55,7 +55,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current development version: **0.4.0**. PySH targets **Python 3.13+** and is
+Current development version: **0.5.0**. PySH targets **Python 3.13+** and is
 validated primarily on **Debian 13** and Unix-like systems.
 
 ---
@@ -108,6 +108,20 @@ validated primarily on **Debian 13** and Unix-like systems.
 - Safe ANSI color helpers that respect `NO_COLOR` and `TERM=dumb`, used for
   the banner and diagnostics. The input line itself is left untouched so
   editing remains stable.
+- **Python-native `~/.pyshrc.py`**: auto-generated production template on first
+  interactive launch; never overwrites an existing file.
+- **stdlib raw-mode line editor**: character-by-character editing with live
+  syntax highlighting and fish-style autosuggestions.
+- **Configurable prompt colors**: per-segment VGA and truecolor support via
+  Python-native `~/.pyshrc.py`.
+- **Configurable terminal cursor color**: OSC 12/112 support, disabled by
+  default, opt-in via `~/.pyshrc.py`.
+- **Explicit `secure <cmd>` PTY runner**: opt-in PTY bridge for commands that
+  disable echo; never auto-wraps `sudo`/`ssh`.
+- **Fixed-size ring indicator**: keypress feedback inside `secure <cmd>`;
+  constant slot count never reveals password length.
+- **Shell-style comments**: unquoted `#` after whitespace begins a comment;
+  quoted and mid-token `#` remain literal.
 - Basic tab completion for aliases, builtins, files and directories.
 - Clean Ctrl+C (cancels current line, keeps the shell alive) and Ctrl+D
   (exits the shell).
@@ -134,6 +148,10 @@ pysh
 pysh
 pysh --version
 pysh -c "echo hi"
+# ~/.pyshrc.py is created automatically on first launch
+ls #abc           # comment stripped; ls runs without #abc argument
+echo "#abc"       # quoted hash preserved: prints #abc
+secure sudo -v    # explicit PTY runner for sensitive prompts
 alias ll='ls -lah'
 source_zsh_profile ~/.zshrc
 source_sh_aliases ~/.bash_aliases
@@ -145,6 +163,12 @@ py import platform; print(platform.platform())
 ### Development install
 
 ```bash
+# Recommended: uv-based dev workflow
+uv sync
+uv run pytest -q
+uv run ruff check src tests
+
+# Classic venv alternative
 python3.13 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -248,7 +272,7 @@ documented.
 Operators inside single or double quotes are treated as literal text.
 
 ```sh
-echo "🐍 PySH v0.4.0 | Python 3.13.5"
+echo "🐍 PySH v0.5.0 | Python 3.13.5"
 echo "Test | pipe & semicolon; && ok"
 python3.13 -c "import subprocess; print('ok')"
 ```
@@ -492,7 +516,7 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "🐍 PySH 0.4.0 | Python 3.13+"
+echo "🐍 PySH 0.5.0 | Python 3.13+"
 echo "💡 Operators: && || ; | > >> < 2> 2>> &> &>>  + \$() and backticks"
 ```
 
@@ -630,15 +654,16 @@ paths for any word. Inaccessible directories are silently skipped.
 - Debian helpers (`apt_check`, `apt_search`) require `apt` to exist; they
   return 127 deterministically when it does not.
 - `plan` is advisory only. Policy enforcement is intentionally out of scope
-  in 0.4.0.
+  in 0.5.0.
 
 ---
 
 ## Testing and quality gates
 
 ```bash
-pytest -q
-ruff check src tests
+bash scripts/check_headers.sh
+uv run pytest -q
+uv run ruff check src tests
 python -m build
 twine check dist/*
 ```

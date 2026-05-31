@@ -20,6 +20,12 @@ environment, running the quality gates, and the repository layout.
 ## Setup
 
 ```bash
+# Recommended: uv-based dev workflow (uses uv.lock for reproducible deps)
+uv sync
+uv run pytest -q
+uv run ruff check src tests
+
+# Classic venv alternative
 python3.13 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -39,8 +45,8 @@ Run all of these before opening a pull request:
 
 ```bash
 bash scripts/check_headers.sh
-pytest -q
-ruff check src tests
+uv run pytest -q
+uv run ruff check src tests
 python -m build
 twine check dist/*
 ```
@@ -58,10 +64,10 @@ contract and per-script details. `scripts/build_rpm.sh` needs the
 Debian); if it is missing, the script fails fast with a deterministic
 message.
 
-`bash scripts/check_headers.sh` should print no output. `pytest -q` should
-report **all tests passing**. `ruff check` should report
+`bash scripts/check_headers.sh` should print no output. `uv run pytest -q`
+should report **all tests passing**. `uv run ruff check` should report
 **All checks passed!**. `python -m build` should produce
-`dist/pysh_shell-0.4.0.tar.gz` and `dist/pysh_shell-0.4.0-py3-none-any.whl`.
+`dist/pysh_shell-0.5.0.tar.gz` and `dist/pysh_shell-0.5.0-py3-none-any.whl`.
 `twine check` should report `PASSED` for both artifacts.
 
 ## Smoke tests
@@ -174,5 +180,5 @@ pytest -q tests/test_shell.py::test_cd_changes_directory
 
 # Build and inspect the wheel contents:
 python -m build
-unzip -l dist/pysh_shell-0.4.0-py3-none-any.whl
+unzip -l dist/pysh_shell-0.5.0-py3-none-any.whl
 ```
