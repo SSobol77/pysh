@@ -28,15 +28,20 @@ from types import SimpleNamespace
 from typing import IO
 
 from pysh import __version__
+from pysh.colors import colorize, parse_color
 from pysh.command_plan import plan as run_plan
 from pysh.completion import Completer
 from pysh.config_api import (
     DEFAULT_EDITOR_OPTIONS,
+    DEFAULT_PROMPT_COLOR_MODES,
+    DEFAULT_PROMPT_COLORS,
     DEFAULT_PROMPT_OPTIONS,
     PYSHRC_PY_PATH,
     ensure_default_config,
     load_python_config,
     validate_editor_option,
+    validate_prompt_color,
+    validate_prompt_color_mode,
     validate_prompt_option,
 )
 from pysh.highlighting import colors_enabled, diagnostic
@@ -183,6 +188,8 @@ class PyShell:
         self.last_status: int = 0
         self.dir_stack: list[Path] = []
         self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
+        self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
+        self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
         for spec in TOOL_VERSION_SPECS:
             setattr(self, spec.cache_attr, _UNSET)
@@ -1031,6 +1038,16 @@ class PyShell:
         validate_editor_option(name, value)
         self.editor_options[name] = value
 
+    def set_prompt_color(self, segment: str, color: str) -> None:
+        """Set a validated prompt segment color (ConfigurableShell contract)."""
+        validate_prompt_color(segment, color)
+        self.prompt_colors[segment] = color
+
+    def set_prompt_color_mode(self, name: str, value: object) -> None:
+        """Set a validated prompt color mode (ConfigurableShell contract)."""
+        validate_prompt_color_mode(name, value)
+        self.prompt_color_modes[name] = value
+
     # ------------------------------------------------------------- presentation
     def _read_interactive_line(self) -> str:
         """Read one interactive command line via raw editor or readline."""
@@ -1091,36 +1108,43 @@ class PyShell:
         if bool(options.get("show_virtualenv", False)):
             virtualenv = self._prompt_virtualenv()
             if virtualenv:
-                segments.append(f"({virtualenv})")
+                segments.append(self._color_prompt_segment(f"({virtualenv})", "venv"))
 
-        segments.append(self._prompt_icon())
+        segments.append(self._color_prompt_segment(self._prompt_icon(), "icon"))
 
-        identity = self._prompt_identity(options)
+        identity_segments = self._prompt_identity_segments(options)
         show_cwd = bool(options.get("show_cwd", True))
         cwd_str = self._prompt_cwd_with_style(options) if show_cwd else ""
-        if identity and cwd_str:
-            segments.append(f"{identity}:{cwd_str}")
-        elif identity:
-            segments.append(identity)
+        if identity_segments and cwd_str:
+            identity = "".join(
+                self._color_prompt_segment(text, role) for text, role in identity_segments
+            )
+            segments.append(f"{identity}:{self._color_prompt_segment(cwd_str, 'cwd')}")
+        elif identity_segments:
+            segments.append(
+                "".join(
+                    self._color_prompt_segment(text, role) for text, role in identity_segments
+                )
+            )
         elif cwd_str:
-            segments.append(cwd_str)
+            segments.append(self._color_prompt_segment(cwd_str, "cwd"))
 
         git_segment = self._prompt_git_segment(options)
         if git_segment:
-            segments.append(git_segment)
+            segments.append(self._color_prompt_segment(git_segment, "git"))
 
         if bool(options.get("show_python_version", False)):
             py = ".".join(str(p) for p in sys.version_info[:2])
-            segments.append(f"py{py}")
+            segments.append(self._color_prompt_segment(f"py{py}", "python"))
 
         for spec in TOOL_VERSION_SPECS:
             if bool(options.get(spec.option, False)):
                 version = self._detect_tool_version(spec)
                 if version:
-                    segments.append(version)
+                    segments.append(self._color_prompt_segment(version, spec.label_prefix))
 
         if bool(options.get("show_last_status", False)) and self.last_status != 0:
-            segments.append(f"[{self.last_status}]")
+            segments.append(self._color_prompt_segment(f"[{self.last_status}]", "status"))
 
         return " ".join(segments)
 
@@ -1140,9 +1164,10 @@ class PyShell:
         """
         options = self.prompt_options
         symbol = str(options.get("symbol", ">"))
+        rendered_symbol = self._color_prompt_segment(symbol, "symbol")
         if options.get("prompt_layout", "two_line") == "single":
-            return self._prompt_body(options) + symbol + " "
-        return symbol + " "
+            return self._prompt_body(options) + rendered_symbol + " "
+        return rendered_symbol + " "
 
     @staticmethod
     def _prompt_identity(options: dict[str, object]) -> str:
@@ -1157,6 +1182,38 @@ class PyShell:
         if show_user:
             return user
         return ""
+
+    @staticmethod
+    def _prompt_identity_segments(options: dict[str, object]) -> list[tuple[str, str | None]]:
+        """Build color-aware identity segments."""
+        user = os.environ.get("USER") or os.environ.get("LOGNAME") or "user"
+        show_user = bool(options.get("show_user", True))
+        show_host = bool(options.get("show_host", False))
+        host = socket.gethostname()
+        if show_user and show_host:
+            return [(user, "user"), ("@", None), (host, "host")]
+        if show_host:
+            return [(host, "host")]
+        if show_user:
+            return [(user, "user")]
+        return []
+
+    def _color_prompt_segment(self, text: str, segment: str | None) -> str:
+        """Apply configured prompt color to one rendered segment."""
+        if segment is None or not text:
+            return text
+        color = self.prompt_colors.get(segment)
+        rgb = parse_color(color) if color is not None else None
+        return colorize(
+            text,
+            rgb,
+            enabled=self._prompt_colors_enabled(),
+            vga=bool(self.prompt_color_modes.get("vga", True)),
+        )
+
+    def _prompt_colors_enabled(self) -> bool:
+        """Return True when prompt color output is allowed."""
+        return colors_enabled()
 
     def _prompt_cwd_with_style(self, options: dict[str, object]) -> str:
         """Return the current directory using the configured prompt style."""

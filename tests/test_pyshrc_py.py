@@ -12,6 +12,7 @@
 """Tests for the Python-native configuration layer (``~/.pyshrc.py``)."""
 from __future__ import annotations
 
+import re
 import socket
 import sys
 from pathlib import Path
@@ -20,11 +21,15 @@ import pytest
 
 from pysh.config_api import (
     DEFAULT_EDITOR_OPTIONS,
+    DEFAULT_PROMPT_COLOR_MODES,
+    DEFAULT_PROMPT_COLORS,
     DEFAULT_PROMPT_OPTIONS,
     ConfigError,
     ShellConfigAPI,
     ensure_default_config,
     load_python_config,
+    validate_prompt_color,
+    validate_prompt_color_mode,
     validate_prompt_option,
 )
 from pysh.shell import PyShell
@@ -38,6 +43,8 @@ class FakeShell:
         self.environment: dict[str, str] = {}
         self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
+        self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
+        self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
 
     def register_alias(self, name: str, value: str) -> None:
         self.aliases[name] = value
@@ -55,10 +62,25 @@ class FakeShell:
         validate_editor_option(name, value)
         self.editor_options[name] = value
 
+    def set_prompt_color(self, segment: str, color: str) -> None:
+        validate_prompt_color(segment, color)
+        self.prompt_colors[segment] = color
+
+    def set_prompt_color_mode(self, name: str, value: object) -> None:
+        validate_prompt_color_mode(name, value)
+        self.prompt_color_modes[name] = value
+
 
 def _write(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
+
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def strip_ansi(text: str) -> str:
+    return ANSI_RE.sub("", text)
 
 
 @pytest.fixture(autouse=True)
@@ -166,6 +188,35 @@ def test_api_set_prompt_option_applies() -> None:
     shell = FakeShell()
     ShellConfigAPI(shell).set_prompt_option("show_python_version", True)
     assert shell.prompt_options["show_python_version"] is True
+
+
+def test_api_set_prompt_color_valid_name_and_hex() -> None:
+    shell = FakeShell()
+    api = ShellConfigAPI(shell)
+    api.set_prompt_color("user", "lime")
+    api.set_prompt_color("python", "#33CCFF")
+    assert shell.prompt_colors["user"] == "lime"
+    assert shell.prompt_colors["python"] == "#33CCFF"
+
+
+def test_api_set_prompt_color_rejects_invalid_segment_and_color() -> None:
+    api = ShellConfigAPI(FakeShell())
+    with pytest.raises(ConfigError):
+        api.set_prompt_color("bad", "red")
+    with pytest.raises(ConfigError):
+        api.set_prompt_color("user", "red;")
+
+
+def test_api_set_prompt_color_mode_accepts_and_rejects() -> None:
+    shell = FakeShell()
+    api = ShellConfigAPI(shell)
+    api.set_prompt_color_mode("vga", True)
+    api.set_prompt_color_mode("vga", False)
+    assert shell.prompt_color_modes["vga"] is False
+    with pytest.raises(ConfigError):
+        api.set_prompt_color_mode("unknown", True)
+    with pytest.raises(ConfigError):
+        api.set_prompt_color_mode("vga", "yes")  # type: ignore[arg-type]
 
 
 def test_default_prompt_options_match_contract() -> None:
@@ -663,3 +714,45 @@ def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path
         f"git:main py{py} uv0.9.16 ruff0.15.15 rust1.83.0 node22.3.0 npm10.8.1"
     )
     assert shell._prompt() == "> "
+
+
+def test_colored_prompt_contains_ansi_and_preserves_semantics(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
+    monkeypatch.setenv("USER", "tester")
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.setattr(socket, "gethostname", lambda: "vm")
+    monkeypatch.chdir(tmp_path)
+    shell = PyShell()
+    plain_info = shell._prompt_info_line()
+    plain_prompt = shell._prompt()
+    monkeypatch.setattr(shell, "_prompt_colors_enabled", lambda: True)
+    colored_info = shell._prompt_info_line()
+    colored_prompt = shell._prompt()
+    assert "\x1b[" in colored_info
+    assert "\x1b[" in colored_prompt
+    assert strip_ansi(colored_info) == plain_info
+    assert strip_ansi(colored_prompt) == plain_prompt
+    assert "\n" not in colored_prompt
+
+
+def test_colored_prompt_truecolor_mode(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
+    monkeypatch.setenv("USER", "tester")
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.chdir(tmp_path)
+    shell = PyShell()
+    shell.set_prompt_color_mode("vga", False)
+    shell.set_prompt_color("user", "#33CCFF")
+    monkeypatch.setattr(shell, "_prompt_colors_enabled", lambda: True)
+    assert "\x1b[38;2;51;204;255mtester" in shell._prompt_info_line()
+
+
+def test_prompt_color_gate_disabled_emits_no_ansi(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
+    monkeypatch.setenv("USER", "tester")
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.chdir(tmp_path)
+    shell = PyShell()
+    monkeypatch.setattr(shell, "_prompt_colors_enabled", lambda: False)
+    assert "\x1b[" not in shell._prompt_info_line()
+    assert "\x1b[" not in shell._prompt()

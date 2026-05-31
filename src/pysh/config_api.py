@@ -43,6 +43,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Protocol, runtime_checkable
 
+from pysh.colors import parse_color
+
 # Canonical location of the Python-native user configuration file.
 PYSHRC_PY_PATH = Path("~/.pyshrc.py").expanduser()
 
@@ -112,6 +114,32 @@ EDITOR_OPTION_VALUES: dict[str, frozenset[str]] = {
     "line_editor": frozenset({"auto", "readline", "basic"}),
 }
 
+DEFAULT_PROMPT_COLORS: dict[str, str] = {
+    "venv": "fuchsia",
+    "icon": "lime",
+    "user": "lime",
+    "host": "aqua",
+    "cwd": "yellow",
+    "git": "green",
+    "python": "blue",
+    "uv": "purple",
+    "ruff": "teal",
+    "rust": "maroon",
+    "node": "lime",
+    "npm": "red",
+    "status": "red",
+    "symbol": "white",
+}
+
+DEFAULT_PROMPT_COLOR_MODES: dict[str, object] = {
+    "vga": True,
+}
+
+PROMPT_COLOR_SEGMENTS: frozenset[str] = frozenset(DEFAULT_PROMPT_COLORS)
+PROMPT_COLOR_MODE_TYPES: dict[str, type] = {
+    "vga": bool,
+}
+
 _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # Monotonic counter guarantees a fresh module object on every load, which
@@ -152,6 +180,14 @@ class ConfigurableShell(Protocol):
         """Set a single validated editor option."""
         ...
 
+    def set_prompt_color(self, segment: str, color: str) -> None:
+        """Set a single validated prompt segment color."""
+        ...
+
+    def set_prompt_color_mode(self, name: str, value: object) -> None:
+        """Set a single validated prompt color mode."""
+        ...
+
 
 def validate_prompt_option(name: str, value: object) -> None:
     """Validate a prompt option name/value pair.
@@ -189,6 +225,34 @@ def validate_editor_option(name: str, value: object) -> None:
     if allowed is not None and value not in allowed:
         allowed_text = ", ".join(sorted(allowed))
         raise ConfigError(f"editor option {name!r} must be one of: {allowed_text}")
+
+
+def validate_prompt_color(segment: str, color: str) -> None:
+    """Validate a prompt segment color assignment."""
+    if segment not in PROMPT_COLOR_SEGMENTS:
+        known = ", ".join(sorted(PROMPT_COLOR_SEGMENTS))
+        raise ConfigError(f"unknown prompt color segment {segment!r} (known: {known})")
+    if not isinstance(color, str):
+        raise ConfigError(
+            f"prompt color for {segment!r} expects str, got {type(color).__name__}"
+        )
+    try:
+        parse_color(color)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+
+
+def validate_prompt_color_mode(name: str, value: object) -> None:
+    """Validate a prompt color mode name/value pair."""
+    expected = PROMPT_COLOR_MODE_TYPES.get(name)
+    if expected is None:
+        known = ", ".join(sorted(PROMPT_COLOR_MODE_TYPES))
+        raise ConfigError(f"unknown prompt color mode {name!r} (known: {known})")
+    if not isinstance(value, expected):
+        raise ConfigError(
+            f"prompt color mode {name!r} expects {expected.__name__}, "
+            f"got {type(value).__name__}"
+        )
 
 
 def _validate_alias_name(name: str) -> None:
@@ -274,6 +338,26 @@ class ShellConfigAPI:
         validate_editor_option(name, value)
         self._shell.set_editor_option(name, value)
 
+    def set_prompt_color(self, segment: str, color: str) -> None:
+        """Set one prompt segment color.
+
+        ``segment`` must be one of ``venv``, ``icon``, ``user``, ``host``,
+        ``cwd``, ``git``, ``python``, ``uv``, ``ruff``, ``rust``, ``node``,
+        ``npm``, ``status`` or ``symbol``. ``color`` accepts canonical HTML
+        color names or ``#RRGGBB``.
+        """
+        validate_prompt_color(segment, color)
+        self._shell.set_prompt_color(segment, color)
+
+    def set_prompt_color_mode(self, name: str, value: bool) -> None:
+        """Set one prompt color mode.
+
+        ``shell.set_prompt_color_mode("vga", True)`` maps configured colors to
+        nearest ANSI/VGA 16-color foregrounds. ``False`` emits ANSI truecolor.
+        """
+        validate_prompt_color_mode(name, value)
+        self._shell.set_prompt_color_mode(name, value)
+
 
 # --------------------------------------------------------------- default file
 DEFAULT_PYSHRC_PY = '''\
@@ -323,6 +407,29 @@ def configure(shell):
     # Variant C: tweak path style and command-line symbol.
     # shell.set_prompt_option("cwd_style", "basename")
     # shell.set_prompt_option("symbol", "pysh>")
+
+    # --- Prompt colors ------------------------------------------------------
+    # Colors accept canonical names (red, green, blue, fuchsia, aqua, ...)
+    # or #RRGGBB HTML-style values. With VGA mode enabled, colors are mapped
+    # to the nearest ANSI/VGA 16-color foreground. With VGA mode disabled,
+    # PySH emits ANSI 24-bit truecolor.
+    #
+    # shell.set_prompt_color_mode("vga", True)   # nearest ANSI/VGA 16-color
+    # shell.set_prompt_color_mode("vga", False)  # ANSI 24-bit truecolor
+    #
+    # shell.set_prompt_color("venv", "fuchsia")
+    # shell.set_prompt_color("user", "lime")
+    # shell.set_prompt_color("host", "aqua")
+    # shell.set_prompt_color("cwd", "yellow")
+    # shell.set_prompt_color("git", "green")
+    # shell.set_prompt_color("python", "#33CCFF")
+    # shell.set_prompt_color("uv", "purple")
+    # shell.set_prompt_color("ruff", "teal")
+    # shell.set_prompt_color("rust", "#FF6600")
+    # shell.set_prompt_color("node", "lime")
+    # shell.set_prompt_color("npm", "red")
+    # shell.set_prompt_color("status", "red")
+    # shell.set_prompt_color("symbol", "white")
 
     # --- Line editor (fish-style highlighting + autosuggestion) -------------
     # Defaults: syntax highlighting ON, history autosuggestion ON, editor auto.
