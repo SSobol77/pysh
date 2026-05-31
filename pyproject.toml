@@ -21,6 +21,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 license = "GPL-3.0-or-later"
 authors = [{ name = "Siergej Sobolewski" }]
+dependencies = ["pygments>=2.0"]
 keywords = ["shell", "python", "terminal", "cli", "debian"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -44,9 +45,6 @@ pysh = "pysh.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6", "build>=1.2", "twine>=5.0"]
-# Optional syntax highlighting for Python command mode (#show, #edit).
-# PySH works without Pygments; install this extra to enable highlighting.
-highlighting = ["pygments>=2.0"]
 
 [tool.ruff]
 line-length = 100
@@ -70,7 +68,4 @@ include = ["/src", "/tests", "/README.md", "/LICENSE", "/pyproject.toml"]
 dev = [
     "pytest>=9.0.3",
     "ruff>=0.15.15",
-    # Pygments is optional at runtime; include it in dev so the highlighted
-    # code path is exercised during local testing.
-    "pygments>=2.0",
 ]

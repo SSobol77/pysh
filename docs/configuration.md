@@ -75,6 +75,16 @@ def configure(shell):
 The `configure` function is optional; an empty file or a file that defines no
 `configure` function is silently ignored without error.
 
+## Terminal Color Overrides
+
+PySH enables ANSI colors by default on capable TTYs and disables them for
+`TERM=dumb`, non-TTY output, and `NO_COLOR`.
+
+- `NO_COLOR`: disable ANSI color output.
+- `PYSH_COLOR=0`: disable PySH ANSI color output.
+- `PYSH_COLOR=1`: enable colors when the terminal is capable.
+- `PYSH_COLOR=always`: force ANSI output, useful for terminal smoke tests.
+
 ## Aliases
 
 ```sh

@@ -54,6 +54,28 @@ def test_colors_enabled_when_tty_and_term_ok() -> None:
     assert colors_enabled(FakeTTY(), {"TERM": "xterm-256color"}) is True
 
 
+def test_pysh_color_zero_disables_colors() -> None:
+    class FakeTTY:
+        def isatty(self) -> bool:
+            return True
+
+    assert colors_enabled(FakeTTY(), {"TERM": "xterm", "PYSH_COLOR": "0"}) is False
+
+
+def test_pysh_color_always_forces_colors_without_tty() -> None:
+    assert colors_enabled(io.StringIO(), {"TERM": "dumb", "PYSH_COLOR": "always"}) is True
+
+
+def test_no_color_overrides_pysh_color_always() -> None:
+    assert (
+        colors_enabled(
+            io.StringIO(),
+            {"TERM": "xterm", "PYSH_COLOR": "always", "NO_COLOR": "1"},
+        )
+        is False
+    )
+
+
 def test_paint_returns_plain_when_disabled() -> None:
     assert paint("hello", "builtin", enabled=False) == "hello"
 

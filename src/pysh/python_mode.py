@@ -37,14 +37,22 @@ See docs/python-command-execution-layer.md for the full specification.
 from __future__ import annotations
 
 import codeop
+import os
 import re
 import sys
+import termios
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import IO
 
-from pysh.python_highlight import PythonSyntaxRenderer
+from pysh.lineedit.autosuggest import AutoSuggester
+from pysh.lineedit.buffer import LineBuffer
+from pysh.lineedit.completion import CompletionResult, apply_single_completion
+from pysh.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
+from pysh.lineedit.reader import RawLineReader
 from pysh.python_runtime import PythonRuntime
+from pysh.python_terminal_render import PythonSyntaxRenderer
 
 # ---------------------------------------------------------------------------
 # Prompt strings
@@ -107,6 +115,28 @@ class _PendingEdit:
         self.op: str = op            # "insert" or "replace"
         self.line_num: int = line_num  # 1-based target line
         self.lines: list[str] = []
+
+
+class _PythonModeCompleter:
+    """Raw-line completion adapter for Python mode file directives."""
+
+    def __init__(self, cwd_provider: Callable[[], Path]) -> None:
+        self._cwd_provider = cwd_provider
+
+    def raw_completion(self, line: str, cursor: int) -> CompletionResult:
+        candidates = tuple(complete_python_mode_path(line, cursor, self._cwd_provider()))
+        start = cursor
+        partial = ""
+        prefix_up_to_cursor = line[:cursor]
+        for directive_prefix in _FILE_ARG_DIRECTIVES:
+            if prefix_up_to_cursor.startswith(directive_prefix):
+                partial = prefix_up_to_cursor[len(directive_prefix):]
+                start = cursor - len(partial)
+                break
+        return CompletionResult(start, cursor, partial, candidates)
+
+    def apply_raw_completion(self, line: str, result: CompletionResult) -> tuple[str, int]:
+        return apply_single_completion(line, result)
 
 
 # ---------------------------------------------------------------------------
@@ -397,8 +427,10 @@ class PythonCommandMode:
         provided, visual padding is automatically disabled.
     out_stream:
         Destination for mode-level output.  Defaults to ``sys.stdout``.
-    err_stream:
-        Destination for mode-level errors.  Defaults to ``sys.stderr``.
+        err_stream:
+            Destination for mode-level errors.  Defaults to ``sys.stderr``.
+    renderer:
+        Optional terminal renderer. Tests may inject ``force_color=True``.
     cwd_provider:
         Zero-argument callable returning the current working directory.
         Defaults to :func:`pathlib.Path.cwd`.
@@ -414,15 +446,20 @@ class PythonCommandMode:
         input_source: Iterable[str] | None = None,
         out_stream: IO[str] | None = None,
         err_stream: IO[str] | None = None,
+        renderer: PythonSyntaxRenderer | None = None,
         cwd_provider: Callable[[], Path] | None = None,
         visual_padding_lines: int = 2,
     ) -> None:
         self._out: IO[str] = out_stream if out_stream is not None else sys.stdout
         self._err: IO[str] = err_stream if err_stream is not None else sys.stderr
+        self._renderer = renderer if renderer is not None else PythonSyntaxRenderer(stream=self._out)
         self._runtime: PythonRuntime = (
             runtime
             if runtime is not None
-            else PythonRuntime(err_stream=self._err)
+            else PythonRuntime(
+                err_stream=self._err,
+                error_renderer=self._renderer.render_traceback,
+            )
         )
         self._input_iter: Iterator[str] | None = (
             iter(input_source) if input_source is not None else None
@@ -435,9 +472,11 @@ class PythonCommandMode:
         self._active_file: Path | None = None
         self._edit_mode: bool = False
         self._pending_edit: _PendingEdit | None = None
-        # Syntax renderer — disabled for non-TTY streams automatically.
-        # Tests use StringIO (not a TTY) so they get plain output by default.
-        self._renderer = PythonSyntaxRenderer(stream=self._out)
+        self._raw_reader = RawLineReader()
+        self._raw_suggester = AutoSuggester()
+        self._raw_highlighter = LineHighlighter(frozenset())
+        self._raw_completer = _PythonModeCompleter(self._cwd_provider)
+        self._last_read_live_rendered = False
         # Visual padding: auto-disabled in test/scripted mode.
         self._visual_padding_lines: int = (
             0 if input_source is not None else max(0, visual_padding_lines)
@@ -481,6 +520,8 @@ class PythonCommandMode:
                 at_primary = True
                 continue
 
+            self._echo_post_entry_highlight(line)
+
             # ----------------------------------------------------------
             # PRIORITY 1: pending edit operation (#insert / #replace)
             # ----------------------------------------------------------
@@ -488,7 +529,7 @@ class PythonCommandMode:
                 done, err_msg = self._collect_edit_line(line)
                 if done:
                     if err_msg:
-                        print(f"pysh(py): {err_msg}", file=self._err)
+                        self._print_error(f"pysh(py): {err_msg}")
                     self._pending_edit = None
                     at_primary = True
                 continue
@@ -506,7 +547,7 @@ class PythonCommandMode:
                 # Intercept bare command words typed without '#'.
                 hint = _check_missing_hash(line)
                 if hint is not None:
-                    print(f"pysh(py): {hint}", file=self._err)
+                    self._print_error(f"pysh(py): {hint}")
                     continue
 
             # ----------------------------------------------------------
@@ -551,7 +592,7 @@ class PythonCommandMode:
         name, arg, error = parsed
 
         if error is not None:
-            print(f"pysh(py): {error}", file=self._err)
+            self._print_error(f"pysh(py): {error}")
             return _DIRECTIVE_HANDLED
 
         if name == "exit":
@@ -591,27 +632,27 @@ class PythonCommandMode:
         """Load *filename* into the edit buffer and enter file-backed edit mode."""
         path = self._resolve_path(filename)
         if path.is_dir():
-            print(f"pysh(py): #open: {filename}: is a directory", file=self._err)
+            self._print_error(f"pysh(py): #open: {filename}: is a directory")
             return 1
         try:
             content = path.read_text(encoding="utf-8")
         except FileNotFoundError:
-            print(f"pysh(py): #open: {filename}: no such file", file=self._err)
+            self._print_error(f"pysh(py): #open: {filename}: no such file")
             return 1
         except PermissionError:
-            print(f"pysh(py): #open: {filename}: permission denied", file=self._err)
+            self._print_error(f"pysh(py): #open: {filename}: permission denied")
             return 1
         except UnicodeDecodeError as exc:
-            print(f"pysh(py): #open: {filename}: decode error: {exc}", file=self._err)
+            self._print_error(f"pysh(py): #open: {filename}: decode error: {exc}")
             return 1
         except OSError as exc:
-            print(f"pysh(py): #open: {filename}: {exc}", file=self._err)
+            self._print_error(f"pysh(py): #open: {filename}: {exc}")
             return 1
         self._buffer = content.splitlines()
         self._active_file = path
         self._edit_mode = True
-        print(f"opened: {filename}", file=self._out)
-        print(f"editing: {filename}", file=self._out)
+        self._print_status(f"opened: {filename}")
+        self._print_status(f"editing: {filename}")
         return 0
 
     def _handle_save(self, filename: str | None) -> int:
@@ -622,10 +663,7 @@ class PythonCommandMode:
         """
         if filename is None:
             if self._active_file is None:
-                print(
-                    "pysh(py): no active file; use #save file.py",
-                    file=self._err,
-                )
+                self._print_error("pysh(py): no active file; use #save file.py")
                 return 1
             target = self._active_file
             display = str(self._active_file.name)
@@ -634,7 +672,7 @@ class PythonCommandMode:
             display = filename
 
         if target.is_dir():
-            print(f"pysh(py): #save: {display}: is a directory", file=self._err)
+            self._print_error(f"pysh(py): #save: {display}: is a directory")
             return 1
 
         source = "\n".join(self._buffer)
@@ -643,13 +681,13 @@ class PythonCommandMode:
         try:
             target.write_text(source, encoding="utf-8")
         except OSError as exc:
-            print(f"pysh(py): #save: {display}: {exc}", file=self._err)
+            self._print_error(f"pysh(py): #save: {display}: {exc}")
             return 1
 
         if filename is not None:
             self._active_file = target
             self._edit_mode = True
-        print(f"saved: {display}", file=self._out)
+        self._print_status(f"saved: {display}")
         return 0
 
     def _handle_show(self, filename: str | None) -> None:
@@ -661,7 +699,7 @@ class PythonCommandMode:
         """
         if filename is None:
             if not self._buffer:
-                print("buffer empty", file=self._out)
+                self._print_status("buffer empty")
                 return
             for i, ln in enumerate(self._buffer, 1):
                 hl = self._renderer.render_line(ln)
@@ -671,18 +709,18 @@ class PythonCommandMode:
         # File display (cat-style, read-only).
         path = self._resolve_path(filename)
         if path.is_dir():
-            print(f"pysh(py): #show: {filename}: is a directory", file=self._err)
+            self._print_error(f"pysh(py): #show: {filename}: is a directory")
             return
         try:
             content = path.read_text(encoding="utf-8")
         except FileNotFoundError:
-            print(f"pysh(py): #show: {filename}: no such file", file=self._err)
+            self._print_error(f"pysh(py): #show: {filename}: no such file")
             return
         except PermissionError:
-            print(f"pysh(py): #show: {filename}: permission denied", file=self._err)
+            self._print_error(f"pysh(py): #show: {filename}: permission denied")
             return
         except OSError as exc:
-            print(f"pysh(py): #show: {filename}: {exc}", file=self._err)
+            self._print_error(f"pysh(py): #show: {filename}: {exc}")
             return
         # Render the file content with syntax highlighting.
         # rstrip the trailing newline before rendering so Pygments does not
@@ -703,7 +741,7 @@ class PythonCommandMode:
         * ``#edit`` displays the buffer as highlighted source (no line numbers).
         """
         if not self._buffer:
-            print("buffer empty", file=self._out)
+            self._print_status("buffer empty")
             return
         source = "\n".join(self._buffer)
         rendered = self._renderer.render_code(source)
@@ -719,7 +757,7 @@ class PythonCommandMode:
         except SystemExit:
             return 0
         except KeyboardInterrupt:
-            print("\nKeyboardInterrupt", file=self._err)
+            self._print_error("\nKeyboardInterrupt")
             return 130
 
     def _handle_append(self) -> None:
@@ -729,9 +767,8 @@ class PythonCommandMode:
         source buffer when edit mode is active, so this directive is a
         no-op that simply prints a confirmation.
         """
-        print(
-            "append mode — Python source entered at the prompt is appended to the edit buffer",
-            file=self._out,
+        self._print_status(
+            "append mode — Python source entered at the prompt is appended to the edit buffer"
         )
 
     def _handle_insert(self, arg: str) -> int:
@@ -739,21 +776,17 @@ class PythonCommandMode:
         try:
             line_num = int(arg.strip())
         except ValueError:
-            print(f"pysh(py): #insert: invalid line number: {arg!r}", file=self._err)
+            self._print_error(f"pysh(py): #insert: invalid line number: {arg!r}")
             return 1
         n = len(self._buffer)
         if line_num < 1 or line_num > n + 1:
-            print(
+            self._print_error(
                 f"pysh(py): #insert: line {line_num} out of range "
-                f"(valid: 1-{n + 1})",
-                file=self._err,
+                f"(valid: 1-{n + 1})"
             )
             return 1
         self._pending_edit = _PendingEdit("insert", line_num)
-        print(
-            f"insert before line {line_num} — enter Python source:",
-            file=self._out,
-        )
+        self._print_status(f"insert before line {line_num} — enter Python source:")
         return 0
 
     def _handle_replace(self, arg: str) -> int:
@@ -761,31 +794,27 @@ class PythonCommandMode:
         try:
             line_num = int(arg.strip())
         except ValueError:
-            print(f"pysh(py): #replace: invalid line number: {arg!r}", file=self._err)
+            self._print_error(f"pysh(py): #replace: invalid line number: {arg!r}")
             return 1
         n = len(self._buffer)
         if n == 0:
-            print("pysh(py): #replace: buffer is empty", file=self._err)
+            self._print_error("pysh(py): #replace: buffer is empty")
             return 1
         if line_num < 1 or line_num > n:
-            print(
+            self._print_error(
                 f"pysh(py): #replace: line {line_num} out of range "
-                f"(valid: 1-{n})",
-                file=self._err,
+                f"(valid: 1-{n})"
             )
             return 1
         self._pending_edit = _PendingEdit("replace", line_num)
-        print(
-            f"replace line {line_num} — enter replacement Python source:",
-            file=self._out,
-        )
+        self._print_status(f"replace line {line_num} — enter replacement Python source:")
         return 0
 
     def _handle_delete(self, arg: str) -> int:
         """Delete one line or an inclusive range from the source buffer."""
         n = len(self._buffer)
         if n == 0:
-            print("pysh(py): #delete: buffer is empty", file=self._err)
+            self._print_error("pysh(py): #delete: buffer is empty")
             return 1
 
         if ":" in arg:
@@ -794,33 +823,31 @@ class PythonCommandMode:
                 start = int(parts[0].strip())
                 end = int(parts[1].strip())
             except ValueError:
-                print(f"pysh(py): #delete: invalid range: {arg!r}", file=self._err)
+                self._print_error(f"pysh(py): #delete: invalid range: {arg!r}")
                 return 1
             if start < 1 or end > n or start > end:
-                print(
+                self._print_error(
                     f"pysh(py): #delete: range {start}:{end} out of range "
-                    f"(valid: 1:{n})",
-                    file=self._err,
+                    f"(valid: 1:{n})"
                 )
                 return 1
             count = end - start + 1
             del self._buffer[start - 1 : end]
-            print(f"deleted lines {start}-{end} ({count} line(s))", file=self._out)
+            self._print_status(f"deleted lines {start}-{end} ({count} line(s))")
         else:
             try:
                 line_num = int(arg.strip())
             except ValueError:
-                print(f"pysh(py): #delete: invalid line number: {arg!r}", file=self._err)
+                self._print_error(f"pysh(py): #delete: invalid line number: {arg!r}")
                 return 1
             if line_num < 1 or line_num > n:
-                print(
+                self._print_error(
                     f"pysh(py): #delete: line {line_num} out of range "
-                    f"(valid: 1-{n})",
-                    file=self._err,
+                    f"(valid: 1-{n})"
                 )
                 return 1
             del self._buffer[line_num - 1]
-            print(f"deleted line {line_num}", file=self._out)
+            self._print_status(f"deleted line {line_num}")
         return 0
 
     def _collect_edit_line(self, line: str) -> tuple[bool, str | None]:
@@ -856,14 +883,11 @@ class PythonCommandMode:
         if op.op == "insert":
             idx = op.line_num - 1
             self._buffer[idx:idx] = new_lines
-            print(
-                f"inserted {len(new_lines)} line(s) at position {op.line_num}",
-                file=self._out,
-            )
+            self._print_status(f"inserted {len(new_lines)} line(s) at position {op.line_num}")
         elif op.op == "replace":
             idx = op.line_num - 1
             self._buffer[idx : idx + 1] = new_lines
-            print(f"line {op.line_num} replaced", file=self._out)
+            self._print_status(f"line {op.line_num} replaced")
 
         return (True, None)
 
@@ -871,7 +895,7 @@ class PythonCommandMode:
         """Clear the source buffer; keep ``_active_file`` and ``_edit_mode``."""
         self._buffer.clear()
         self._runtime.clear_input_buffer()
-        print("buffer cleared", file=self._out)
+        self._print_status("buffer cleared")
 
     def _handle_reset(self) -> None:
         """Full workspace reset: clears buffer, active file, edit mode, runtime."""
@@ -880,7 +904,7 @@ class PythonCommandMode:
         self._edit_mode = False
         self._pending_edit = None
         self._runtime.reset()
-        print("workspace reset", file=self._out)
+        self._print_status("workspace reset")
 
     # ------------------------------------------------------------------
     # Path resolution
@@ -910,12 +934,56 @@ class PythonCommandMode:
     def _read_line(self, at_primary: bool) -> str:
         """Read one input line from the injected source or ``input()``."""
         prompt = self._get_primary_prompt() if at_primary else _PROMPT_CONTINUATION
+        rendered_prompt = self._renderer.render_prompt(prompt)
+        self._last_read_live_rendered = False
         if self._input_iter is not None:
             try:
                 return next(self._input_iter)
             except StopIteration:
                 raise EOFError from None
-        return input(prompt)
+        if self._should_use_raw_reader():
+            try:
+                self._last_read_live_rendered = True
+                return self._raw_reader.read_line(
+                    rendered_prompt,
+                    history=[],
+                    suggester=self._raw_suggester,
+                    highlighter=self._raw_highlighter,
+                    scheme=DEFAULT_SCHEME,
+                    options=SimpleNamespace(autosuggest=False, syntax_highlight=False),
+                    completer=self._raw_completer,
+                    line_renderer=self._renderer.render_line,
+                    tab_handler=self._handle_raw_tab,
+                )
+            except (OSError, termios.error):
+                self._last_read_live_rendered = False
+        return input(rendered_prompt)
+
+    @staticmethod
+    def _should_use_raw_reader() -> bool:
+        try:
+            return sys.stdin.isatty() and sys.stdout.isatty() and os.environ.get("TERM") != "dumb"
+        except (AttributeError, ValueError):
+            return False
+
+    def _echo_post_entry_highlight(self, line: str) -> None:
+        """Echo highlighted source only when live raw redraw was not used."""
+        if self._last_read_live_rendered:
+            return
+        if not self._renderer._active():
+            return
+        if not line or line.lstrip().startswith("#"):
+            return
+        print(self._renderer.render_line(line), file=self._out)
+
+    def _handle_raw_tab(self, buffer: LineBuffer) -> bool:
+        """Insert four spaces for Python code; let file directives complete."""
+        prefix = buffer.text[: buffer.cursor]
+        if any(prefix.startswith(directive) for directive in _FILE_ARG_DIRECTIVES):
+            return False
+        text, cursor = expand_tab(buffer.text, buffer.cursor)
+        buffer.set(text, cursor)
+        return True
 
     def _print_visual_padding(self) -> None:
         """Print blank lines below the prompt in interactive mode only."""
@@ -923,11 +991,20 @@ class PythonCommandMode:
             for _ in range(self._visual_padding_lines):
                 print(file=self._out)
 
+    def _print_status(self, text: str = "") -> None:
+        """Print Python-mode status text through the terminal renderer."""
+        print(self._renderer.render_status(text), file=self._out)
+
+    def _print_error(self, text: str) -> None:
+        """Print Python-mode diagnostics through the terminal renderer."""
+        print(self._renderer.render_error(text), file=self._err)
+
     def _print_banner(self) -> None:
         vi = sys.version_info
-        print("PySH Python Command Execution Layer", file=self._out)
-        print(f"Python {vi.major}.{vi.minor}.{vi.micro}", file=self._out)
-        print("Type #help for commands.\n", file=self._out)
+        self._print_status("PySH Python Command Execution Layer")
+        self._print_status(f"Python {vi.major}.{vi.minor}.{vi.micro}")
+        self._print_status("Type #help for commands.")
+        print(file=self._out)
 
     def _print_help(self) -> None:
         help_text = (
@@ -955,8 +1032,9 @@ class PythonCommandMode:
             "\n"
             "Syntax highlighting:\n"
             "  Python source shown in #py mode is syntax-highlighted when\n"
-            "  terminal color is enabled and Pygments is installed.\n"
-            "  Highlighting applies to #show, #show file.py, and #edit.\n"
+            "  terminal color is enabled. Pygments is installed by default.\n"
+            "  Highlighting applies to interactive input, continuation input,\n"
+            "  prompts, diagnostics, #show, #show file.py, and #edit.\n"
             "  Highlighting is visual only and is never saved to files.\n"
             "\n"
             "Path completion is available for #open, #save, and #show.\n"
@@ -982,4 +1060,4 @@ class PythonCommandMode:
             "  #open main.py      (load source into edit mode)\n"
             "  #run               (execute the buffer)\n"
         )
-        print(help_text, file=self._out)
+        print(self._renderer.render_status(help_text), file=self._out)

@@ -112,6 +112,9 @@ validated primarily on **Debian 13** and Unix-like systems.
   interactive launch; never overwrites an existing file.
 - **stdlib raw-mode line editor**: character-by-character editing with live
   syntax highlighting and fish-style autosuggestions.
+- **Python command-mode syntax highlighting**: Pygments is installed by
+  default and colors interactive `#py` input, continuation prompts, `#show`,
+  `#edit`, and Python diagnostics on capable terminals.
 - **Configurable prompt colors**: per-segment VGA and truecolor support via
   Python-native `~/.pyshrc.py`.
 - **Configurable terminal cursor color**: OSC 12/112 support, disabled by

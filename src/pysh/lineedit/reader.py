@@ -26,7 +26,7 @@ import select
 import sys
 import termios
 import tty
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Protocol
 
 from pysh.completion import Completer
@@ -91,6 +91,8 @@ class RawLineReader:
         scheme: ColorScheme = DEFAULT_SCHEME,
         options: _Options,
         completer: Completer | None = None,
+        line_renderer: Callable[[str], str] | None = None,
+        tab_handler: Callable[[LineBuffer], bool] | None = None,
     ) -> str:
         """Read a command line, raising EOF/KeyboardInterrupt for Ctrl-D/C."""
         self._start_rows = 0
@@ -106,7 +108,15 @@ class RawLineReader:
         history_list = list(history)
         suggestion = ""
         try:
-            self._redraw(prompt, buffer, suggestion, highlighter, scheme, enabled)
+            self._redraw(
+                prompt,
+                buffer,
+                suggestion,
+                highlighter,
+                scheme,
+                enabled,
+                line_renderer,
+            )
             while True:
                 data = os.read(in_fd, 32)
                 if not data:
@@ -129,12 +139,21 @@ class RawLineReader:
                         options,
                         nav_index,
                         completer,
+                        tab_handler,
                     )
                     if isinstance(result, str):
                         self._write("\r\n", out_fd)
                         return result
                     nav_index, suggestion = result
-                    self._redraw(prompt, buffer, suggestion, highlighter, scheme, enabled)
+                    self._redraw(
+                        prompt,
+                        buffer,
+                        suggestion,
+                        highlighter,
+                        scheme,
+                        enabled,
+                        line_renderer,
+                    )
         finally:
             termios.tcsetattr(in_fd, termios.TCSADRAIN, old_state)
             _saved_termios.pop(in_fd, None)
@@ -152,6 +171,7 @@ class RawLineReader:
         options: _Options,
         nav_index: int | None,
         completer: Completer | None,
+        tab_handler: Callable[[LineBuffer], bool] | None,
     ) -> tuple[int | None, str] | str:
         del prompt, highlighter, scheme, enabled
         suggestion = self._suggest(buffer, history, suggester, options)
@@ -193,6 +213,8 @@ class RawLineReader:
             self._reverse_search(buffer, history)
         elif event.key is Key.CTRL_L:
             self._write("\033[2J\033[H", self.output_fd)
+        elif event.key is Key.TAB and tab_handler is not None and tab_handler(buffer):
+            pass
         elif event.key is Key.TAB and completer is not None:
             self._complete(buffer, completer)
         return nav_index, self._suggest(buffer, history, suggester, options)
@@ -254,11 +276,15 @@ class RawLineReader:
         highlighter: LineHighlighter,
         scheme: ColorScheme,
         enabled: bool,
+        line_renderer: Callable[[str], str] | None,
     ) -> None:
         out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
         width = self._terminal_width(out_fd)
         prompt_width = _visible_width(prompt)
-        rendered = highlighter.render(buffer.text, scheme, enabled=enabled)
+        if line_renderer is not None:
+            rendered = line_renderer(buffer.text)
+        else:
+            rendered = highlighter.render(buffer.text, scheme, enabled=enabled)
         suggestion_text = ""
         if suggestion:
             suggestion_text = f"{scheme.suggestion}{suggestion}{scheme.reset}" if enabled else suggestion

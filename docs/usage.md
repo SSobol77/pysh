@@ -324,6 +324,12 @@ Inside Python command mode, available directives are:
 TAB inserts four spaces. Ctrl+D exits (same as `#exit`). Ctrl+C cancels
 current input.
 
+Python command mode uses Pygments syntax highlighting in the normal runtime:
+interactive input, continuation input, prompts, `#show`, `#show file.py`,
+`#edit`, and Python diagnostics are colored on capable terminals. Set
+`PYSH_COLOR=0` or `NO_COLOR` to disable color, or `PYSH_COLOR=always` to force
+ANSI output for terminal smoke tests.
+
 See [python-command-execution-layer.md](python-command-execution-layer.md)
 for the complete specification.
 

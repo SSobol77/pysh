@@ -25,6 +25,11 @@ Colors are disabled when any of the following hold:
   * stdout is not a TTY
   * the environment defines NO_COLOR (any value, even empty)
   * TERM is unset or equal to "dumb"
+
+``PYSH_COLOR`` may override the default terminal policy:
+  * ``PYSH_COLOR=0`` disables colors
+  * ``PYSH_COLOR=1`` enables colors when the terminal is capable
+  * ``PYSH_COLOR=always`` forces ANSI output, except when ``NO_COLOR`` is set
 """
 from __future__ import annotations
 
@@ -83,8 +88,15 @@ def colors_enabled(stream: IO[str] | None = None, env: dict[str, str] | None = N
     env = os.environ if env is None else env
     if "NO_COLOR" in env:
         return False
+    override = env.get("PYSH_COLOR", "").strip().lower()
+    if override in {"0", "false", "no", "off"}:
+        return False
+    if override == "always":
+        return True
     term = env.get("TERM", "")
     if not term or term == "dumb":
+        return False
+    if override not in {"", "1", "true", "yes", "on"}:
         return False
     s = stream if stream is not None else sys.stdout
     try:

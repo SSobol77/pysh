@@ -14,6 +14,7 @@ with Python command mode (#show, #show file.py, #edit)."""
 from __future__ import annotations
 
 import io
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,23 @@ def _disabled_renderer() -> PythonSyntaxRenderer:
 def _forced_renderer() -> PythonSyntaxRenderer:
     """Renderer that always emits ANSI (force_color=True)."""
     return PythonSyntaxRenderer(force_color=True)
+
+
+def _mode_forced(
+    lines: list[str],
+    *,
+    cwd: Path | None = None,
+) -> tuple[PythonCommandMode, io.StringIO, io.StringIO]:
+    out = io.StringIO()
+    err = io.StringIO()
+    mode = PythonCommandMode(
+        input_source=lines,
+        out_stream=out,
+        err_stream=err,
+        renderer=_forced_renderer(),
+        cwd_provider=(lambda: cwd) if cwd is not None else None,
+    )
+    return mode, out, err
 
 
 def _has_ansi(text: str) -> bool:
@@ -131,6 +149,38 @@ class TestRendererEnabled:
         # Must not crash; any ANSI output accepted.
         result = r.render_code("1 + 1")
         assert isinstance(result, str)
+
+    def test_pysh_color_zero_disables_renderer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PYSH_COLOR", "0")
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        stream = io.StringIO()
+        stream.isatty = lambda: True  # type: ignore[attr-defined]
+        r = PythonSyntaxRenderer(stream=stream)
+        assert not _has_ansi(r.render_code("x = 1"))
+
+    def test_no_color_disables_renderer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NO_COLOR", "1")
+        monkeypatch.setenv("PYSH_COLOR", "always")
+        r = PythonSyntaxRenderer(force_color=False)
+        assert not _has_ansi(r.render_code("x = 1"))
+
+    def test_pysh_color_always_forces_renderer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("PYSH_COLOR", "always")
+        monkeypatch.setenv("TERM", "dumb")
+        r = PythonSyntaxRenderer(force_color=False, stream=io.StringIO())
+        assert _has_ansi(r.render_code("x = 1"))
+
+    def test_prompt_rendering_adds_ansi_when_forced(self) -> None:
+        r = _forced_renderer()
+        assert _has_ansi(r.render_prompt(">>> "))
+        assert _has_ansi(r.render_prompt("... "))
+        assert _has_ansi(r.render_prompt("[file.py:edit] >>> "))
+
+    def test_error_rendering_adds_ansi_when_forced(self) -> None:
+        r = _forced_renderer()
+        assert _has_ansi(r.render_error("SyntaxError: expected '('\n"))
+        assert _has_ansi(r.render_error("NameError: name 'show' is not defined\n"))
 
 
 class TestRendererSafety:
@@ -271,6 +321,59 @@ class TestHighlightingInTestMode:
             pytest.skip("Pygments not installed")
         r = PythonSyntaxRenderer(force_color=True)
         assert _has_ansi(r.render_code("x = 1"))
+
+    def test_entered_interactive_line_is_echoed_highlighted_when_forced(self) -> None:
+        mode, out, err = _mode_forced(["1+3", "#exit"])
+        mode.run()
+        assert _has_ansi(out.getvalue())
+        assert "1" in out.getvalue()
+
+    def test_entered_continuation_line_is_echoed_highlighted_when_forced(self) -> None:
+        mode, out, err = _mode_forced(["def add(a, b):", "    return a + b", "", "#exit"])
+        mode.run()
+        text = out.getvalue()
+        assert _has_ansi(text)
+        assert "return" in text
+
+    def test_show_highlights_when_forced(self) -> None:
+        mode, out, err = _mode_forced(["x = 1", "#show", "#exit"])
+        mode.run()
+        numbered_lines = [ln for ln in out.getvalue().splitlines() if " | " in ln]
+        assert numbered_lines
+        assert any(_has_ansi(ln) for ln in numbered_lines)
+
+    def test_show_file_highlights_when_forced(self, tmp_path: Path) -> None:
+        (tmp_path / "view.py").write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode_forced(["#show view.py", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert _has_ansi(out.getvalue())
+
+    def test_edit_highlights_when_forced(self) -> None:
+        mode, out, err = _mode_forced(["x = 1", "#edit", "#exit"])
+        mode.run()
+        assert _has_ansi(out.getvalue())
+
+    @pytest.mark.parametrize(
+        "inputs",
+        [
+            ["def sum:", "#exit"],
+            ["if True:", "pass", "#exit"],
+            ["show()", "#exit"],
+        ],
+    )
+    def test_python_errors_are_highlighted_when_forced(self, inputs: list[str]) -> None:
+        mode, out, err = _mode_forced(inputs)
+        mode.run()
+        assert _has_ansi(err.getvalue())
+
+
+def test_pygments_is_required_runtime_dependency() -> None:
+    data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = data["project"]["dependencies"]
+    extras = data["project"].get("optional-dependencies", {})
+
+    assert any(dep.startswith("pygments") for dep in dependencies)
+    assert "highlighting" not in extras
 
 
 class TestHelpMentionsHighlighting:

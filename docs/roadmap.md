@@ -20,6 +20,8 @@ subject to change based on project priorities and user feedback.
 ## v0.5.0 (current)
 
 - Python Command Execution Layer (`#py` interactive mode).
+- Python command-mode syntax highlighting across prompts, input, diagnostics,
+  `#show`, and `#edit`.
 - Shell-style comments (`#` at token boundary).
 - Python-native `~/.pyshrc.py` auto-generation.
 - Raw-mode line editor with syntax highlighting and autosuggestions.
@@ -32,7 +34,6 @@ subject to change based on project priorities and user feedback.
 ### Python Command Execution Layer
 
 - Python symbol completion on TAB inside `#py` mode.
-- Syntax highlighting in the Python prompt.
 - Source buffer line editing directives (`#insert`, `#delete`, `#replace`).
 - Optional session persistence across `#reset` / `#exit` cycles.
 - Integration with the `py` builtin runtime as an opt-in.

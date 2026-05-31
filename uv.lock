@@ -364,6 +364,9 @@ wheels = [
 name = "pysh-shell"
 version = "0.5.0"
 source = { editable = "." }
+dependencies = [
+    { name = "pygments" },
+]
 
 [package.optional-dependencies]
 dev = [
@@ -382,6 +385,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
+    { name = "pygments", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=5.0" },

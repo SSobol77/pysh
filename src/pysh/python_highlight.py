@@ -9,10 +9,11 @@
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See the LICENSE file in the project root for full license text.
-"""Python syntax highlighting for the PySH Python Command Execution Layer.
+"""Python terminal rendering for the PySH Python Command Execution Layer.
 
-Applies to ``#show``, ``#show file.py``, ``#edit``, and other Python
-source rendering inside Python command mode.
+Applies to interactive Python input, continuation prompts, ``#show``,
+``#show file.py``, ``#edit``, diagnostics, and status/help text inside Python
+command mode.
 
 Highlighting is **rendering-only**:
 
@@ -20,25 +21,19 @@ Highlighting is **rendering-only**:
 * ANSI escape sequences are never written to files;
 * code passed to the Python runtime is always clean source text.
 
-Pygments is an optional dependency.  When it is not installed, all render
-methods return the original source text unchanged so PySH works without it.
-
-Install the highlighting extra to enable Pygments::
-
-    pip install pysh-shell[highlighting]
-
-or in development::
-
-    uv sync
+Pygments is a normal runtime dependency for PySH v0.5.0 and later. A defensive
+plain-text fallback remains so terminal rendering can never crash the shell.
 """
 from __future__ import annotations
 
-import os
-import sys
+import re
 from typing import IO
 
+from pysh.highlighting import colors_enabled, paint
+
 # ---------------------------------------------------------------------------
-# Optional Pygments import — full graceful fallback when not installed.
+# Defensive Pygments import — the package depends on it at runtime, but render
+# failures must never crash PySH.
 # ---------------------------------------------------------------------------
 try:
     from pygments import highlight as _pygments_highlight
@@ -58,23 +53,7 @@ def pygments_available() -> bool:
 # TTY / color detection
 # ---------------------------------------------------------------------------
 
-def _tty_colors_ok(stream: IO[str] | None = None) -> bool:
-    """Return ``True`` when ANSI colors are appropriate for *stream*.
-
-    Checks ``NO_COLOR`` (any value disables), ``TERM=dumb`` / unset, and
-    whether the stream is a real TTY.  Mirrors the logic in
-    :func:`pysh.highlighting.colors_enabled`.
-    """
-    if os.environ.get("NO_COLOR") is not None:
-        return False
-    term = os.environ.get("TERM", "")
-    if not term or term == "dumb":
-        return False
-    s = stream if stream is not None else sys.stdout
-    try:
-        return bool(s.isatty())
-    except (AttributeError, ValueError):
-        return False
+_EXCEPTION_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Warning))(:.*)?$")
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +130,50 @@ class PythonSyntaxRenderer:
         """
         return self.render_code(line)
 
+    def render_prompt(self, prompt: str) -> str:
+        """Render a Python command-mode prompt."""
+        if not self._active():
+            return prompt
+        if prompt.startswith("..."):
+            return paint(prompt, "warn", enabled=True)
+        if prompt.startswith("[") and ":edit]" in prompt:
+            close = prompt.find("]") + 1
+            if close > 0:
+                return (
+                    paint(prompt[:close], "info", enabled=True)
+                    + paint(prompt[close:], "builtin", enabled=True)
+                )
+        return paint(prompt, "builtin", enabled=True)
+
+    def render_error(self, text: str) -> str:
+        """Render Python syntax/runtime diagnostic text."""
+        if not self._active():
+            return text
+        return "\n".join(self.render_exception_line(line) for line in text.splitlines())
+
+    def render_status(self, text: str) -> str:
+        """Render Python mode status/help text."""
+        if not self._active():
+            return text
+        return paint(text, "info", enabled=True)
+
+    def render_exception_line(self, line: str) -> str:
+        """Highlight the exception class in a single diagnostic line."""
+        if not self._active():
+            return line
+        match = _EXCEPTION_LINE_RE.match(line)
+        if match is None:
+            if line.lstrip().startswith("^"):
+                return paint(line, "error", enabled=True)
+            return line
+        name = match.group(1)
+        suffix = match.group(2) or ""
+        return f"{paint(name, 'error', enabled=True)}{suffix}"
+
+    def render_traceback(self, text: str) -> str:
+        """Render a traceback or exception-only diagnostic block."""
+        return self.render_error(text)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -163,7 +186,7 @@ class PythonSyntaxRenderer:
             return False
         if self._force_color:
             return True
-        return _tty_colors_ok(self._stream)
+        return colors_enabled(self._stream)
 
     # ------------------------------------------------------------------
     # Introspection (useful in tests)

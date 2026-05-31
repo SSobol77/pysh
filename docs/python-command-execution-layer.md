@@ -322,17 +322,15 @@ These do not create, overwrite, or load any file. Use Python's built-in
 ## v0.5.0 limitations
 
 - TAB does not trigger Python completion (inserts four spaces only).
-- No syntax highlighting inside the Python prompt.
-- No inline editor for the source buffer (no line insert/delete/replace).
 - `sys.exit()` from user code exits Python command mode but does not
   terminate PySH.
 - Python command mode runtime is session-local; it is not shared with the
   `py` builtin.
+- Live input highlighting requires the raw-mode editor path. If raw mode is
+  unavailable, PySH falls back to post-entry highlighting.
 
 ## Planned future work
 
 - Python symbol completion on TAB.
-- Syntax highlighting in the Python prompt.
-- Source buffer line editing commands.
 - Optional persistence of the Python session across `#reset` / `#exit` cycles.
 - Integration with the shell's `py` builtin runtime as an opt-in.

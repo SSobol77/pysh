@@ -33,7 +33,7 @@ import codeop
 import sys
 import textwrap
 import traceback
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from types import CodeType
 from typing import IO
 
@@ -60,10 +60,16 @@ class PythonRuntime:
     other. ``reset()`` recreates ``_cmd_globals`` only.
     """
 
-    def __init__(self, *, err_stream: IO[str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        err_stream: IO[str] | None = None,
+        error_renderer: Callable[[str], str] | None = None,
+    ) -> None:
         # err_stream lets callers (e.g. PythonCommandMode) inject a test stream.
         # Defaults to sys.stderr so existing behaviour is unchanged.
         self._err: IO[str] = err_stream if err_stream is not None else sys.stderr
+        self._error_renderer = error_renderer
 
         # Namespace for the ``py`` builtin — unchanged from the original.
         self.globals: dict[str, object] = {
@@ -91,7 +97,7 @@ class PythonRuntime:
         try:
             compiled = compile(code, "<pysh-py>", "exec")
         except SyntaxError as exc:
-            _print_exc_to(exc, self._err)
+            _print_exc_to(exc, self._err, self._error_renderer)
             return 1
         return self._execute_compiled(compiled)
 
@@ -111,7 +117,7 @@ class PythonRuntime:
         try:
             exec(compiled, self.globals, self.globals)
         except Exception as exc:  # noqa: BLE001 - shell builtin must contain user exceptions
-            _print_exc_to(exc, self._err)
+            _print_exc_to(exc, self._err, self._error_renderer)
             return 1
         return 0
 
@@ -145,7 +151,7 @@ class PythonRuntime:
             code = codeop.compile_command(source, filename="<pysh-python>", symbol="single")
         except SyntaxError as exc:
             self._interactive_buffer.clear()
-            _print_exc_to(exc, self._err)
+            _print_exc_to(exc, self._err, self._error_renderer)
             return (False, 2)
         if code is None:
             # Incomplete input — more lines needed.
@@ -159,7 +165,7 @@ class PythonRuntime:
         except KeyboardInterrupt:
             raise
         except Exception as exc:  # noqa: BLE001 - user code exceptions are expected
-            _print_exc_to(exc, self._err)
+            _print_exc_to(exc, self._err, self._error_renderer)
             return (False, 1)
         return (False, 0)
 
@@ -180,7 +186,7 @@ class PythonRuntime:
         try:
             code = compile(source, "<pysh-buffer>", "exec")
         except SyntaxError as exc:
-            _print_exc_to(exc, self._err)
+            _print_exc_to(exc, self._err, self._error_renderer)
             return 2
         try:
             exec(code, self._cmd_globals)  # noqa: S102 - intentional user exec
@@ -295,10 +301,16 @@ def _strip_trailing_comment(text: str) -> str:
     return text.rstrip()
 
 
-def _print_exc_to(exc: BaseException, stream: IO[str]) -> None:
+def _print_exc_to(
+    exc: BaseException,
+    stream: IO[str],
+    renderer: Callable[[str], str] | None = None,
+) -> None:
     """Print the exception type and message to *stream* without a traceback."""
-    for line in traceback.format_exception_only(type(exc), exc):
-        print(line, end="", file=stream)
+    text = "".join(traceback.format_exception_only(type(exc), exc))
+    if renderer is not None:
+        text = renderer(text)
+    print(text, end="" if text.endswith("\n") else "\n", file=stream)
 
 
 def _print_exception_only(exc: BaseException) -> None:

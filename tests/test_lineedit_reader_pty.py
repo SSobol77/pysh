@@ -103,6 +103,38 @@ def test_reader_accepts_autosuggestion_and_restores_termios() -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty is POSIX-only")
+def test_reader_uses_line_renderer_for_live_redraw() -> None:
+    master_fd, slave = pty.openpty()
+    result: dict[str, object] = {}
+    try:
+        def target() -> None:
+            result["line"] = RawLineReader(input_fd=slave, output_fd=slave).read_line(
+                ">>> ",
+                history=[],
+                suggester=AutoSuggester(),
+                highlighter=LineHighlighter(set()),
+                scheme=DEFAULT_SCHEME,
+                options=SimpleNamespace(autosuggest=False, syntax_highlight=False),
+                line_renderer=lambda line: f"\x1b[31m{line}\x1b[0m",
+            )
+
+        thread = threading.Thread(target=target)
+        thread.start()
+        _read_ready(master_fd, 1.0)
+        os.write(master_fd, b"1+3")
+        output = _read_ready(master_fd, 1.0)
+        os.write(master_fd, b"\r")
+        thread.join(2)
+
+        assert not thread.is_alive()
+        assert result["line"] == "1+3"
+        assert b"\x1b[31m1+3\x1b[0m" in output
+    finally:
+        os.close(master_fd)
+        os.close(slave)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty is POSIX-only")
 def test_reader_ctrl_c_and_ctrl_d() -> None:
     master_fd, slave = pty.openpty()
     try:
