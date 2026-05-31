@@ -34,6 +34,14 @@ def test_roles_and_coverage(monkeypatch) -> None:
     assert {Role.STRING, Role.OPTION, Role.VARIABLE, Role.OPERATOR}.issubset(roles)
 
 
+def test_partial_variable_does_not_drop_or_hang(monkeypatch) -> None:
+    monkeypatch.setattr("pysh.lineedit.highlight.shutil.which", lambda _token: None)
+    line = "echo $"
+    spans = LineHighlighter({"echo"}).tokenize(line)
+    assert _covered(line, spans) == line
+    assert spans[-1].role is Role.VARIABLE
+
+
 def test_pipeline_stages_recheck_command_and_render_disabled(monkeypatch) -> None:
     monkeypatch.setattr("pysh.lineedit.highlight.shutil.which", lambda token: f"/bin/{token}")
     highlighter = LineHighlighter(set())
@@ -41,4 +49,3 @@ def test_pipeline_stages_recheck_command_and_render_disabled(monkeypatch) -> Non
     command_spans = [span for span in spans if span.role is Role.COMMAND_VALID]
     assert len(command_spans) == 3
     assert highlighter.render("echo '$x'", DEFAULT_SCHEME, enabled=False) == "echo '$x'"
-

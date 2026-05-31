@@ -249,7 +249,7 @@ class RawLineReader:
         enabled: bool,
     ) -> None:
         out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
-        width = self._terminal_width()
+        width = self._terminal_width(out_fd)
         prompt_width = _display_width(prompt)
         rendered = highlighter.render(buffer.text, scheme, enabled=enabled)
         suggestion_text = ""
@@ -271,9 +271,9 @@ class RawLineReader:
         self._start_rows = rows
 
     @staticmethod
-    def _terminal_width() -> int:
+    def _terminal_width(fd: int) -> int:
         try:
-            return max(1, os.get_terminal_size().columns)
+            return max(20, os.get_terminal_size(fd).columns)
         except OSError:
             return 80
 

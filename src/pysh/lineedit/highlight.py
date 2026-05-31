@@ -137,6 +137,10 @@ class LineHighlighter:
                 tokens.append((i, var.end(), var.group(0), Role.VARIABLE))
                 i = var.end()
                 continue
+            if c == "$":
+                tokens.append((i, i + 1, c, Role.VARIABLE))
+                i += 1
+                continue
             op = self._match_operator(line, i)
             if op is not None:
                 end = i + len(op)
@@ -185,4 +189,3 @@ class LineHighlighter:
         if pos < len(line):
             out.append(Span(pos, len(line), Role.DEFAULT))
         return out
-

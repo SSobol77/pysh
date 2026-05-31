@@ -58,6 +58,16 @@ def test_reader_accepts_autosuggestion_and_restores_termios() -> None:
         os.close(master_fd)
         os.close(slave)
 
+    master_fd, slave = pty.openpty()
+    try:
+        result, before, after, alive = _run_reader(master_fd, slave, [], b"\x04")
+        assert not alive
+        assert isinstance(result["exc"], EOFError)
+        assert before == after
+    finally:
+        os.close(master_fd)
+        os.close(slave)
+
 
 @pytest.mark.skipif(os.name != "posix", reason="pty is POSIX-only")
 def test_reader_ctrl_c_and_ctrl_d() -> None:
@@ -71,11 +81,34 @@ def test_reader_ctrl_c_and_ctrl_d() -> None:
         os.close(master_fd)
         os.close(slave)
 
+
+@pytest.mark.skipif(os.name != "posix", reason="pty is POSIX-only")
+def test_reader_handles_variable_operator_and_editing_keys() -> None:
     master_fd, slave = pty.openpty()
     try:
-        result, before, after, alive = _run_reader(master_fd, slave, [], b"\x04")
+        result, before, after, alive = _run_reader(
+            master_fd,
+            slave,
+            [],
+            b"echo 's' --flag $HOME | nosuch\r",
+        )
         assert not alive
-        assert isinstance(result["exc"], EOFError)
+        assert result["line"] == "echo 's' --flag $HOME | nosuch"
+        assert before == after
+    finally:
+        os.close(master_fd)
+        os.close(slave)
+
+    master_fd, slave = pty.openpty()
+    try:
+        result, before, after, alive = _run_reader(
+            master_fd,
+            slave,
+            [],
+            b"abX\x1b[D\x1b[3~c\x01echo keys \x05 ok\r",
+        )
+        assert not alive
+        assert result["line"] == "echo keys abc ok"
         assert before == after
     finally:
         os.close(master_fd)
