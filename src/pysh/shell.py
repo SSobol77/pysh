@@ -314,6 +314,10 @@ class PyShell:
     def execute(self, line: str) -> int:
         """Execute one shell line. Returns the exit status of the last command."""
         line = line.rstrip("\n").rstrip("\r")
+        # ``#py`` must be checked *before* strip_comments() because a bare ``#``
+        # at the start of a token-boundary is otherwise treated as a comment.
+        if line.strip() == "#py":
+            return self._enter_python_mode()
         line = strip_comments(line)
         if not line.strip():
             return 0
@@ -934,6 +938,17 @@ class PyShell:
         if name == "PYSH_ZSH_FALLBACK":
             self.zsh_fallback_enabled = value == "1"
         return 0
+
+    def _enter_python_mode(self) -> int:
+        """Start an interactive Python command mode session.
+
+        Imported lazily to keep shell startup fast and avoid circular imports.
+        ``PythonCommandMode`` creates its own runtime so Python-mode variables
+        are independent from the ``py``-builtin runtime.
+        """
+        from pysh.python_mode import PythonCommandMode  # noqa: PLC0415
+        mode = PythonCommandMode(cwd_provider=Path.cwd)
+        return mode.run()
 
     def _run_zsh_command(self, command: str) -> int:
         result = self.zsh_bridge.execute(command)

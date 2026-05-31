@@ -288,6 +288,56 @@ svc restart <name>
 PySH never calls `sudo`. Run PySH under an account that already has the
 required permissions to control system-wide services.
 
+## Python Command Execution Layer
+
+Type `#py` at the normal PySH prompt to enter an interactive Python session:
+
+```text
+> #py
+PySH Python Command Execution Layer
+Python 3.13.2
+Type #help for commands.
+
+>>> x = 10
+>>> x * 5
+50
+>>> def double(v):
+...     return v * 2
+...
+>>> double(21)
+42
+>>> #exit
+```
+
+Inside Python command mode, available directives are:
+
+| Directive      | Purpose                                         |
+| -------------- | ----------------------------------------------- |
+| `#exit`        | Return to the normal PySH prompt.               |
+| `#help`        | Show directive help.                            |
+| `#open <file>` | Load a Python source file into the buffer.      |
+| `#save <file>` | Save the source buffer to a file.               |
+| `#show`        | Display the source buffer with line numbers.    |
+| `#run`         | Execute the source buffer.                      |
+| `#reset`       | Clear the buffer and reset the runtime.         |
+
+TAB inserts four spaces. Ctrl+D exits (same as `#exit`). Ctrl+C cancels
+current input.
+
+See [python-command-execution-layer.md](python-command-execution-layer.md)
+for the complete specification.
+
+## Comments
+
+A `#` that follows whitespace (or starts the line) begins a comment.
+Everything from that `#` to the end of the line is ignored:
+
+```sh
+ls #abc          # runs: ls
+echo "#abc"      # prints: #abc  (quoted hash is literal)
+echo foo#bar     # prints: foo#bar  (mid-token hash is literal)
+```
+
 ## Tab completion
 
 `Tab` completes builtins and aliases for the first word, and filesystem

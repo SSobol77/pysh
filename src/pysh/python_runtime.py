@@ -9,7 +9,7 @@
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See the LICENSE file in the project root for full license text.
-"""Persistent Python runtime used by the ``py`` builtin.
+"""Persistent Python runtime used by the ``py`` builtin and Python command mode.
 
 The runtime executes Python source in one shared globals namespace so that
 variables and imports introduced by one ``py`` invocation are visible to the
@@ -19,15 +19,23 @@ next. Both the one-line form ``py <code>`` and the multiline block form
         ...
     }
 
-share the same execution context.
+share the same execution context (``self.globals``).
+
+Python command mode (``#py``) uses a second, separate namespace
+(``self._cmd_globals``) seeded with ``__name__ == "__main__"`` semantics.
+The two namespaces are intentionally independent so that ``py`` builtin state
+does not leak into the interactive Python command session and vice-versa.
 """
 from __future__ import annotations
 
+import builtins as _builtins_module
+import codeop
 import sys
 import textwrap
 import traceback
 from collections.abc import Iterable, Iterator
 from types import CodeType
+from typing import IO
 
 PY_BLOCK_OPENER = "py {"
 PY_BLOCK_CLOSER = "}"
@@ -42,13 +50,39 @@ class NestedBlockError(ValueError):
 
 
 class PythonRuntime:
-    """A persistent one-session Python execution context."""
+    """A persistent one-session Python execution context.
 
-    def __init__(self) -> None:
+    ``self.globals`` is used by the ``py`` builtin (``execute`` /
+    ``execute_block``).  ``self._cmd_globals`` is used exclusively by Python
+    command mode (``push_interactive`` / ``run_buffer`` / ``reset``).
+
+    Both namespaces survive across invocations and are independent of each
+    other. ``reset()`` recreates ``_cmd_globals`` only.
+    """
+
+    def __init__(self, *, err_stream: IO[str] | None = None) -> None:
+        # err_stream lets callers (e.g. PythonCommandMode) inject a test stream.
+        # Defaults to sys.stderr so existing behaviour is unchanged.
+        self._err: IO[str] = err_stream if err_stream is not None else sys.stderr
+
+        # Namespace for the ``py`` builtin — unchanged from the original.
         self.globals: dict[str, object] = {
             "__builtins__": __builtins__,
             "__name__": "__pysh__",
         }
+
+        # Separate namespace for Python command mode.
+        self._cmd_globals: dict[str, object] = {
+            "__builtins__": _builtins_module,
+            "__name__": "__main__",
+        }
+
+        # Accumulation buffer for incomplete interactive input units.
+        self._interactive_buffer: list[str] = []
+
+    # ------------------------------------------------------------------
+    # Existing py-builtin execution paths — behaviour unchanged.
+    # ------------------------------------------------------------------
 
     def execute(self, code: str) -> int:
         """Execute Python ``code`` and return a shell-style status."""
@@ -57,7 +91,7 @@ class PythonRuntime:
         try:
             compiled = compile(code, "<pysh-py>", "exec")
         except SyntaxError as exc:
-            _print_exception_only(exc)
+            _print_exc_to(exc, self._err)
             return 1
         return self._execute_compiled(compiled)
 
@@ -77,9 +111,104 @@ class PythonRuntime:
         try:
             exec(compiled, self.globals, self.globals)
         except Exception as exc:  # noqa: BLE001 - shell builtin must contain user exceptions
-            _print_exception_only(exc)
+            _print_exc_to(exc, self._err)
             return 1
         return 0
+
+    # ------------------------------------------------------------------
+    # Python command mode execution paths (push_interactive / run_buffer).
+    # ------------------------------------------------------------------
+
+    def push_interactive(self, line: str) -> tuple[bool, int]:
+        """Feed one interactive input line into the Python runtime.
+
+        Uses ``codeop.compile_command`` with ``symbol="single"`` so that
+        top-level expression results are displayed through ``sys.displayhook``
+        (matching normal interactive-Python behaviour).
+
+        Returns:
+            (more, status) where
+
+            more:
+                True  — current input unit is incomplete; caller must show the
+                         continuation prompt and call ``push_interactive`` again.
+                False — current unit is complete and has been compiled/executed.
+
+            status:
+                0 — success (or incomplete, when more=True)
+                1 — uncaught runtime exception
+                2 — syntax error
+        """
+        self._interactive_buffer.append(line)
+        source = "\n".join(self._interactive_buffer)
+        try:
+            code = codeop.compile_command(source, filename="<pysh-python>", symbol="single")
+        except SyntaxError as exc:
+            self._interactive_buffer.clear()
+            _print_exc_to(exc, self._err)
+            return (False, 2)
+        if code is None:
+            # Incomplete input — more lines needed.
+            return (True, 0)
+        # Complete input — execute.
+        self._interactive_buffer.clear()
+        try:
+            exec(code, self._cmd_globals)  # noqa: S102 - intentional user exec
+        except SystemExit:
+            raise
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:  # noqa: BLE001 - user code exceptions are expected
+            _print_exc_to(exc, self._err)
+            return (False, 1)
+        return (False, 0)
+
+    def run_buffer(self, source: str) -> int:
+        """Execute a complete source buffer with module-style exec semantics.
+
+        Used by the ``#run`` directive. Expression results are *not* echoed
+        (``"exec"`` mode, not ``"single"`` mode). ``__name__`` is ``"__main__"``
+        so guard clauses work as expected.
+
+        Returns:
+            0 — success
+            1 — uncaught runtime exception
+            2 — syntax error
+        """
+        if not source.strip():
+            return 0
+        try:
+            code = compile(source, "<pysh-buffer>", "exec")
+        except SyntaxError as exc:
+            _print_exc_to(exc, self._err)
+            return 2
+        try:
+            exec(code, self._cmd_globals)  # noqa: S102 - intentional user exec
+        except SystemExit:
+            raise
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:  # noqa: BLE001 - user code exceptions are expected
+            _print_exc_to(exc, self._err)
+            return 1
+        return 0
+
+    def reset(self) -> None:
+        """Reset the Python command mode workspace.
+
+        Recreates ``_cmd_globals`` with clean ``__main__`` semantics and clears
+        the interactive input accumulation buffer. Does *not* touch
+        ``self.globals`` (the ``py`` builtin namespace).
+        """
+        self._cmd_globals = {
+            "__builtins__": _builtins_module,
+            "__name__": "__main__",
+        }
+        self._interactive_buffer.clear()
+
+    def clear_input_buffer(self) -> None:
+        """Discard any partially accumulated interactive input without resetting globals."""
+        self._interactive_buffer.clear()
 
 
 def is_block_opener(line: str) -> bool:
@@ -166,6 +295,12 @@ def _strip_trailing_comment(text: str) -> str:
     return text.rstrip()
 
 
-def _print_exception_only(exc: BaseException) -> None:
+def _print_exc_to(exc: BaseException, stream: IO[str]) -> None:
+    """Print the exception type and message to *stream* without a traceback."""
     for line in traceback.format_exception_only(type(exc), exc):
-        print(line, end="", file=sys.stderr)
+        print(line, end="", file=stream)
+
+
+def _print_exception_only(exc: BaseException) -> None:
+    """Backward-compatible wrapper that prints to ``sys.stderr``."""
+    _print_exc_to(exc, sys.stderr)
