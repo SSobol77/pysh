@@ -1,7 +1,15 @@
 <!--
 SPDX-License-Identifier: GPL-3.0-or-later
+
+Project: PySH - Python-first interactive shell for Debian and Unix-like systems
+File: docs/release.md
+Repository: https://github.com/SSobol77/pysh
+PyPI: https://pypi.org/project/pysh-shell
+
 Copyright (c) 2026 Siergej Sobolewski
+
 Licensed under the GNU General Public License v3.0 or later.
+See the LICENSE file in the project root for full license text.
 -->
 
 # Release process (v0.4.0)
@@ -38,6 +46,7 @@ the `pypi` GitHub environment.
    . .venv/bin/activate
    python -m pip install --upgrade pip
    python -m pip install -e ".[dev]"
+   bash scripts/check_headers.sh
    pytest -q
    ruff check src tests
    python -m build

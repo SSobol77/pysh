@@ -1,7 +1,15 @@
 <!--
 SPDX-License-Identifier: GPL-3.0-or-later
+
+Project: PySH - Python-first interactive shell for Debian and Unix-like systems
+File: docs/development.md
+Repository: https://github.com/SSobol77/pysh
+PyPI: https://pypi.org/project/pysh-shell
+
 Copyright (c) 2026 Siergej Sobolewski
+
 Licensed under the GNU General Public License v3.0 or later.
+See the LICENSE file in the project root for full license text.
 -->
 
 # Development
@@ -30,6 +38,7 @@ The `[dev]` extra installs:
 Run all of these before opening a pull request:
 
 ```bash
+bash scripts/check_headers.sh
 pytest -q
 ruff check src tests
 python -m build
@@ -49,7 +58,8 @@ contract and per-script details. `scripts/build_rpm.sh` needs the
 Debian); if it is missing, the script fails fast with a deterministic
 message.
 
-`pytest -q` should report **all tests passing**. `ruff check` should report
+`bash scripts/check_headers.sh` should print no output. `pytest -q` should
+report **all tests passing**. `ruff check` should report
 **All checks passed!**. `python -m build` should produce
 `dist/pysh_shell-0.4.0.tar.gz` and `dist/pysh_shell-0.4.0-py3-none-any.whl`.
 `twine check` should report `PASSED` for both artifacts.
