@@ -31,6 +31,7 @@ See docs/python-command-execution-layer.md for the full specification.
 """
 from __future__ import annotations
 
+import re
 import sys
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
@@ -54,10 +55,9 @@ _DIRECTIVE_NOT_FOUND = object()  # not a directive — treat as Python source
 # ---------------------------------------------------------------------------
 # Known directive token sets
 # ---------------------------------------------------------------------------
-# Exact directives take no arguments.
-_EXACT_DIRECTIVES: frozenset[str] = frozenset(
-    {"#exit", "#help", "#run", "#clear", "#reset"}
-)
+# Exact directives take no arguments (extra trailing text is ignored).
+# NOTE: #run is intentionally excluded — it has strict no-arg enforcement.
+_EXACT_DIRECTIVES: frozenset[str] = frozenset({"#exit", "#help", "#clear", "#reset"})
 # Optional-argument directives: bare form is valid; filename form is also valid.
 _OPT_ARG_DIRECTIVES: frozenset[str] = frozenset({"#save", "#show"})
 # Required-argument directives: must have a filename.
@@ -65,8 +65,36 @@ _REQ_ARG_DIRECTIVES: frozenset[str] = frozenset({"#open"})
 # Explicitly forbidden shell-redirection patterns.
 _FORBIDDEN_DIRECTIVES: frozenset[str] = frozenset({"#echo"})
 
+# All known directive tokens (used to distinguish unknown directives from comments).
+_ALL_KNOWN_DIRECTIVES: frozenset[str] = (
+    _EXACT_DIRECTIVES | _OPT_ARG_DIRECTIVES | _REQ_ARG_DIRECTIVES
+    | _FORBIDDEN_DIRECTIVES | frozenset({"#run"})
+)
+
 # Directives that accept a file path argument (for completion).
 _FILE_ARG_DIRECTIVES: tuple[str, ...] = ("#open ", "#save ", "#show ")
+
+# ---------------------------------------------------------------------------
+# Missing-# detection: command words that look like directives typed without #
+# ---------------------------------------------------------------------------
+# Maps first-word → hint message (plain text after "pysh(py): ").
+# Arg substitution is done at call time for open/save/show/run.
+_MISSING_HASH_BARE: dict[str, str] = {
+    "save":  "use #save to save the active Python edit buffer",
+    "show":  "use #show to display the active Python edit buffer",
+    "run":   "use #run to execute the active Python edit buffer",
+    "reset": "use #reset to reset the Python command workspace",
+    "clear": "use #clear to clear the active Python edit buffer",
+    "exit":  "use #exit to return to the PySH prompt",
+    "quit":  "use #exit to return to the PySH prompt",
+    "help":  "use #help to show Python command mode commands",
+}
+# Words where the argument (if present) is incorporated into the hint.
+_MISSING_HASH_ARG_WORDS: frozenset[str] = frozenset({"open", "save", "show", "run"})
+
+# Pattern: a "path-like" argument starts with a path character, not an operator.
+# This lets "show = 1" or "run()" fall through to Python execution.
+_PATH_LIKE_START: re.Pattern[str] = re.compile(r"^[A-Za-z0-9_.~/]")
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +240,18 @@ def _parse_directive(
     token: str = parts[0]
     rest: str = parts[1].strip() if len(parts) > 1 else ""
 
-    # --- exact directives (no argument needed) ---
+    # --- #run: strict no-argument directive ---
+    if token == "#run":
+        if rest:
+            return (
+                None,
+                None,
+                f"#run does not accept a file argument; "
+                f"use #open {rest} then #run",
+            )
+        return ("run", None, None)
+
+    # --- exact directives (no argument needed, extra trailing text ignored) ---
     if token in _EXACT_DIRECTIVES:
         return (token[1:], None, None)
 
@@ -250,7 +289,82 @@ def _parse_directive(
             "use Python's built-in print() or open() instead",
         )
 
-    # Unknown hash-prefixed token — ordinary Python comment.
+    # Unknown #word token (no space between # and word).
+    # "# comment" has token == "#" (length 1) and is a Python comment → None.
+    # "#unknown" has token length > 1 and is an unrecognised directive → error.
+    if len(token) > 1:
+        return (
+            None,
+            None,
+            f"unknown Python mode directive: {token}\n"
+            "type #help for available commands",
+        )
+    # Bare "#" followed by a space — ordinary Python comment.
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Missing-# hint detection (pure, testable)
+# ---------------------------------------------------------------------------
+
+def _check_missing_hash(line: str) -> str | None:
+    """Return a hint message when *line* looks like a missing-``#`` directive.
+
+    Intercepts command words (``show``, ``reset``, ``run``, ``save``,
+    ``open``, ``exit``, ``quit``, ``help``, ``clear``) typed at the primary
+    Python prompt without a leading ``#``.
+
+    Returns ``None`` when the line is not a bare command attempt, so that
+    normal Python source (``show = 1``, ``reset()``, etc.) falls through to
+    the runtime unchanged.
+
+    Only intercepts when the first word exactly matches a command word AND
+    the rest of the line is empty or looks like a path argument (not an
+    operator such as ``=``, ``(``, ``[``).
+    """
+    stripped = line.strip()
+    parts = stripped.split(None, 1)
+    if not parts:
+        return None
+
+    word = parts[0]
+    rest = parts[1] if len(parts) > 1 else ""
+
+    # If rest is present, only intercept when it looks path-like.
+    if rest and not _PATH_LIKE_START.match(rest):
+        return None
+
+    if word == "open":
+        if rest:
+            return f"use #open {rest} to open a file into the Python edit buffer"
+        return "use #open <file> to open a file into the Python edit buffer"
+
+    if word == "save":
+        if rest:
+            return f"use #save {rest} to save the Python edit buffer to that file"
+        return "use #save to save the active Python edit buffer"
+
+    if word == "show":
+        if rest:
+            return f"use #show {rest} to print a file without opening it"
+        return "use #show to display the active Python edit buffer"
+
+    if word == "run":
+        if rest:
+            return f"use #open {rest} then #run"
+        return "use #run to execute the active Python edit buffer"
+
+    # Bare-word-only commands (no argument makes sense for these).
+    if not rest:
+        if word == "reset":
+            return "use #reset to reset the Python command workspace"
+        if word == "clear":
+            return "use #clear to clear the active Python edit buffer"
+        if word in ("exit", "quit"):
+            return "use #exit to return to the PySH prompt"
+        if word == "help":
+            return "use #help to show Python command mode commands"
+
     return None
 
 
@@ -371,6 +485,14 @@ class PythonCommandMode:
                 if action is _DIRECTIVE_EXIT:
                     break
                 if action is _DIRECTIVE_HANDLED:
+                    continue
+
+                # Intercept bare command words typed without a leading #
+                # BEFORE they reach the Python runtime.  These must not be
+                # executed as Python and must not be appended to the buffer.
+                hint = _check_missing_hash(line)
+                if hint is not None:
+                    print(f"pysh(py): {hint}", file=self._err)
                     continue
 
             # Feed the line to the Python runtime.
@@ -619,11 +741,11 @@ class PythonCommandMode:
             "  #exit           Exit Python command mode.\n"
             "  #help           Show this help.\n"
             "  #open <file>    Open a Python file into the editable buffer.\n"
-            "  #save [file]    Save the buffer to the active file or a new file.\n"
-            "  #show [file]    Show the active buffer, or print a file like cat.\n"
-            "  #run            Execute the source buffer.\n"
-            "  #clear          Clear the current edit buffer.\n"
-            "  #reset          Clear buffer, active file, and reset the runtime.\n"
+            "  #save [file]    Save the buffer to the active file or to a selected file.\n"
+            "  #show [file]    Show the active buffer or print a file like cat.\n"
+            "  #run            Execute the active Python edit buffer.\n"
+            "  #clear          Clear the active Python edit buffer.\n"
+            "  #reset          Clear buffer, active file, and reset runtime state.\n"
             "\n"
             "  TAB             Insert four spaces (inside Python code).\n"
             "  Ctrl+D          Exit (same as #exit).\n"
@@ -631,10 +753,11 @@ class PythonCommandMode:
             "\n"
             "Path completion is available for #open, #save, and #show.\n"
             "TAB inside Python code inserts four spaces.\n"
+            "Use #exit, not exit, to return to PySH.\n"
             "\n"
             "Normal Python code is executed interactively.\n"
-            "Lines starting with # that are not exact directives are\n"
-            "treated as Python comments.\n"
+            "Lines starting with '# ' are Python comments.\n"
+            "Unknown directives (#edit, #delete, etc.) produce an error.\n"
             "\n"
             "Active file workflow:\n"
             "  #open main.py   (load file into buffer, sets active file)\n"

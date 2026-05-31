@@ -20,6 +20,7 @@ import pytest
 
 from pysh.python_mode import (
     PythonCommandMode,
+    _check_missing_hash,
     _parse_directive,
     complete_python_mode_path,
     expand_tab,
@@ -144,8 +145,19 @@ class TestParseDirective:
     def test_normal_comment_returns_none(self) -> None:
         assert _parse_directive("# this is a comment") is None
 
-    def test_unknown_hash_token_returns_none(self) -> None:
-        assert _parse_directive("#notadirective") is None
+    def test_unknown_hash_token_is_error(self) -> None:
+        # #word (no space after #) that is not a known directive → error
+        result = _parse_directive("#notadirective")
+        assert result is not None
+        _, _, error = result
+        assert error is not None
+        assert "unknown" in error.lower()
+
+    def test_hash_comment_with_space_returns_none(self) -> None:
+        # "# word" (space after #) is a Python comment → None
+        assert _parse_directive("# notadirective") is None
+        assert _parse_directive("# noqa") is None
+        assert _parse_directive("# type: ignore") is None
 
     def test_non_hash_line_returns_none(self) -> None:
         assert _parse_directive("x = 1") is None
@@ -1247,3 +1259,251 @@ class TestHelpUpdated:
         mode, out, err = _mode(["#help", "#exit"])
         mode.run()
         assert "TAB" in out.getvalue()
+
+    def test_help_mentions_use_exit_not_exit(self) -> None:
+        mode, out, err = _mode(["#help", "#exit"])
+        mode.run()
+        text = out.getvalue()
+        assert "#exit" in text
+        assert "exit" in text.lower()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# _check_missing_hash — pure function
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestCheckMissingHash:
+    def test_show_bare(self) -> None:
+        hint = _check_missing_hash("show")
+        assert hint is not None
+        assert "#show" in hint
+
+    def test_reset_bare(self) -> None:
+        hint = _check_missing_hash("reset")
+        assert hint is not None
+        assert "#reset" in hint
+
+    def test_run_bare(self) -> None:
+        hint = _check_missing_hash("run")
+        assert hint is not None
+        assert "#run" in hint
+
+    def test_clear_bare(self) -> None:
+        hint = _check_missing_hash("clear")
+        assert hint is not None
+        assert "#clear" in hint
+
+    def test_exit_bare(self) -> None:
+        hint = _check_missing_hash("exit")
+        assert hint is not None
+        assert "#exit" in hint
+
+    def test_quit_bare(self) -> None:
+        hint = _check_missing_hash("quit")
+        assert hint is not None
+        assert "#exit" in hint
+
+    def test_help_bare(self) -> None:
+        hint = _check_missing_hash("help")
+        assert hint is not None
+        assert "#help" in hint
+
+    def test_open_with_path(self) -> None:
+        hint = _check_missing_hash("open test.py")
+        assert hint is not None
+        assert "#open" in hint
+        assert "test.py" in hint
+
+    def test_save_with_path(self) -> None:
+        hint = _check_missing_hash("save test.py")
+        assert hint is not None
+        assert "#save" in hint
+        assert "test.py" in hint
+
+    def test_show_with_path(self) -> None:
+        hint = _check_missing_hash("show test.py")
+        assert hint is not None
+        assert "#show" in hint
+        assert "test.py" in hint
+
+    def test_run_with_path(self) -> None:
+        hint = _check_missing_hash("run test.py")
+        assert hint is not None
+        assert "#open" in hint
+        assert "test.py" in hint
+
+    def test_normal_assignment_returns_none(self) -> None:
+        # "show = 1" is valid Python — must not be intercepted.
+        assert _check_missing_hash("show = 1") is None
+
+    def test_function_call_returns_none(self) -> None:
+        # "reset()" is valid Python — must not be intercepted.
+        assert _check_missing_hash("reset()") is None
+
+    def test_unrelated_word_returns_none(self) -> None:
+        assert _check_missing_hash("x = 42") is None
+        assert _check_missing_hash("import math") is None
+        assert _check_missing_hash("") is None
+
+    def test_leading_whitespace_handled(self) -> None:
+        hint = _check_missing_hash("  show  ")
+        assert hint is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Buffer poisoning prevention
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestBufferPoisoning:
+    def test_show_not_in_buffer(self, tmp_path: Path) -> None:
+        script = tmp_path / "t.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open t.py", "show", "#show", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        show_lines = [
+            ln for ln in out.getvalue().splitlines()
+            if ln.startswith(tuple(str(i) + " |" for i in range(1, 99)))
+        ]
+        assert not any("show" in ln for ln in show_lines)
+
+    def test_reset_not_in_buffer(self, tmp_path: Path) -> None:
+        script = tmp_path / "t.py"
+        script.write_text("x = 1\n", encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open t.py", "reset", "#show", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        show_lines = [
+            ln for ln in out.getvalue().splitlines()
+            if ln.startswith(tuple(str(i) + " |" for i in range(1, 99)))
+        ]
+        assert not any("reset" in ln for ln in show_lines)
+
+    def test_show_hint_printed_to_stderr(self) -> None:
+        mode, out, err = _mode(["show", "#exit"])
+        mode.run()
+        assert "#show" in err.getvalue()
+
+    def test_reset_hint_printed_to_stderr(self) -> None:
+        mode, out, err = _mode(["reset", "#exit"])
+        mode.run()
+        assert "#reset" in err.getvalue()
+
+    def test_open_path_hint_contains_filename(self) -> None:
+        mode, out, err = _mode(["open main.py", "#exit"])
+        mode.run()
+        assert "#open" in err.getvalue()
+        assert "main.py" in err.getvalue()
+
+    def test_save_path_hint_contains_filename(self) -> None:
+        mode, out, err = _mode(["save main.py", "#exit"])
+        mode.run()
+        assert "#save" in err.getvalue()
+        assert "main.py" in err.getvalue()
+
+    def test_run_path_hint_contains_filename(self) -> None:
+        mode, out, err = _mode(["run test.py", "#exit"])
+        mode.run()
+        assert "#open" in err.getvalue()
+        assert "test.py" in err.getvalue()
+
+    def test_show_does_not_poison_later_run(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        script = tmp_path / "t.py"
+        script.write_text('print("from_file")\n', encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open t.py", "show", "#run", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        out_text = capsys.readouterr().out
+        assert "from_file" in out_text
+        assert "NameError" not in err.getvalue()
+
+    def test_reset_does_not_poison_later_run(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        script = tmp_path / "t.py"
+        script.write_text('print("file_ran")\n', encoding="utf-8")
+        mode, out, err = _mode(
+            ["#open t.py", "reset", "#run", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        out_text = capsys.readouterr().out
+        assert "file_ran" in out_text
+        assert "NameError" not in err.getvalue()
+
+    def test_normal_python_assignment_not_intercepted(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        mode, out, err = _mode(["show = 42", "show", "#exit"])
+        mode.run()
+        # "show = 42" is a valid assignment — must execute.
+        # The second bare "show" IS intercepted as a hint.
+        assert "show = 42" not in err.getvalue()  # not a hint error
+        assert "#show" in err.getvalue()  # bare "show" hint
+
+    def test_function_call_not_intercepted(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        mode, out, err = _mode(["def reset(): return 99", "", "reset()", "#exit"])
+        mode.run()
+        cap = capsys.readouterr()
+        # reset() should be called as Python, not intercepted
+        assert "99" in cap.out
+        assert "#reset" not in err.getvalue()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Unknown directives and #run strict no-arg
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestDirectiveErrors:
+    def test_unknown_hash_directive_error(self) -> None:
+        mode, out, err = _mode(["#edit", "#exit"])
+        mode.run()
+        assert "unknown" in err.getvalue().lower()
+
+    def test_unknown_directive_mentions_help(self) -> None:
+        mode, out, err = _mode(["#delete", "#exit"])
+        mode.run()
+        assert "help" in err.getvalue().lower()
+
+    def test_unknown_directive_not_appended_to_buffer(self) -> None:
+        mode, out, err = _mode(["#edit", "#show", "#exit"])
+        mode.run()
+        assert "buffer empty" in out.getvalue()
+
+    def test_hash_run_with_file_arg_is_error(self) -> None:
+        mode, out, err = _mode(["#run test.py", "#exit"])
+        mode.run()
+        assert "does not accept" in err.getvalue().lower() or "#open" in err.getvalue()
+
+    def test_hash_run_with_file_arg_does_not_execute(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        script = tmp_path / "canary.py"
+        script.write_text('print("CANARY_EXECUTED")\n', encoding="utf-8")
+        mode, out, err = _mode(
+            ["#run canary.py", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        assert "CANARY_EXECUTED" not in capsys.readouterr().out
+
+    def test_hash_run_without_arg_still_works(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        mode, out, err = _mode(['print("ok")', "#run", "#exit"])
+        mode.run()
+        assert "ok" in capsys.readouterr().out
+
+    def test_normal_comment_not_intercepted(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Lines like "# this is a comment" must remain Python source.
+        mode, out, err = _mode(["# a normal comment", "1 + 1", "#exit"])
+        mode.run()
+        assert err.getvalue() == ""
+        assert "2" in capsys.readouterr().out
