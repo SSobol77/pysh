@@ -101,8 +101,10 @@ The welcome banner and diagnostics use ANSI colors when:
 - `NO_COLOR` is not set,
 - `TERM` is set and is not `dumb`.
 
-The input line is intentionally left uncolored so editing remains stable
-across terminals.
+When the stdlib raw-mode editor is active, PySH can colorize the editable input
+line and show history autosuggestions. If the terminal is not capable, if
+`TERM=dumb`, if `NO_COLOR` is set, or if `line_editor="readline"` is configured,
+PySH falls back to the classic readline/input path without live input coloring.
 
 ## `~/.pyshrc` example
 

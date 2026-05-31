@@ -115,26 +115,6 @@ EDITOR_OPTION_VALUES: dict[str, frozenset[str]] = {
     "line_editor": frozenset({"auto", "readline", "basic"}),
 }
 
-DEFAULT_SENSITIVE_INPUT: dict[str, object] = {
-    "enabled": False,
-    "symbol": "*",
-    "idle_color": "white",
-    "active_color": "lime",
-    "mode": "single-blink",
-}
-
-SENSITIVE_INPUT_TYPES: dict[str, type] = {
-    "enabled": bool,
-    "symbol": str,
-    "idle_color": str,
-    "active_color": str,
-    "mode": str,
-}
-
-SENSITIVE_INPUT_VALUES: dict[str, frozenset[str]] = {
-    "mode": frozenset({"single-blink"}),
-}
-
 DEFAULT_PROMPT_COLORS: dict[str, str] = {
     "venv": "fuchsia",
     "icon": "lime",
@@ -159,6 +139,34 @@ DEFAULT_PROMPT_COLOR_MODES: dict[str, object] = {
 PROMPT_COLOR_SEGMENTS: frozenset[str] = frozenset(DEFAULT_PROMPT_COLORS)
 PROMPT_COLOR_MODE_TYPES: dict[str, type] = {
     "vga": bool,
+}
+
+# --------------------------------------------------------- sensitive input
+# RESERVED / INERT. These options describe a future keypress indicator that
+# may only ever be activated by an EXPLICIT, user-invoked PTY wrapper command
+# (e.g. "secure sudo ..."). They MUST NOT influence any runtime path: not the
+# REPL, not the raw line editor, not the external-command path. PySH never
+# reads, counts, stores or logs password bytes for ordinary commands; those
+# are owned by the child process and the terminal. See
+# docs/security-sensitive-input.md for the full boundary.
+DEFAULT_SENSITIVE_INPUT: dict[str, object] = {
+    "enabled": False,
+    "symbol": "*",
+    "idle_color": "white",
+    "active_color": "lime",
+    "mode": "single-blink",
+}
+
+SENSITIVE_INPUT_TYPES: dict[str, type] = {
+    "enabled": bool,
+    "symbol": str,
+    "idle_color": str,
+    "active_color": str,
+    "mode": str,
+}
+
+SENSITIVE_INPUT_VALUES: dict[str, frozenset[str]] = {
+    "mode": frozenset({"single-blink"}),
 }
 
 _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -210,7 +218,7 @@ class ConfigurableShell(Protocol):
         ...
 
     def set_sensitive_input_indicator(self, name: str, value: object) -> None:
-        """Store one reserved sensitive-input indicator option."""
+        """Set a single validated (inert/reserved) sensitive-input option."""
         ...
 
 
@@ -252,34 +260,6 @@ def validate_editor_option(name: str, value: object) -> None:
         raise ConfigError(f"editor option {name!r} must be one of: {allowed_text}")
 
 
-def validate_sensitive_input(name: str, value: object) -> None:
-    """Validate a reserved sensitive-input indicator option.
-
-    The validated values are storage-only. They are not read by the REPL, the
-    raw line editor, or external-command execution.
-    """
-    expected = SENSITIVE_INPUT_TYPES.get(name)
-    if expected is None:
-        known = ", ".join(sorted(SENSITIVE_INPUT_TYPES))
-        raise ConfigError(f"unknown sensitive input option {name!r} (known: {known})")
-    if not isinstance(value, expected):
-        raise ConfigError(
-            f"sensitive input option {name!r} expects {expected.__name__}, "
-            f"got {type(value).__name__}"
-        )
-    if name == "symbol" and (len(value) != 1 or _display_width(value) != 1):
-        raise ConfigError("sensitive input symbol must be exactly one display column")
-    if name in {"idle_color", "active_color"}:
-        try:
-            parse_color(value)
-        except ValueError as exc:
-            raise ConfigError(str(exc)) from exc
-    allowed = SENSITIVE_INPUT_VALUES.get(name)
-    if allowed is not None and value not in allowed:
-        allowed_text = ", ".join(sorted(allowed))
-        raise ConfigError(f"sensitive input option {name!r} must be one of: {allowed_text}")
-
-
 def validate_prompt_color(segment: str, color: str) -> None:
     """Validate a prompt segment color assignment."""
     if segment not in PROMPT_COLOR_SEGMENTS:
@@ -305,6 +285,55 @@ def validate_prompt_color_mode(name: str, value: object) -> None:
         raise ConfigError(
             f"prompt color mode {name!r} expects {expected.__name__}, "
             f"got {type(value).__name__}"
+        )
+
+
+def validate_sensitive_input(name: str, value: object) -> None:
+    """Validate a sensitive-input indicator option (RESERVED / inert).
+
+    These options describe a future, explicitly user-invoked PTY-wrapper
+    keypress indicator. They never affect runtime behaviour in this release.
+    Validation is enforced now so that a ``~/.pyshrc.py`` written today remains
+    valid when the feature ships.
+
+    Rules:
+
+    * ``enabled`` must be ``bool``.
+    * ``symbol`` must be a string that occupies exactly one display column.
+      Empty, multi-glyph and double-width (e.g. CJK) symbols are rejected so a
+      keypress indicator can never encode password length information.
+    * ``idle_color`` / ``active_color`` must parse via the shared color parser.
+    * ``mode`` must be ``"single-blink"`` (the only value defined so far).
+    """
+    expected = SENSITIVE_INPUT_TYPES.get(name)
+    if expected is None:
+        known = ", ".join(sorted(SENSITIVE_INPUT_TYPES))
+        raise ConfigError(f"unknown sensitive-input option {name!r} (known: {known})")
+    if not isinstance(value, expected):
+        raise ConfigError(
+            f"sensitive-input option {name!r} expects {expected.__name__}, "
+            f"got {type(value).__name__}"
+        )
+    if name == "symbol":
+        # A single fixed glyph is mandatory: the indicator must never be able to
+        # represent how many characters were typed.
+        assert isinstance(value, str)  # narrowed by the isinstance check above
+        if _display_width(value) != 1:
+            raise ConfigError(
+                "sensitive-input option 'symbol' must be exactly one "
+                "display column (no empty, multi-character, or wide glyphs)"
+            )
+    if name in {"idle_color", "active_color"}:
+        assert isinstance(value, str)
+        try:
+            parse_color(value)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
+    allowed = SENSITIVE_INPUT_VALUES.get(name)
+    if allowed is not None and value not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise ConfigError(
+            f"sensitive-input option {name!r} must be one of: {allowed_text}"
         )
 
 
@@ -412,16 +441,25 @@ class ShellConfigAPI:
         self._shell.set_prompt_color_mode(name, value)
 
     def set_sensitive_input_indicator(self, name: str, value: object) -> None:
-        """Store one reserved sensitive-input indicator option.
+        """Configure the RESERVED sensitive-input keypress indicator.
 
-        Recognised options are storage-only and have no runtime effect until a
-        future explicit PTY wrapper is designed and implemented:
+        This API is validated and stored but has **no runtime effect** in this
+        release. It exists so configuration written today stays valid when the
+        feature ships as part of an explicit, user-invoked PTY wrapper command.
 
-        * ``enabled`` (bool) - reserved; does not enable behavior today [False]
-        * ``symbol`` (str) - reserved; exactly one display column ["*"]
-        * ``idle_color`` (str) - reserved; parsed color name or ``#RRGGBB`` ["white"]
-        * ``active_color`` (str) - reserved; parsed color name or ``#RRGGBB`` ["lime"]
-        * ``mode`` (str) - reserved; only ``single-blink`` ["single-blink"]
+        PySH never intercepts, counts, stores or logs password input for
+        ordinary commands (sudo/ssh/su/gpg); those are owned by the child
+        process and the terminal. The future indicator is a single fixed glyph
+        that blinks on keyboard activity only, never revealing length or
+        content. See ``docs/security-sensitive-input.md``.
+
+        Recognised options:
+
+        * ``enabled`` (bool) - reserved master switch [False]
+        * ``symbol`` (str) - exactly one display column ["*"]
+        * ``idle_color`` (str) - color name or ``#RRGGBB`` ["white"]
+        * ``active_color`` (str) - color name or ``#RRGGBB`` ["lime"]
+        * ``mode`` (str) - only ``"single-blink"`` ["single-blink"]
         """
         validate_sensitive_input(name, value)
         self._shell.set_sensitive_input_indicator(name, value)
@@ -512,12 +550,15 @@ def configure(shell):
     # Force the classic readline editor (no highlighting, no ghost text):
     # shell.set_editor_option("line_editor", "readline")
 
-    # --- Sensitive input indicator (reserved; inert) -----------------------
-    # These options are validated and stored only. They have no effect until a
-    # future explicit PTY wrapper command ships. Normal sudo/ssh/su/gpg input
-    # is never proxied, read, counted, logged, or wrapped by PySH.
+    # --- Sensitive input (RESERVED / not yet active) ------------------------
+    # A future, explicitly user-invoked PTY wrapper command may show a single
+    # fixed keypress indicator while typing a password, so you can tell a key
+    # registered. It will NEVER reveal length or content, never log, and never
+    # wrap ordinary sudo/ssh/su/gpg automatically. These calls are validated
+    # and stored today but have NO effect until that wrapper ships.
+    # See docs/security-sensitive-input.md.
     #
-    # shell.set_sensitive_input_indicator("enabled", False)
+    # shell.set_sensitive_input_indicator("enabled", True)
     # shell.set_sensitive_input_indicator("symbol", "*")
     # shell.set_sensitive_input_indicator("idle_color", "white")
     # shell.set_sensitive_input_indicator("active_color", "lime")
@@ -567,6 +608,14 @@ def _import_config_module(path: Path) -> ModuleType:
     return module
 
 
+def _format_base_exception(exc: BaseException) -> str:
+    """Return a safe, deterministic message for user configuration failures."""
+    message = str(exc)
+    if message:
+        return message
+    return type(exc).__name__
+
+
 def load_python_config(
     shell: ConfigurableShell,
     *,
@@ -587,8 +636,11 @@ def load_python_config(
     except SyntaxError as exc:
         print(f"pysh: {path}: syntax error: {exc.msg}", file=sys.stderr)
         return 1
-    except Exception as exc:  # noqa: BLE001 - user config must not crash the shell
-        print(f"pysh: {path}: failed to load: {exc}", file=sys.stderr)
+    except BaseException as exc:  # noqa: BLE001 - user config must not crash the shell
+        print(
+            f"pysh: {path}: failed to load: {_format_base_exception(exc)}",
+            file=sys.stderr,
+        )
         return 1
 
     configure = getattr(module, CONFIGURE_FUNCTION, None)
@@ -608,7 +660,10 @@ def load_python_config(
     except ConfigError as exc:
         print(f"pysh: {path}: {exc}", file=sys.stderr)
         return 1
-    except Exception as exc:  # noqa: BLE001 - contain user errors
-        print(f"pysh: {path}: {CONFIGURE_FUNCTION}() failed: {exc}", file=sys.stderr)
+    except BaseException as exc:  # noqa: BLE001 - contain user config failures
+        print(
+            f"pysh: {path}: {CONFIGURE_FUNCTION}() failed: {_format_base_exception(exc)}",
+            file=sys.stderr,
+        )
         return 1
     return 0

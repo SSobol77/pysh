@@ -193,6 +193,8 @@ class PyShell:
         self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
+        # RESERVED / inert: stored for forward-compatible configuration only.
+        # No runtime path reads this; activated by a future explicit PTY wrapper.
         self.sensitive_input: dict[str, object] = dict(DEFAULT_SENSITIVE_INPUT)
         for spec in TOOL_VERSION_SPECS:
             setattr(self, spec.cache_attr, _UNSET)
@@ -1052,10 +1054,14 @@ class PyShell:
         self.prompt_color_modes[name] = value
 
     def set_sensitive_input_indicator(self, name: str, value: object) -> None:
-        """Store a reserved sensitive-input option (ConfigurableShell contract).
+        """Store a validated sensitive-input option (ConfigurableShell contract).
 
-        This is storage only. The REPL, raw line editor, and external-command
-        path must not read these options until an explicit PTY wrapper exists.
+        RESERVED / inert: this only validates and stores the value. No runtime
+        path (REPL, raw line editor, external-command execution) consults
+        ``self.sensitive_input``. PySH never intercepts, counts, stores or logs
+        password bytes for ordinary commands; those are owned by the child
+        process and the terminal. Activation is deferred to a future explicit
+        PTY wrapper command. See ``docs/security-sensitive-input.md``.
         """
         validate_sensitive_input(name, value)
         self.sensitive_input[name] = value

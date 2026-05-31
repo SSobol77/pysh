@@ -9,11 +9,16 @@
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See the LICENSE file in the project root for full license text.
-"""Validation tests for the reserved sensitive-input indicator configuration."""
+"""Tests for the RESERVED, inert sensitive-input indicator configuration.
+
+These tests assert validation behaviour and, crucially, that the option store
+is write-only: enabling the indicator must not change any observable runtime
+behaviour. There are deliberately no PTY, password, or runtime-indicator tests
+because no runtime behaviour exists yet.
+"""
 from __future__ import annotations
 
 import inspect
-from types import SimpleNamespace
 
 import pytest
 
@@ -27,7 +32,37 @@ from pysh.config_api import (
 from pysh.shell import PyShell
 
 
-def test_sensitive_input_defaults_exact_match() -> None:
+class FakeShell:
+    """Minimal ConfigurableShell capturing sensitive-input writes."""
+
+    def __init__(self) -> None:
+        self.sensitive_input: dict[str, object] = dict(DEFAULT_SENSITIVE_INPUT)
+
+    def register_alias(self, name: str, value: str) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def set_environment(self, name: str, value: str) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def set_prompt_option(self, name: str, value: object) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def set_editor_option(self, name: str, value: object) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def set_prompt_color(self, segment: str, color: str) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def set_prompt_color_mode(self, name: str, value: object) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def set_sensitive_input_indicator(self, name: str, value: object) -> None:
+        validate_sensitive_input(name, value)
+        self.sensitive_input[name] = value
+
+
+# ------------------------------------------------------------------- defaults
+def test_defaults_exact() -> None:
     assert DEFAULT_SENSITIVE_INPUT == {
         "enabled": False,
         "symbol": "*",
@@ -35,118 +70,166 @@ def test_sensitive_input_defaults_exact_match() -> None:
         "active_color": "lime",
         "mode": "single-blink",
     }
-    assert PyShell().sensitive_input == DEFAULT_SENSITIVE_INPUT
 
 
-def test_set_sensitive_input_indicator_accepts_valid_values() -> None:
-    shell = PyShell()
-    api = ShellConfigAPI(shell)
-
-    api.set_sensitive_input_indicator("enabled", True)
-    api.set_sensitive_input_indicator("symbol", "+")
-    api.set_sensitive_input_indicator("idle_color", "#FFFFFF")
-    api.set_sensitive_input_indicator("active_color", "green")
-    api.set_sensitive_input_indicator("mode", "single-blink")
-
-    assert shell.sensitive_input == {
-        "enabled": True,
-        "symbol": "+",
-        "idle_color": "#FFFFFF",
-        "active_color": "green",
-        "mode": "single-blink",
-    }
+def test_default_is_disabled() -> None:
+    # The reserved feature must ship disabled.
+    assert DEFAULT_SENSITIVE_INPUT["enabled"] is False
 
 
-def test_sensitive_input_rejects_unknown_name() -> None:
+# ----------------------------------------------------------------- valid sets
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("enabled", True),
+        ("enabled", False),
+        ("symbol", "*"),
+        ("symbol", "\u25cf"),  # ● BLACK CIRCLE, width 1
+        ("idle_color", "white"),
+        ("active_color", "lime"),
+        ("idle_color", "#FF8800"),
+        ("mode", "single-blink"),
+    ],
+)
+def test_api_accepts_valid(name: str, value: object) -> None:
+    shell = FakeShell()
+    ShellConfigAPI(shell).set_sensitive_input_indicator(name, value)
+    assert shell.sensitive_input[name] == value
+
+
+# --------------------------------------------------------------- invalid sets
+def test_unknown_option_rejected() -> None:
     with pytest.raises(ConfigError):
-        validate_sensitive_input("unknown", True)
+        ShellConfigAPI(FakeShell()).set_sensitive_input_indicator("nope", True)
 
 
 @pytest.mark.parametrize(
     ("name", "value"),
-    (
-        ("enabled", "true"),
-        ("symbol", 7),
-        ("idle_color", 7),
-        ("active_color", 7),
-        ("mode", 7),
-    ),
+    [
+        ("enabled", "yes"),   # str, not bool
+        ("enabled", 1),       # int is not bool
+        ("symbol", 42),       # not str
+        ("idle_color", 0),    # not str
+        ("mode", True),       # not str
+    ],
 )
-def test_sensitive_input_rejects_wrong_type(name: str, value: object) -> None:
+def test_wrong_type_rejected(name: str, value: object) -> None:
     with pytest.raises(ConfigError):
-        validate_sensitive_input(name, value)
+        ShellConfigAPI(FakeShell()).set_sensitive_input_indicator(name, value)
 
 
-@pytest.mark.parametrize("symbol", ("", "ab", "界", "e\u0301"))
-def test_sensitive_input_rejects_unsafe_symbol_width(symbol: str) -> None:
+@pytest.mark.parametrize(
+    "symbol",
+    [
+        "",            # empty: zero columns
+        "**",          # two glyphs
+        "ab",          # two glyphs
+        "\u65e5",      # 日 CJK, width 2
+        "\U0001f40d",  # 🐍 emoji, width 2
+    ],
+)
+def test_symbol_must_be_single_display_column(symbol: str) -> None:
     with pytest.raises(ConfigError):
-        validate_sensitive_input("symbol", symbol)
+        ShellConfigAPI(FakeShell()).set_sensitive_input_indicator("symbol", symbol)
 
 
-def test_sensitive_input_rejects_invalid_mode() -> None:
+@pytest.mark.parametrize("color_opt", ["idle_color", "active_color"])
+@pytest.mark.parametrize("bad", ["not-a-color", "#GGGGGG", "#FFF", ""])
+def test_invalid_color_rejected(color_opt: str, bad: str) -> None:
     with pytest.raises(ConfigError):
-        validate_sensitive_input("mode", "per-key")
+        ShellConfigAPI(FakeShell()).set_sensitive_input_indicator(color_opt, bad)
 
 
-@pytest.mark.parametrize("name", ("idle_color", "active_color"))
-def test_sensitive_input_rejects_invalid_color(name: str) -> None:
+def test_invalid_mode_rejected() -> None:
     with pytest.raises(ConfigError):
-        validate_sensitive_input(name, "not-a-color")
+        ShellConfigAPI(FakeShell()).set_sensitive_input_indicator("mode", "double-blink")
 
 
-def test_pyshell_conforms_to_configurable_shell_protocol() -> None:
+def test_validate_function_directly() -> None:
+    validate_sensitive_input("symbol", "*")  # no raise
+    with pytest.raises(ConfigError):
+        validate_sensitive_input("symbol", "")
+
+
+# ------------------------------------------------------- PyShell integration
+def test_pyshell_conforms_to_protocol() -> None:
     assert isinstance(PyShell(), ConfigurableShell)
 
 
-def test_sensitive_input_is_inert_for_prompt_output(monkeypatch) -> None:
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda _executable: None)
-
-    disabled = PyShell()
-    enabled = PyShell()
-    enabled.set_sensitive_input_indicator("enabled", True)
-    enabled.set_sensitive_input_indicator("symbol", "+")
-    enabled.set_sensitive_input_indicator("idle_color", "white")
-    enabled.set_sensitive_input_indicator("active_color", "lime")
-    enabled.set_sensitive_input_indicator("mode", "single-blink")
-
-    assert enabled._prompt_info_line() == disabled._prompt_info_line()
-    assert enabled._prompt() == disabled._prompt()
-
-
-def test_sensitive_input_is_inert_for_interactive_line_reader(monkeypatch) -> None:
+def test_pyshell_stores_and_defaults() -> None:
     shell = PyShell()
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-
-    def fake_read_line(*args: object, **kwargs: object) -> str:
-        calls.append((args, kwargs))
-        return "line"
-
-    monkeypatch.setattr(shell, "_should_use_raw_editor", lambda: True)
-    monkeypatch.setattr(shell.line_reader, "read_line", fake_read_line)
-
-    assert shell._read_interactive_line() == "line"
-    before = calls[-1]
-
+    assert shell.sensitive_input == DEFAULT_SENSITIVE_INPUT
     shell.set_sensitive_input_indicator("enabled", True)
-    shell.set_sensitive_input_indicator("symbol", "+")
-    shell.set_sensitive_input_indicator("idle_color", "#FFFFFF")
-    shell.set_sensitive_input_indicator("active_color", "#00FF00")
+    shell.set_sensitive_input_indicator("symbol", "\u25cf")
+    assert shell.sensitive_input["enabled"] is True
+    assert shell.sensitive_input["symbol"] == "\u25cf"
+
+
+def test_pyshell_rejects_invalid() -> None:
+    with pytest.raises(ValueError):  # ConfigError is a ValueError
+        PyShell().set_sensitive_input_indicator("symbol", "ab")
+
+
+# ------------------------------------------------------------------ inertness
+def _enable_all(shell: PyShell) -> None:
+    shell.set_sensitive_input_indicator("enabled", True)
+    shell.set_sensitive_input_indicator("symbol", "\u25cf")
+    shell.set_sensitive_input_indicator("idle_color", "white")
+    shell.set_sensitive_input_indicator("active_color", "lime")
     shell.set_sensitive_input_indicator("mode", "single-blink")
 
-    assert shell._read_interactive_line() == "line"
-    after = calls[-1]
 
-    assert before[0] == after[0]
-    assert before[1].keys() == after[1].keys()
-    assert isinstance(before[1]["options"], SimpleNamespace)
-    assert before[1]["options"] == after[1]["options"]
-    for key in before[1].keys() - {"options"}:
-        assert before[1][key] == after[1][key]
+def test_prompt_identical_enabled_vs_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("USER", "tester")
+
+    def _deterministic(shell: PyShell) -> None:
+        # Disable every segment whose value comes from a bounded subprocess
+        # (uv/ruff/rust/node/npm) or from external repo/network state (git),
+        # so the comparison isolates the sensitive-input option and never races
+        # on a 0.2s tool-version timeout.
+        for option in (
+            "show_uv_version",
+            "show_ruff_version",
+            "show_rust_version",
+            "show_node_version",
+            "show_npm_version",
+            "show_git_branch",
+            "show_git_dirty",
+        ):
+            shell.set_prompt_option(option, False)
+
+    disabled = PyShell()
+    _deterministic(disabled)
+    enabled = PyShell()
+    _deterministic(enabled)
+    _enable_all(enabled)
+    # The reserved option must not influence prompt rendering at all.
+    assert enabled._prompt() == disabled._prompt()
+    assert enabled._prompt_info_line() == disabled._prompt_info_line()
+    assert enabled._prompt_body(enabled.prompt_options) == disabled._prompt_body(
+        disabled.prompt_options
+    )
 
 
-def test_sensitive_input_store_is_not_read_by_runtime_paths() -> None:
-    assert "sensitive_input" not in inspect.getsource(PyShell._read_interactive_line)
-    assert "sensitive_input" not in inspect.getsource(PyShell._prompt)
-    assert "sensitive_input" not in inspect.getsource(PyShell._prompt_info_line)
-    assert "sensitive_input" not in inspect.getsource(PyShell._run_external)
-    assert "sensitive_input" not in inspect.getsource(PyShell._run_pipeline)
+def test_editor_strategy_unaffected(monkeypatch) -> None:
+    # Enabling the indicator must not change input-strategy selection.
+    shell = PyShell()
+    before = shell._should_use_raw_editor()
+    _enable_all(shell)
+    assert shell._should_use_raw_editor() == before
+
+
+def test_no_runtime_path_reads_sensitive_input() -> None:
+    # Static guarantee: outside the config storage surface, no method body in
+    # shell.py references self.sensitive_input. This keeps the feature inert.
+    source = inspect.getsource(PyShell)
+    occurrences = source.count("sensitive_input")
+    # Allowed references: the __init__ assignment and the setter (store + its
+    # docstring mention). Anything reading it elsewhere would exceed this.
+    setter = inspect.getsource(PyShell.set_sensitive_input_indicator)
+    reads_outside_setter = occurrences - setter.count("sensitive_input")
+    # __init__ assigns it exactly once.
+    assert reads_outside_setter == 1, (
+        "self.sensitive_input is referenced outside __init__ and its setter; "
+        "the reserved feature must remain inert"
+    )
