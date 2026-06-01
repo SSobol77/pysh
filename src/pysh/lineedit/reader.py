@@ -93,8 +93,14 @@ class RawLineReader:
         completer: Completer | None = None,
         line_renderer: Callable[[str], str] | None = None,
         tab_handler: Callable[[LineBuffer], bool] | None = None,
+        initial_text: str = "",
     ) -> str:
-        """Read a command line, raising EOF/KeyboardInterrupt for Ctrl-D/C."""
+        """Read a command line, raising EOF/KeyboardInterrupt for Ctrl-D/C.
+
+        When *initial_text* is provided the line buffer is pre-filled with that
+        text and the cursor is positioned at its end before the first redraw.
+        This enables auto-indentation in Python continuation prompts.
+        """
         self._start_rows = 0
         in_fd = self.input_fd if self.input_fd is not None else sys.stdin.fileno()
         out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
@@ -102,6 +108,8 @@ class RawLineReader:
         _saved_termios[in_fd] = old_state
         tty.setraw(in_fd)
         buffer = LineBuffer()
+        if initial_text:
+            buffer.set(initial_text)
         decoder = KeyDecoder()
         nav_index: int | None = None
         enabled = bool(options.syntax_highlight) and colors_enabled()

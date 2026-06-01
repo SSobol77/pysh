@@ -14,6 +14,7 @@ new PythonRuntime methods (push_interactive / run_buffer / reset)."""
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,7 @@ from pysh.python_mode import (
     _parse_directive,
     complete_python_mode_path,
     expand_tab,
+    next_python_indent,
 )
 from pysh.python_runtime import PythonRuntime
 from pysh.shell import PyShell
@@ -414,6 +416,32 @@ class TestModeLifecycle:
         # No literal "3.14.0" or similar allowed — version is dynamic.
         assert "Python " in out.getvalue()
 
+    def test_banner_contains_help_hint(self) -> None:
+        mode, out, err = _mode(["#exit"])
+        mode.run()
+        assert "#help" in out.getvalue()
+
+    def test_banner_contains_ctrl_d_hint(self) -> None:
+        mode, out, err = _mode(["#exit"])
+        mode.run()
+        assert "Ctrl+D" in out.getvalue()
+
+    def test_banner_contains_exit_directive_hint(self) -> None:
+        mode, out, err = _mode(["#exit"])
+        mode.run()
+        assert "#exit" in out.getvalue()
+
+    def test_banner_mentions_return_to_pysh(self) -> None:
+        mode, out, err = _mode(["#exit"])
+        mode.run()
+        assert "PySH" in out.getvalue()
+
+    def test_banner_contains_license_name(self) -> None:
+        from pysh import LICENSE_NAME
+        mode, out, err = _mode(["#exit"])
+        mode.run()
+        assert LICENSE_NAME in out.getvalue()
+
     def test_help_output_contains_all_directives(self) -> None:
         mode, out, err = _mode(["#help", "#exit"])
         mode.run()
@@ -576,8 +604,10 @@ class TestSourceBuffer:
     def test_buffer_does_not_contain_directives(self) -> None:
         mode, out, err = _mode(["x = 1", "#show", "#exit"])
         mode.run()
-        assert "#show" not in out.getvalue().replace("1 |", "")  # not as source
-        assert "#exit" not in out.getvalue()
+        # Only numbered buffer lines (N | ...) must not contain directive text.
+        numbered = [ln for ln in out.getvalue().splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
+        assert not any("#show" in ln for ln in numbered)
+        assert not any("#exit" in ln for ln in numbered)
 
     def test_buffer_does_not_contain_prompts(self) -> None:
         mode, out, err = _mode(["x = 1", "#show", "#exit"])
@@ -1198,9 +1228,10 @@ class TestVisualPadding:
         mode = PythonCommandMode(visual_padding_lines=2)
         assert mode._visual_padding_lines == 2
 
-    def test_padding_default_is_two_interactively(self) -> None:
+    def test_padding_default_is_zero_interactively(self) -> None:
+        # Default is 0: compact REPL layout, no scrollback pollution.
         mode = PythonCommandMode()
-        assert mode._visual_padding_lines == 2
+        assert mode._visual_padding_lines == 0
 
     def test_explicit_zero_in_test_mode(self) -> None:
         out = io.StringIO()
@@ -1222,7 +1253,7 @@ class TestVisualPadding:
         # All blank lines must come from the banner only (none from padding).
         padding_lines = [ln for ln in lines if ln == "" and "PySH" not in ln]
         # Exactly one blank line from the banner trailing "\n".
-        # (The banner prints "Type #help for commands.\n" which creates one blank.)
+        # (The banner prints the #help hint line which creates one blank.)
         assert len(padding_lines) <= 1
 
 
@@ -1591,7 +1622,7 @@ class TestInsert:
         )
         mode.run()
         text = out.getvalue()
-        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
         assert lines[0] == "a = 1"
         assert lines[1] == "b = 2"
 
@@ -1604,7 +1635,7 @@ class TestInsert:
         )
         mode.run()
         text = out.getvalue()
-        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
         assert lines[-1] == "c = 3"
 
     def test_insert_invalid_line_reports_error(self, tmp_path: Path) -> None:
@@ -1665,7 +1696,7 @@ class TestReplace:
         )
         mode.run()
         text = out.getvalue()
-        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
         assert lines[0] == "new = 99"
         assert not any("old" in ln for ln in lines)
 
@@ -1721,7 +1752,7 @@ class TestDelete:
         )
         mode.run()
         text = out.getvalue()
-        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
         assert lines == ["a = 1", "c = 3"]
 
     def test_delete_first_line(self, tmp_path: Path) -> None:
@@ -1732,7 +1763,7 @@ class TestDelete:
         )
         mode.run()
         text = out.getvalue()
-        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
         assert lines[0] == "b = 2"
 
     def test_delete_inclusive_range(self, tmp_path: Path) -> None:
@@ -1743,7 +1774,7 @@ class TestDelete:
         )
         mode.run()
         text = out.getvalue()
-        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if " | " in ln]
+        lines = [ln.split(" | ", 1)[1] for ln in text.splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
         assert lines == ["a = 1", "d = 4"]
 
     def test_delete_invalid_line_reports_error(self, tmp_path: Path) -> None:
@@ -1882,6 +1913,578 @@ class TestHelpEditMode:
         # #show cat.py prints file content
         assert "cat_content" in text
         # Active buffer (#show no arg) shows the interactive "x = 1", not cat content
-        numbered = [ln for ln in text.splitlines() if " | " in ln]
+        numbered = [ln for ln in text.splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
         assert any("x = 1" in ln for ln in numbered)
         assert not any("cat_content" in ln for ln in numbered)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Tilde path expansion — ~, ~user, relative, absolute
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestTildePaths:
+    def test_open_tilde_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        script = tmp_path / "file.py"
+        script.write_text("tilde_open = 1\n", encoding="utf-8")
+        mode, out, err = _mode(["#open ~/file.py", "#show", "#exit"])
+        mode.run()
+        assert "tilde_open" in out.getvalue()
+        assert err.getvalue() == ""
+
+    def test_save_tilde_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        mode, out, err = _mode(["x = 42", "#save ~/saved.py", "#exit"])
+        mode.run()
+        saved = (tmp_path / "saved.py").read_text(encoding="utf-8")
+        assert "x = 42" in saved
+        assert err.getvalue() == ""
+
+    def test_show_tilde_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        f = tmp_path / "view.py"
+        f.write_text("tilde_show = True\n", encoding="utf-8")
+        mode, out, err = _mode(["#show ~/view.py", "#exit"])
+        mode.run()
+        assert "tilde_show" in out.getvalue()
+        assert err.getvalue() == ""
+
+    def test_open_tilde_missing_file_prints_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        mode, out, err = _mode(["#open ~/nonexistent.py", "#exit"])
+        mode.run()
+        assert "no such file" in err.getvalue().lower()
+
+    def test_open_relative_path_still_uses_cwd(self, tmp_path: Path) -> None:
+        script = tmp_path / "rel.py"
+        script.write_text("cwd_relative = 1\n", encoding="utf-8")
+        mode, out, err = _mode(["#open rel.py", "#show", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert "cwd_relative" in out.getvalue()
+
+    def test_open_absolute_path_still_works(self, tmp_path: Path) -> None:
+        script = tmp_path / "abs.py"
+        script.write_text("abs_check = 1\n", encoding="utf-8")
+        mode, out, err = _mode([f"#open {script}", "#show", "#exit"], cwd=tmp_path)
+        mode.run()
+        assert "abs_check" in out.getvalue()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Failed input must not be appended to source buffer
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestFailedInputNotBuffered:
+    def test_name_error_not_appended(self) -> None:
+        mode, out, err = _mode(["a + b", "#show", "#exit"])
+        mode.run()
+        assert "buffer empty" in out.getvalue()
+        assert "NameError" in err.getvalue()
+
+    def test_syntax_error_not_appended(self) -> None:
+        mode, out, err = _mode(["for", "#show", "#exit"])
+        mode.run()
+        assert "buffer empty" in out.getvalue()
+        assert "SyntaxError" in err.getvalue()
+
+    def test_zero_division_not_appended(self) -> None:
+        mode, out, err = _mode(["1 / 0", "#show", "#exit"])
+        mode.run()
+        assert "buffer empty" in out.getvalue()
+        assert "ZeroDivisionError" in err.getvalue()
+
+    def test_successful_expression_appended(self) -> None:
+        mode, out, err = _mode(["1 + 3", "#show", "#exit"])
+        mode.run()
+        assert "1 + 3" in out.getvalue()
+
+    def test_successful_statement_appended(self) -> None:
+        mode, out, err = _mode(["x = 99", "#show", "#exit"])
+        mode.run()
+        assert "x = 99" in out.getvalue()
+
+    def test_failed_then_success_only_success_in_buffer(self) -> None:
+        mode, out, err = _mode(["a + b", "1 + 3", "#show", "#exit"])
+        mode.run()
+        text = out.getvalue()
+        assert "1 + 3" in text
+        # "a + b" must not appear in the numbered buffer output
+        numbered = [ln for ln in text.splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
+        assert not any("a + b" in ln for ln in numbered)
+
+    def test_successful_multiline_block_appended(self) -> None:
+        mode, out, err = _mode(
+            ["def f():", "    return 1", "", "#show", "#exit"]
+        )
+        mode.run()
+        text = out.getvalue()
+        assert "def f():" in text
+        assert "    return 1" in text
+
+    def test_failed_multiline_block_not_appended(self) -> None:
+        # Loop body raises at runtime → block must not be appended.
+        mode, out, err = _mode(
+            ["for _ in [1]:", "    raise RuntimeError('block_error')", "", "#show", "#exit"]
+        )
+        mode.run()
+        text = out.getvalue()
+        assert "buffer empty" in text
+        assert "RuntimeError" in err.getvalue()
+
+    def test_indentation_error_not_appended(self) -> None:
+        mode, out, err = _mode(["    x = 1", "#show", "#exit"])
+        mode.run()
+        assert "buffer empty" in out.getvalue()
+        # IndentationError is a subclass of SyntaxError
+        assert "Error" in err.getvalue()
+
+    def test_save_after_failed_input_writes_only_success(
+        self, tmp_path: Path
+    ) -> None:
+        mode, out, err = _mode(
+            ["a + b", "1 + 3", "#save result.py", "#exit"], cwd=tmp_path
+        )
+        mode.run()
+        content = (tmp_path / "result.py").read_text(encoding="utf-8")
+        assert "1 + 3" in content
+        assert "a + b" not in content
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# next_python_indent — pure indentation helper
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestNextPythonIndent:
+    def test_def_colon_returns_four_spaces(self) -> None:
+        assert next_python_indent(["def f():"]) == "    "
+
+    def test_class_colon_returns_four_spaces(self) -> None:
+        assert next_python_indent(["class A:"]) == "    "
+
+    def test_if_colon_returns_four_spaces(self) -> None:
+        assert next_python_indent(["if x:"]) == "    "
+
+    def test_for_colon_returns_four_spaces(self) -> None:
+        assert next_python_indent(["for x in xs:"]) == "    "
+
+    def test_while_colon_returns_four_spaces(self) -> None:
+        assert next_python_indent(["while True:"]) == "    "
+
+    def test_try_colon_returns_four_spaces(self) -> None:
+        assert next_python_indent(["try:"]) == "    "
+
+    def test_except_colon_returns_four_spaces(self) -> None:
+        assert next_python_indent(["except Exception:"]) == "    "
+
+    def test_with_colon_returns_four_spaces(self) -> None:
+        assert next_python_indent(["with open('f') as fh:"]) == "    "
+
+    def test_nested_block_returns_eight_spaces(self) -> None:
+        assert next_python_indent(["def f():", "    for x in xs:"]) == "        "
+
+    def test_non_colon_line_preserves_indent(self) -> None:
+        assert next_python_indent(["def f():", "    pass"]) == "    "
+
+    def test_empty_lines_skipped(self) -> None:
+        assert next_python_indent(["def f():", ""]) == "    "
+
+    def test_empty_list_returns_empty(self) -> None:
+        assert next_python_indent([]) == ""
+
+    def test_comment_does_not_increase_indent(self) -> None:
+        # A comment ending in colon-like text must not trigger extra indent.
+        assert next_python_indent(["    # if x:"]) == "    "
+
+    def test_plain_assignment_preserves_indent(self) -> None:
+        # A statement with no colon suffix keeps the current indent.
+        assert next_python_indent(["    x = 1"]) == "    "
+
+    def test_deeply_nested_block(self) -> None:
+        lines = ["def f():", "    for x in xs:", "        if x:"]
+        assert next_python_indent(lines) == "            "
+
+    def test_custom_tab_width(self) -> None:
+        assert next_python_indent(["def f():"], tab_width=2) == "  "
+
+    def test_blank_only_list_returns_empty(self) -> None:
+        assert next_python_indent(["", "   ", ""]) == ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# IDLE-like multiline input — integration tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[mK]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
+
+
+class TestIdlikeMultiline:
+    def test_function_definition_executes(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        mode, out, err = _mode(
+            ["def greet(name):", "    print('hi', name)", "", "greet('world')", "#exit"]
+        )
+        mode.run()
+        assert "hi world" in capsys.readouterr().out
+
+    def test_function_definition_appended_to_buffer(self) -> None:
+        mode, out, err = _mode(
+            ["def f():", "    return 1", "", "#show", "#exit"]
+        )
+        mode.run()
+        text = out.getvalue()
+        assert "def f():" in text
+        assert "    return 1" in text
+
+    def test_successful_block_appended_to_buffer(self) -> None:
+        mode, out, err = _mode(
+            ["for i in range(2):", "    pass", "", "#show", "#exit"]
+        )
+        mode.run()
+        text = out.getvalue()
+        assert "for i in range(2):" in text
+
+    def test_failed_block_not_appended(self) -> None:
+        mode, out, err = _mode(
+            ["for _ in [1]:", "    raise RuntimeError('oops')", "", "#show", "#exit"]
+        )
+        mode.run()
+        assert "buffer empty" in out.getvalue()
+        assert "RuntimeError" in err.getvalue()
+
+    def test_sum_function_call(self, capsys: pytest.CaptureFixture[str]) -> None:
+        mode, out, err = _mode(
+            ["def mysum(b, c):", "    return b + c", "", "mysum(7, 6)", "#exit"]
+        )
+        mode.run()
+        assert "13" in capsys.readouterr().out
+
+    def test_nested_block_executes_correctly(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        mode, out, err = _mode(
+            [
+                "def f(values):",
+                "    for v in values:",
+                "        print(v)",
+                "",
+                "",
+                "f([10, 20])",
+                "#exit",
+            ]
+        )
+        mode.run()
+        captured = capsys.readouterr().out
+        assert "10" in captured
+        assert "20" in captured
+
+    def test_nested_block_in_buffer(self) -> None:
+        mode, out, err = _mode(
+            [
+                "def f(values):",
+                "    for v in values:",
+                "        print(v)",
+                "",
+                "",
+                "#show",
+                "#exit",
+            ]
+        )
+        mode.run()
+        text = out.getvalue()
+        assert "def f(values):" in text
+        assert "    for v in values:" in text
+        assert "        print(v)" in text
+
+    def test_saved_file_contains_function_with_indentation(
+        self, tmp_path: Path
+    ) -> None:
+        mode, out, err = _mode(
+            [
+                "def mysum(b, c):",
+                "    a = b + c",
+                "    print(a)",
+                "",
+                "mysum(7, 6)",
+                f"#save {tmp_path / 'idle_test.py'}",
+                "#exit",
+            ]
+        )
+        mode.run()
+        content = (tmp_path / "idle_test.py").read_text(encoding="utf-8")
+        assert "def mysum(b, c):" in content
+        assert "    a = b + c" in content
+        assert "    print(a)" in content
+        assert "mysum(7, 6)" in content
+
+    def test_saved_file_has_no_prompts(self, tmp_path: Path) -> None:
+        mode, out, err = _mode(
+            ["def f():", "    pass", "", f"#save {tmp_path / 'out.py'}", "#exit"]
+        )
+        mode.run()
+        content = (tmp_path / "out.py").read_text(encoding="utf-8")
+        assert ">>>" not in content
+        assert "..." not in content
+
+    def test_saved_file_has_no_ansi_sequences(self, tmp_path: Path) -> None:
+        mode, out, err = _mode(
+            ["x = 1", f"#save {tmp_path / 'clean.py'}", "#exit"]
+        )
+        mode.run()
+        content = (tmp_path / "clean.py").read_text(encoding="utf-8")
+        assert "\x1b[" not in content
+
+    def test_tab_still_inserts_four_spaces(self) -> None:
+        from pysh.python_mode import expand_tab
+        line, cursor = expand_tab("def f():", 8)
+        assert line == "def f():    "
+        assert cursor == 12
+
+    def test_path_completion_unaffected(self, tmp_path: Path) -> None:
+        (tmp_path / "myfile.py").write_text("", encoding="utf-8")
+        result = complete_python_mode_path("#open myf", len("#open myf"), tmp_path)
+        assert any("myfile.py" in r for r in result)
+
+    def test_blank_line_completes_block(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        mode, out, err = _mode(
+            ["def double(v):", "    return v * 2", "", "double(21)", "#exit"]
+        )
+        mode.run()
+        assert "42" in capsys.readouterr().out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Auto-indent normalization — whitespace-only closer becomes ""
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestAutoIndentNormalization:
+    def test_whitespace_closer_executes_function(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # "    " (four spaces = indent_prefix) simulates Enter on pre-filled line.
+        mode, out, err = _mode(
+            ["def double(v):", "    return v * 2", "    ", "double(5)", "#exit"]
+        )
+        mode.run()
+        assert "10" in capsys.readouterr().out
+
+    def test_whitespace_closer_appends_clean_block(self) -> None:
+        mode, out, err = _mode(
+            ["def f():", "    return 1", "    ", "#show", "#exit"]
+        )
+        mode.run()
+        text = out.getvalue()
+        assert "def f():" in text
+        assert "    return 1" in text
+        # No line may be pure spaces from the auto-indent closer.
+        numbered = [ln.split(" | ", 1)[1] for ln in text.splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
+        assert not any(ln == "    " for ln in numbered)
+
+    def test_whitespace_closer_not_in_saved_file(self, tmp_path: Path) -> None:
+        mode, out, err = _mode(
+            [
+                "def f():",
+                "    return 1",
+                "    ",  # simulates Enter on auto-indented line
+                f"#save {tmp_path / 'out.py'}",
+                "#exit",
+            ]
+        )
+        mode.run()
+        content = (tmp_path / "out.py").read_text(encoding="utf-8")
+        assert "def f():" in content
+        for line in content.splitlines():
+            assert line != "    ", f"whitespace-only line found: {line!r}"
+
+    def test_sum_with_whitespace_closer(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        mode, out, err = _mode(
+            [
+                "def mysum(a, b):",
+                "    c = a + b",
+                "    print(c)",
+                "    ",  # block closer via auto-indent
+                "mysum(7, 6)",
+                "#exit",
+            ]
+        )
+        mode.run()
+        assert "13" in capsys.readouterr().out
+
+    def test_sum_buffer_after_whitespace_closer(self) -> None:
+        mode, out, err = _mode(
+            [
+                "def mysum(a, b):",
+                "    c = a + b",
+                "    print(c)",
+                "    ",
+                "mysum(7, 6)",
+                "#show",
+                "#exit",
+            ]
+        )
+        mode.run()
+        text = out.getvalue()
+        numbered = [ln.split(" | ", 1)[1] for ln in text.splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
+        assert not any(ln == "    " for ln in numbered)
+        assert any("def mysum" in ln for ln in numbered)
+        assert any("mysum(7, 6)" in ln for ln in numbered)
+
+    def test_nested_block_with_whitespace_closer(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # codeop closes the entire def+for with a single blank line.
+        # "        " (8-space indent_prefix) is normalized to "", closing both.
+        mode, out, err = _mode(
+            [
+                "def f(vs):",
+                "    for v in vs:",
+                "        print(v)",
+                "        ",  # 8-space indent_prefix → normalized to ""
+                "f([3, 4])",
+                "#exit",
+            ]
+        )
+        mode.run()
+        captured = capsys.readouterr().out
+        assert "3" in captured
+        assert "4" in captured
+
+    def test_real_indented_lines_preserved(self) -> None:
+        mode, out, err = _mode(
+            ["def g():", "    x = 99", "", "#show", "#exit"]
+        )
+        mode.run()
+        text = out.getvalue()
+        numbered = [ln.split(" | ", 1)[1] for ln in text.splitlines() if ln.split(" | ", 1)[0].strip().isdigit()]
+        assert any(ln == "    x = 99" for ln in numbered)
+
+    def test_failed_block_not_appended_after_normalization(self) -> None:
+        mode, out, err = _mode(
+            ["for _ in [1]:", "    raise RuntimeError('bad')", "    ", "#show", "#exit"]
+        )
+        mode.run()
+        assert "buffer empty" in out.getvalue()
+        assert "RuntimeError" in err.getvalue()
+
+    def test_syntax_highlighting_active_after_normalization(self) -> None:
+        # Regression guard: mode must survive after normalization fires.
+        mode, out, err = _mode(
+            ["def h():", "    pass", "    ", "h()", "#exit"]
+        )
+        assert mode.run() == 0
+        assert err.getvalue() == ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Compact rendering — no extra blank lines between prompt iterations
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _text_after_banner(text: str) -> str:
+    """Return the portion of *text* that follows the banner blank line."""
+    _, found, rest = text.partition("\n\n")
+    return rest if found else ""
+
+
+class TestCompactRendering:
+    def test_default_visual_padding_is_zero(self) -> None:
+        mode = PythonCommandMode()
+        assert mode._visual_padding_lines == 0
+
+    def test_explicit_visual_padding_still_settable(self) -> None:
+        mode = PythonCommandMode(visual_padding_lines=2)
+        assert mode._visual_padding_lines == 2
+
+    def test_no_consecutive_blank_lines_between_simple_inputs(self) -> None:
+        mode, out, err = _mode(["x = 1", "y = 2", "#show", "#exit"])
+        mode.run()
+        after = _text_after_banner(out.getvalue())
+        assert "\n\n" not in after
+
+    def test_no_consecutive_blank_lines_in_continuation_block(self) -> None:
+        mode, out, err = _mode(
+            ["def f():", "    return 1", "", "#show", "#exit"]
+        )
+        mode.run()
+        after = _text_after_banner(out.getvalue())
+        assert "\n\n" not in after
+
+    def test_no_consecutive_blank_lines_for_full_function_sequence(self) -> None:
+        mode, out, err = _mode(
+            [
+                "def mysum(a, b):",
+                "    c = a + b",
+                "    print(c)",
+                "",
+                "#show",
+                "#exit",
+            ]
+        )
+        mode.run()
+        after = _text_after_banner(out.getvalue())
+        assert "\n\n" not in after
+
+    def test_no_consecutive_blank_lines_after_expression(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        mode, out, err = _mode(["1 + 1", "2 + 2", "#show", "#exit"])
+        mode.run()
+        after = _text_after_banner(out.getvalue())
+        assert "\n\n" not in after
+
+    def test_render_line_no_trailing_newline_plain(self) -> None:
+        from pysh.python_highlight import PythonSyntaxRenderer
+        r = PythonSyntaxRenderer(enabled=False)
+        assert not r.render_line("x = 1").endswith("\n")
+        assert not r.render_line("def f():").endswith("\n")
+
+    def test_render_line_no_trailing_newline_highlighted(self) -> None:
+        from pysh.python_highlight import PythonSyntaxRenderer, pygments_available
+        if not pygments_available():
+            pytest.skip("pygments not installed")
+        r = PythonSyntaxRenderer(force_color=True)
+        assert not r.render_line("x = 1").endswith("\n")
+        assert not r.render_line("def f():").endswith("\n")
+
+    def test_auto_indent_block_close_works_with_zero_padding(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Regression: block closure must still work after padding=0 fix.
+        mode, out, err = _mode(
+            ["def mysum(a, b):", "    c = a + b", "    print(c)", "    ", "mysum(7, 6)", "#exit"]
+        )
+        mode.run()
+        assert "13" in capsys.readouterr().out
+        after = _text_after_banner(out.getvalue())
+        assert "\n\n" not in after
+
+    def test_syntax_highlighting_still_works_compact(self) -> None:
+        from pysh.python_highlight import PythonSyntaxRenderer
+        out = io.StringIO()
+        err = io.StringIO()
+        mode = PythonCommandMode(
+            input_source=["x = 1", "#show", "#exit"],
+            out_stream=out,
+            err_stream=err,
+            renderer=PythonSyntaxRenderer(force_color=True),
+        )
+        mode.run()
+        raw = out.getvalue()
+        after = _text_after_banner(raw)
+        assert "\n\n" not in after
+        assert "x = 1" in _strip_ansi(raw)

@@ -28,7 +28,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import IO
 
-from pysh import __version__
+from pysh import LICENSE_NAME, __version__
 from pysh.colors import color_to_hex, colorize, parse_color
 from pysh.command_plan import plan as run_plan
 from pysh.completion import Completer
@@ -1497,13 +1497,16 @@ class PyShell:
         return "$"
 
     def _print_banner(self) -> None:
+        from pysh.system_info import get_system_summary  # noqa: PLC0415
         py_version = ".".join(str(p) for p in sys.version_info[:3])
         use_color = colors_enabled()
-        if "utf" in (locale.getpreferredencoding(False) or "").lower():
-            line1 = f"\U0001f40d PySH {__version__} | Python {py_version}"
-        else:
-            line1 = f"PySH {__version__} | Python {py_version}"
+        snake = "\U0001f40d " if "utf" in (locale.getpreferredencoding(False) or "").lower() else ""
+        line1 = f"{snake}PySH {__version__} | Python {py_version} | {LICENSE_NAME}"
         print(diagnostic(line1, "info", enabled=use_color))
+        try:
+            print(get_system_summary().format_compact())
+        except Exception:  # noqa: BLE001 - banner must never crash PySH
+            pass
         print("Type 'exit' or press Ctrl+D to quit.")
         if RC_PATH.exists():
             print(f"Loading {RC_PATH}")

@@ -384,6 +384,36 @@ def _check_missing_hash(line: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Auto-indentation helper (pure, testable)
+# ---------------------------------------------------------------------------
+
+def next_python_indent(lines: list[str], tab_width: int = 4) -> str:
+    """Return the indentation prefix for the next Python continuation line.
+
+    Scans *lines* in reverse, skipping blank lines, and examines the last
+    meaningful (non-blank, non-comment) line.  If that line's stripped form
+    ends with ``:``, the current block indent is increased by *tab_width*
+    spaces.  Otherwise the current block indent is preserved unchanged.
+
+    Examples::
+
+        next_python_indent(["def f():"])             == "    "
+        next_python_indent(["def f():", "    if x:"]) == "        "
+        next_python_indent(["def f():", "    pass"]) == "    "
+        next_python_indent([])                       == ""
+    """
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        indent = line[: len(line) - len(line.lstrip())]
+        stripped = line.strip()
+        if not stripped.startswith("#") and stripped.endswith(":"):
+            indent += " " * tab_width
+        return indent
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Main class
 # ---------------------------------------------------------------------------
 
@@ -435,7 +465,8 @@ class PythonCommandMode:
         Zero-argument callable returning the current working directory.
         Defaults to :func:`pathlib.Path.cwd`.
     visual_padding_lines:
-        Blank lines printed below the prompt in interactive mode.
+        Blank lines printed above each prompt in interactive mode.
+        Defaults to 0 (compact REPL layout); raising it pollutes scrollback.
         Auto-set to 0 when *input_source* is provided.
     """
 
@@ -448,7 +479,7 @@ class PythonCommandMode:
         err_stream: IO[str] | None = None,
         renderer: PythonSyntaxRenderer | None = None,
         cwd_provider: Callable[[], Path] | None = None,
-        visual_padding_lines: int = 2,
+        visual_padding_lines: int = 0,
     ) -> None:
         self._out: IO[str] = out_stream if out_stream is not None else sys.stdout
         self._err: IO[str] = err_stream if err_stream is not None else sys.stderr
@@ -499,8 +530,13 @@ class PythonCommandMode:
             show_primary = at_primary and self._pending_edit is None
 
             self._print_visual_padding()
+            indent_prefix = (
+                next_python_indent(pending)
+                if not at_primary and self._pending_edit is None
+                else ""
+            )
             try:
-                line = self._read_line(show_primary)
+                line = self._read_line(show_primary, indent_prefix=indent_prefix)
             except EOFError:
                 if show_primary:
                     print("", file=self._out)
@@ -521,6 +557,14 @@ class PythonCommandMode:
                 continue
 
             self._echo_post_entry_highlight(line)
+
+            # Normalize auto-indent prefix to a true blank line: when the raw
+            # reader pre-fills the buffer with indent spaces and the user presses
+            # Enter without typing anything extra, the returned line equals
+            # indent_prefix exactly.  codeop requires an empty string (not
+            # whitespace) to close a compound statement, matching CPython REPL.
+            if not at_primary and indent_prefix and line == indent_prefix:
+                line = ""
 
             # ----------------------------------------------------------
             # PRIORITY 1: pending edit operation (#insert / #replace)
@@ -569,7 +613,7 @@ class PythonCommandMode:
                 at_primary = False
             else:
                 at_primary = True
-                if status != 2 and any(ln.strip() for ln in pending):
+                if status == 0 and any(ln.strip() for ln in pending):
                     self._buffer.extend(pending)
                 pending.clear()
 
@@ -913,10 +957,11 @@ class PythonCommandMode:
     def _resolve_path(self, arg: str) -> Path:
         """Resolve *arg* to an absolute :class:`~pathlib.Path`.
 
-        Absolute paths (starting with ``/``) are resolved as-is.
-        Relative paths are anchored to the current PySH working directory.
+        ``~`` and ``~user`` prefixes are expanded before resolution.
+        Absolute paths are resolved as-is; relative paths are anchored to
+        the current PySH working directory.
         """
-        p = Path(arg)
+        p = Path(arg).expanduser()
         if p.is_absolute():
             return p.resolve()
         return (self._cwd_provider() / p).resolve()
@@ -931,8 +976,14 @@ class PythonCommandMode:
             return f"[{self._active_file.name}:edit] >>> "
         return _PROMPT_PRIMARY
 
-    def _read_line(self, at_primary: bool) -> str:
-        """Read one input line from the injected source or ``input()``."""
+    def _read_line(self, at_primary: bool, indent_prefix: str = "") -> str:
+        """Read one input line from the injected source or ``input()``.
+
+        *indent_prefix* pre-fills the raw-reader buffer so the terminal shows
+        the auto-indented continuation text before the user types.  It has no
+        effect in test/scripted mode (``input_source``) — those supply complete
+        lines directly.
+        """
         prompt = self._get_primary_prompt() if at_primary else _PROMPT_CONTINUATION
         rendered_prompt = self._renderer.render_prompt(prompt)
         self._last_read_live_rendered = False
@@ -954,6 +1005,7 @@ class PythonCommandMode:
                     completer=self._raw_completer,
                     line_renderer=self._renderer.render_line,
                     tab_handler=self._handle_raw_tab,
+                    initial_text=indent_prefix,
                 )
             except (OSError, termios.error):
                 self._last_read_live_rendered = False
@@ -1000,10 +1052,11 @@ class PythonCommandMode:
         print(self._renderer.render_error(text), file=self._err)
 
     def _print_banner(self) -> None:
+        from pysh import LICENSE_NAME  # noqa: PLC0415
         vi = sys.version_info
-        self._print_status("PySH Python Command Execution Layer")
+        self._print_status(f"PySH Python Command Execution Layer | {LICENSE_NAME}")
         self._print_status(f"Python {vi.major}.{vi.minor}.{vi.micro}")
-        self._print_status("Type #help for commands.")
+        self._print_status("Type #help for commands. Ctrl+D or #exit to return to PySH.")
         print(file=self._out)
 
     def _print_help(self) -> None:
@@ -1011,6 +1064,7 @@ class PythonCommandMode:
             "Python Command Execution Layer — file-backed edit mode directives:\n"
             "\n"
             "  #exit              Return to the PySH prompt.\n"
+            "  Ctrl+D             Exit Python mode and return to PySH.\n"
             "  #help              Show this help.\n"
             "  #open <file>       Open a Python file into edit mode.\n"
             "  #save [file]       Save the active edit buffer.\n"
@@ -1027,7 +1081,6 @@ class PythonCommandMode:
             "  #delete <a>:<b>    Delete inclusive line range.\n"
             "\n"
             "  TAB                Insert four spaces (inside Python code).\n"
-            "  Ctrl+D             Exit (same as #exit).\n"
             "  Ctrl+C             Cancel current input.\n"
             "\n"
             "Syntax highlighting:\n"

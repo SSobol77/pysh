@@ -294,9 +294,9 @@ Type `#py` at the normal PySH prompt to enter an interactive Python session:
 
 ```text
 > #py
-PySH Python Command Execution Layer
-Python 3.13.2
-Type #help for commands.
+PySH Python Command Execution Layer | GPL-3.0
+Python 3.13.5
+Type #help for commands. Ctrl+D or #exit to return to PySH.
 
 >>> x = 10
 >>> x * 5
@@ -311,24 +311,45 @@ Type #help for commands.
 
 Inside Python command mode, available directives are:
 
-| Directive      | Purpose                                         |
-| -------------- | ----------------------------------------------- |
-| `#exit`        | Return to the normal PySH prompt.               |
-| `#help`        | Show directive help.                            |
-| `#open <file>` | Load a Python source file into the buffer.      |
-| `#save <file>` | Save the source buffer to a file.               |
-| `#show`        | Display the source buffer with line numbers.    |
-| `#run`         | Execute the source buffer.                      |
-| `#reset`       | Clear the buffer and reset the runtime.         |
+| Directive        | Purpose                                                     |
+| ---------------- | ----------------------------------------------------------- |
+| `#exit`          | Return to the normal PySH prompt.                          |
+| `#help`          | Show directive help.                                        |
+| `#open <file>`   | Load a Python source file into the buffer (file-backed mode). |
+| `#save [file]`   | Save the source buffer; `#save` uses the active file.       |
+| `#show [file]`   | Display buffer with line numbers, or print file like `cat`. |
+| `#run`           | Execute the source buffer.                                  |
+| `#clear`         | Clear the buffer; keep active file and runtime state.       |
+| `#reset`         | Clear buffer, active file, and runtime state.               |
+| `#edit`          | Display buffer with full syntax highlighting.               |
+| `#insert <line>` | Insert Python source before a line number.                  |
+| `#replace <line>`| Replace a line with new Python source.                      |
+| `#delete <line>` | Delete a line (or range `<a>:<b>`).                        |
 
-TAB inserts four spaces. Ctrl+D exits (same as `#exit`). Ctrl+C cancels
-current input.
+TAB inserts four spaces inside Python code. Inside `#open`, `#save`, and
+`#show` path positions, TAB completes filesystem paths.
 
-Python command mode uses Pygments syntax highlighting in the normal runtime:
+Ctrl+D exits (same as `#exit`). Ctrl+C cancels current input.
+
+Python command mode uses **Pygments** syntax highlighting across all views:
 interactive input, continuation input, prompts, `#show`, `#show file.py`,
-`#edit`, and Python diagnostics are colored on capable terminals. Set
-`PYSH_COLOR=0` or `NO_COLOR` to disable color, or `PYSH_COLOR=always` to force
-ANSI output for terminal smoke tests.
+`#edit`, and Python diagnostics are colored on capable terminals.
+
+Color controls:
+
+| Variable          | Effect                             |
+| ----------------- | ---------------------------------- |
+| `PYSH_COLOR=0`    | Disable all colors                 |
+| `PYSH_COLOR=1`    | Enable (default for capable TTY)   |
+| `PYSH_COLOR=always` | Force ANSI even on non-TTY       |
+| `NO_COLOR`        | Disable colors; overrides all else |
+
+Path expansion works for all file directives: `~/file.py`, `./file.py`,
+`../file.py`, and absolute paths are all supported.
+
+Only successfully executed input is appended to the source buffer. Failed input
+(syntax errors, runtime exceptions) is never saved. Saved files contain clean
+Python source with no prompts and no ANSI escape sequences.
 
 See [python-command-execution-layer.md](python-command-execution-layer.md)
 for the complete specification.

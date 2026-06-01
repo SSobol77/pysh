@@ -100,3 +100,7 @@ CURSOR.md
 
 # PySH RPM packaging spec is a source-controlled release artifact definition.
 !packaging/rpm/pysh-shell.spec
+
+# Test files
+test1.py
+test2.py

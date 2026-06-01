@@ -19,7 +19,15 @@ subject to change based on project priorities and user feedback.
 
 ## v0.5.0 (current)
 
-- Python Command Execution Layer (`#py` interactive mode).
+- Python Command Execution Layer (`#py` interactive mode):
+  - IDLE-like multi-line block input with auto-indentation.
+  - Blank Enter closes a complete block (CPython REPL semantics).
+  - Syntax highlighting via Pygments across all Python mode views.
+  - File-backed edit workspace: `#open`, `#save`, `#show`, `#run`,
+    `#clear`, `#reset`, `#edit`, `#insert`, `#replace`, `#delete`.
+  - Path expansion (`~`, relative, absolute) for file directives.
+  - TAB completes paths in file directives; inserts four spaces in code.
+  - Safe source-buffer policy: failed input is never saved.
 - Python command-mode syntax highlighting across prompts, input, diagnostics,
   `#show`, and `#edit`.
 - Shell-style comments (`#` at token boundary).
@@ -27,6 +35,7 @@ subject to change based on project priorities and user feedback.
 - Raw-mode line editor with syntax highlighting and autosuggestions.
 - Configurable prompt colors and terminal cursor color.
 - Explicit `secure <cmd>` PTY runner with fixed-size ring indicator.
+- Updated startup banner with system summary (`System:` line) and GPL-3.0 tag.
 - `uv`-based dev workflow.
 
 ## Planned future work
@@ -34,9 +43,9 @@ subject to change based on project priorities and user feedback.
 ### Python Command Execution Layer
 
 - Python symbol completion on TAB inside `#py` mode.
-- Source buffer line editing directives (`#insert`, `#delete`, `#replace`).
 - Optional session persistence across `#reset` / `#exit` cycles.
 - Integration with the `py` builtin runtime as an opt-in.
+- Viewport bottom padding without scrollback pollution.
 
 ### Shell features
 

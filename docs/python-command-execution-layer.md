@@ -28,9 +28,9 @@ Type `#py` at the normal PySH prompt:
 You will see the Python mode banner:
 
 ```text
-PySH Python Command Execution Layer
-Python 3.13.2
-Type #help for commands.
+PySH Python Command Execution Layer | GPL-3.0
+Python 3.13.5
+Type #help for commands. Ctrl+D or #exit to return to PySH.
 
 >>>
 ```
@@ -102,15 +102,35 @@ Python command mode uses `codeop.compile_command` to detect block
 completeness — the same mechanism CPython's own interactive REPL uses. You
 do not need to guess indentation or add closing tokens manually.
 
-Enter an empty line to close a block:
+After a line ending with `:`, the continuation prompt is prefilled with four
+spaces. Press **Enter** on the blank continuation line to close the block:
 
 ```text
->>> for i in range(3):
-...     print(i)
+>>> def sum(a, b):
+...     c = a + b
+...     print(c)
 ...
-0
+>>> sum(7, 6)
+13
+```
+
+### Auto-indentation
+
+After entering a block-opening line (ending with `:`), the next continuation
+prompt is prefilled with the correct indentation. Press Enter without typing
+anything additional to close the block.
+
+Nested blocks increase indentation automatically:
+
+```text
+>>> def f(values):
+...     for v in values:
+...         print(v)
+...
+>>> f([1, 2, 3])
 1
 2
+3
 ```
 
 ## Persistent runtime state
@@ -127,17 +147,87 @@ available for the rest of that session:
 
 `#reset` clears the runtime state (see below).
 
+## Source buffer
+
+Python command mode maintains a **source buffer**: a list of clean Python
+source lines that accumulates successful interactive input.
+
+### Buffer append policy
+
+- **Successful** expressions and statements are appended to the source buffer.
+- **Failed** input (syntax errors, runtime exceptions, `NameError`, etc.) is
+  **not** appended.
+- Directive lines (`#exit`, `#help`, `#open`, `#save`, `#show`, `#run`,
+  `#reset`, `#clear`, `#edit`) are **never** appended.
+- Incomplete multi-line blocks are only appended after the complete block
+  executes successfully.
+
+```text
+>>> a + b               ← NameError: not appended
+>>> x = 1               ← success: appended
+>>> #show
+1 | x = 1
+```
+
+### Source buffer versus runtime state
+
+These are two separate concepts:
+
+| | Source buffer | Runtime state |
+|---|---|---|
+| **Contains** | Python source text | Live Python objects |
+| **Populated by** | Successful interactive input, `#open` | Any executed input, `#run` |
+| **Cleared by** | `#reset`, `#clear`, `#open` | `#reset` |
+| **Used by** | `#save`, `#show`, `#run`, `#edit` | Expression evaluation, variable lookup |
+
 ## TAB behaviour
 
 Inside Python command mode, **TAB inserts four spaces**. This allows natural
-block indentation without triggering shell completion.
+block indentation without triggering shell path completion.
 
 ```text
 >>> def main():
 ...     print("hello")   ← four spaces inserted by TAB
 ```
 
-TAB completion is not active in Python command mode in v0.5.0.
+Inside `#open`, `#save`, and `#show` path positions, TAB completes filesystem
+paths instead.
+
+## Syntax highlighting
+
+Python command mode uses Pygments for terminal syntax highlighting.
+Pygments is a normal runtime dependency for PySH v0.5.0.
+
+- Live input is highlighted as you type (real terminal mode).
+- `#show` and `#show <file>` render highlighted source.
+- `#edit` renders the buffer with full block-level highlighting.
+- Error messages are highlighted.
+- Highlighting is **render-only**: ANSI escape sequences are never written to
+  files and never passed to the Python runtime.
+
+### Color controls
+
+| Variable | Effect |
+|---|---|
+| `PYSH_COLOR=0` | Disable all colors |
+| `PYSH_COLOR=1` | Normal color (enabled for capable terminals) |
+| `PYSH_COLOR=always` | Force ANSI even on non-TTY output |
+| `NO_COLOR` | Disable colors; wins over `PYSH_COLOR` |
+
+## Path behaviour
+
+All file directives (`#open`, `#save`, `#show`) support:
+
+```text
+>>> #open filename.py          ← relative to current PySH working directory
+>>> #open ./subdir/file.py     ← relative with explicit ./
+>>> #open ../other/file.py     ← parent directory
+>>> #open ~/Downloads/file.py  ← user home expansion
+>>> #open /absolute/path.py    ← absolute path
+```
+
+Relative paths resolve against the current PySH working directory (the same
+directory reported by `pwd`).
 
 ## Directives
 
@@ -155,42 +245,46 @@ Show available directives and a usage summary.
 
 ### `#open <file>`
 
-Load an existing Python source file into the source buffer.
+Load an existing Python source file into the source buffer and enter
+file-backed edit mode.
 
 ```text
 >>> #open main.py
 opened: main.py
+editing: main.py
 ```
 
 Rules:
 
-- Path is resolved relative to the current PySH working directory.
+- Path is expanded (`~`, relative, absolute) and resolved.
 - Content is read as UTF-8.
 - The target must be a regular file, not a directory.
 - The current source buffer is **replaced** with the loaded content.
 - The file is **not executed automatically**. Use `#run` to execute it.
+- The prompt changes to `[main.py:edit] >>> ` while a file is open.
 
-### `#save <file>`
+### `#save [file]`
 
 Save the current source buffer to a file.
 
 ```text
->>> #save session.py
-saved: session.py
+>>> #save session.py   ← save to named file, makes it the active file
+>>> #save              ← save to the active file (set by #open or previous #save)
 ```
 
 Rules:
 
-- Path is resolved relative to the current PySH working directory.
+- Path is expanded and resolved.
 - Content is written as UTF-8.
 - The file is created if it does not exist and overwritten if it does.
 - The file always ends with a newline.
 - Only Python source code is saved — no prompts, no output, no tracebacks,
-  no directive lines.
+  no directive lines, no ANSI escape sequences.
 
-### `#show`
+### `#show [file]`
 
-Display the source buffer with line numbers.
+Display the source buffer with line numbers (`#show`), or print a file like
+`cat` without modifying the active buffer or active file (`#show <file>`).
 
 ```text
 >>> #show
@@ -198,6 +292,10 @@ Display the source buffer with line numbers.
 2 |
 3 | def main():
 4 |     print(Path.cwd())
+```
+
+```text
+>>> #show other.py   ← cat-style display; does not affect active buffer
 ```
 
 An empty buffer prints `buffer empty`.
@@ -219,34 +317,60 @@ Execute the complete source buffer inside the active Python runtime.
 - Syntax errors and runtime exceptions are reported clearly; Python command
   mode remains active.
 
+### `#edit`
+
+Display the active source buffer with full Python syntax highlighting
+(block-level, not line-by-line). Read-only — does not modify the buffer or
+any file.
+
+### `#clear`
+
+Clear the source buffer while keeping the active file reference and runtime
+state.
+
+```text
+>>> #clear
+buffer cleared
+```
+
+Use this to start fresh input without losing the active file context.
+
 ### `#reset`
 
-Clear the source buffer and recreate the runtime namespace.
+Clear the source buffer, discard the active file reference, and recreate the
+runtime namespace.
 
 ```text
 >>> #reset
+workspace reset
 ```
 
 - The source buffer is emptied.
 - All variables, imports, functions, and classes are discarded.
 - Python command mode stays active; you are not returned to PySH.
 
-## Source buffer versus runtime state
+### Advanced line-edit commands
 
-These are two separate concepts:
+These commands allow direct buffer manipulation:
 
-| | Source buffer | Runtime state |
-|---|---|---|
-| **Contains** | Python source text | Live Python objects |
-| **Populated by** | Interactive input, `#open` | Interactive execution, `#run` |
-| **Cleared by** | `#reset`, `#open` | `#reset` |
-| **Used by** | `#save`, `#show`, `#run` | Expression evaluation, variable lookup |
+| Command | Description |
+|---|---|
+| `#insert <line>` | Insert Python source before line number (1-based) |
+| `#replace <line>` | Replace line number with new Python source |
+| `#delete <line>` | Delete a single line |
+| `#delete <a>:<b>` | Delete inclusive line range |
+| `#append` | Confirm append mode (default; source is already appended) |
 
-Interactive lines that are executed successfully are appended to the source
-buffer. Syntax-error lines are **not** appended.
+These are advanced commands. The primary editing workflow is:
 
-Directive lines (`#exit`, `#help`, `#open`, `#save`, `#show`, `#run`,
-`#reset`) are **never** appended to the source buffer.
+```text
+>>> #open main.py      ← load file
+>>> #show              ← inspect buffer
+>>> #clear             ← clear buffer for new content
+>>> (type new source)
+>>> #save              ← write back to active file
+>>> #run               ← execute
+```
 
 ## Clean file execution flow
 
@@ -285,6 +409,8 @@ ZeroDivisionError: division by zero
 4
 ```
 
+Failed input is not appended to the source buffer.
+
 ## Ctrl+C and Ctrl+D behaviour
 
 | Event | Location | Behaviour |
@@ -295,10 +421,31 @@ ZeroDivisionError: division by zero
 
 PySH is never terminated by Ctrl+C inside Python command mode.
 
+## Missing-`#` hints
+
+If a directive word is typed without the leading `#`, Python command mode
+detects it and shows a hint instead of executing it as Python or poisoning the
+buffer:
+
+```text
+>>> show
+pysh(py): use #show to display the active Python edit buffer
+>>> open main.py
+pysh(py): use #open main.py to open a file into the Python edit buffer
+```
+
+Normal Python assignments and function calls that happen to share a name with
+a directive are not intercepted:
+
+```text
+>>> show = 42       ← valid Python; executed normally
+>>> reset()         ← valid function call; executed normally
+```
+
 ## Normal Python comments
 
-Lines starting with `#` that do not exactly match a supported directive
-pattern are treated as normal Python comments:
+Lines starting with `# ` (hash-space) that do not exactly match a supported
+directive pattern are treated as normal Python comments:
 
 ```text
 >>> # this is a Python comment — not a directive
@@ -321,16 +468,19 @@ These do not create, overwrite, or load any file. Use Python's built-in
 
 ## v0.5.0 limitations
 
-- TAB does not trigger Python completion (inserts four spaces only).
+- TAB does not trigger Python symbol completion (inserts four spaces only).
 - `sys.exit()` from user code exits Python command mode but does not
   terminate PySH.
 - Python command mode runtime is session-local; it is not shared with the
   `py` builtin.
 - Live input highlighting requires the raw-mode editor path. If raw mode is
   unavailable, PySH falls back to post-entry highlighting.
+- Viewport bottom padding without scrollback pollution is deferred to a future
+  release.
 
 ## Planned future work
 
 - Python symbol completion on TAB.
 - Optional persistence of the Python session across `#reset` / `#exit` cycles.
 - Integration with the shell's `py` builtin runtime as an opt-in.
+- Viewport bottom spacing without polluting scrollback.
