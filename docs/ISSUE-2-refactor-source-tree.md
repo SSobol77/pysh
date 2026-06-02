@@ -75,7 +75,8 @@ src/pysh/
 │   ├── completion.py
 │   ├── highlight.py
 │   ├── history.py
-│   └── lineedit contents moved as-is
+│   └── lineedit/
+│       └── existing line editor modules moved as-is
 │
 ├── prompt/
 │   ├── __init__.py
@@ -138,7 +139,7 @@ Pure `git mv` map. The migration map must be exhaustive against
 | `src/pysh/shell.py` | `src/pysh/core/shell.py` | move + optional shim |
 | `src/pysh/parser.py` | `src/pysh/parsing/parser.py` | move |
 | `src/pysh/redirection.py` | `src/pysh/parsing/redirection.py` | move |
-| `src/pysh/lineedit/*` | `src/pysh/editor/*` | move |
+| `src/pysh/lineedit/*` | `src/pysh/editor/lineedit/*` | move |
 | `src/pysh/completion.py` | `src/pysh/editor/completion.py` | move |
 | `src/pysh/highlighting.py` | `src/pysh/editor/highlight.py` | move |
 | `src/pysh/history.py` | `src/pysh/editor/history.py` | move |
@@ -161,6 +162,11 @@ Pure `git mv` map. The migration map must be exhaustive against
 | `src/pysh/system_info.py` | `src/pysh/diagnostics/system_info.py` | move |
 | `src/pysh/command_plan.py` | `src/pysh/diagnostics/command_plan.py` | move |
 | `src/pysh/script_runner.py` | `src/pysh/script_runner.py` | unchanged; ISSUE #14 |
+
+`src/pysh/completion.py` and `src/pysh/lineedit/completion.py` are distinct
+modules and must not be collapsed. The top-level completion driver moves to
+`editor/completion.py`; raw-line editor helpers remain under
+`editor/lineedit/`.
 
 ## Shim Policy for ISSUE #2
 
