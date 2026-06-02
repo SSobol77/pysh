@@ -347,6 +347,12 @@ def strip_comments(line: str) -> str:
 
 _ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
+# Matches a single shlex-split token that is a NAME=value assignment.
+# The name rule is the same as _ASSIGNMENT_RE but the regex is applied
+# after shlex.split() so the value is already unquoted and may contain
+# spaces (e.g. FOO=hello world after shlex strips the surrounding quotes).
+_ASSIGNMENT_TOKEN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.DOTALL)
+
 
 def parse_assignment(line: str) -> tuple[str, str] | None:
     """If ``line`` looks like ``NAME=value`` return ``(NAME, value)``.
@@ -359,6 +365,128 @@ def parse_assignment(line: str) -> tuple[str, str] | None:
     if not m:
         return None
     return m.group(1), m.group(2)
+
+
+def parse_leading_env_assignments(
+    tokens: list[str],
+) -> tuple[dict[str, str], list[str]]:
+    """Extract leading ``NAME=value`` tokens from a shlex-split token list.
+
+    Returns ``(env_dict, remaining_tokens)`` where *env_dict* contains the
+    assignments found before the first non-assignment token and
+    *remaining_tokens* is the command and its arguments.
+
+    The values in *tokens* are already unquoted (as produced by
+    ``shlex.split(posix=True)``).  Both the name and the value are taken
+    verbatim from the token; no further quoting or expansion is performed.
+
+    A valid assignment token must match ``[A-Za-z_][A-Za-z0-9_]*=.*``.
+    Tokens like ``1FOO=bar`` (starting with a digit) are not assignments and
+    stop the scan immediately.  The scan also stops at the first token that
+    does not contain ``=``.
+
+    Examples::
+
+        parse_leading_env_assignments(["FOO=bar", "env"])
+        # → ({"FOO": "bar"}, ["env"])
+
+        parse_leading_env_assignments(["FOO=", "BAR=hello world", "cmd", "arg"])
+        # → ({"FOO": "", "BAR": "hello world"}, ["cmd", "arg"])
+
+        parse_leading_env_assignments(["echo", "FOO=bar"])
+        # → ({}, ["echo", "FOO=bar"])
+
+        parse_leading_env_assignments(["FOO=bar", "BAR=baz"])
+        # → ({"FOO": "bar", "BAR": "baz"}, [])
+    """
+    env: dict[str, str] = {}
+    for i, token in enumerate(tokens):
+        m = _ASSIGNMENT_TOKEN_RE.match(token)
+        if m:
+            env[m.group(1)] = m.group(2)
+        else:
+            return env, tokens[i:]
+    return env, []
+
+
+def split_paste_commands(text: str) -> list[str]:
+    """Split pasted multi-line text into individual command strings.
+
+    Splits on unquoted newlines (``\\n`` or ``\\r``).  A newline that occurs
+    inside single or double quotes is *not* a command boundary.  Backslash
+    escapes outside quotes are honoured.  Empty command strings (blank lines)
+    are omitted from the result.
+
+    This function is used by the raw-mode line reader to separate a pasted
+    block into a sequence of commands that the shell executes one by one.
+    It does not split on ``;``, ``&&`` or ``|``; those operators are handled
+    later by :func:`split_chain` and :func:`split_pipeline` when the shell
+    executes each returned command.
+
+    Examples::
+
+        split_paste_commands("echo one\\necho two\\n")
+        # → ["echo one", "echo two"]
+
+        split_paste_commands('echo "hello\\nworld"\\n')
+        # → ['echo "hello\\nworld"']
+
+        split_paste_commands("export FOO=bar\\nenv\\n")
+        # → ["export FOO=bar", "env"]
+    """
+    commands: list[str] = []
+    buf: list[str] = []
+    in_single = False
+    in_double = False
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if in_single:
+            buf.append(c)
+            if c == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            if c == "\\" and i + 1 < n and text[i + 1] in ('"', "\\", "$", "`"):
+                buf.append(c)
+                buf.append(text[i + 1])
+                i += 2
+                continue
+            buf.append(c)
+            if c == '"':
+                in_double = False
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            buf.append(c)
+            buf.append(text[i + 1])
+            i += 2
+            continue
+        if c == "'":
+            in_single = True
+            buf.append(c)
+            i += 1
+            continue
+        if c == '"':
+            in_double = True
+            buf.append(c)
+            i += 1
+            continue
+        if c in "\n\r":
+            cmd = "".join(buf).strip()
+            if cmd:
+                commands.append(cmd)
+            buf = []
+            i += 1
+            continue
+        buf.append(c)
+        i += 1
+    cmd = "".join(buf).strip()
+    if cmd:
+        commands.append(cmd)
+    return commands
 
 
 # ----------------------------------------------------------------- substitution

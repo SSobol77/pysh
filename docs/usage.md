@@ -125,6 +125,7 @@ Aliases are expanded only for the first word of each pipeline stage.
 | `unalias`  | Remove one or more aliases.                                |
 | `export`   | Define or display exported environment vars.               |
 | `source`   | Execute commands from a file (also `.`).                   |
+| `command`  | Resolve or execute a command with alias expansion suppressed. |
 | `source_zsh` | Safely import simple aliases from a zsh-compatible file. |
 | `source_zsh_profile` | Statically import simple zsh aliases, exports and vars. |
 | `source_sh_aliases` | Statically import simple sh/bash aliases, exports and vars. |

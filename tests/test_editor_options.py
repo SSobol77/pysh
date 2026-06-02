@@ -29,13 +29,31 @@ def test_editor_options_defaults_exact() -> None:
         "autosuggest": True,
         "syntax_highlight": True,
         "line_editor": "auto",
+        "mc_integration": "auto",
+        "mc_warning_enabled": True,
     }
 
 
 def test_set_editor_option_valid() -> None:
     shell = PyShell()
     ShellConfigAPI(shell).set_editor_option("line_editor", "readline")
+    ShellConfigAPI(shell).set_editor_option("mc_integration", "safe")
+    ShellConfigAPI(shell).set_editor_option("mc_warning_enabled", False)
     assert shell.editor_options["line_editor"] == "readline"
+    assert shell.editor_options["mc_integration"] == "safe"
+    assert shell.editor_options["mc_warning_enabled"] is False
+
+
+def test_set_mc_integration_valid() -> None:
+    shell = PyShell()
+    ShellConfigAPI(shell).set_mc_integration("subshell")
+    assert shell.editor_options["mc_integration"] == "subshell"
+
+
+def test_set_mc_warning_enabled_valid() -> None:
+    shell = PyShell()
+    ShellConfigAPI(shell).set_mc_warning_enabled(False)
+    assert shell.editor_options["mc_warning_enabled"] is False
 
 
 def test_editor_option_invalid_name_type_value() -> None:
@@ -45,6 +63,10 @@ def test_editor_option_invalid_name_type_value() -> None:
         validate_editor_option("autosuggest", "yes")
     with pytest.raises(ConfigError):
         validate_editor_option("line_editor", "ansi")
+    with pytest.raises(ConfigError):
+        validate_editor_option("mc_integration", "force")
+    with pytest.raises(ConfigError):
+        validate_editor_option("mc_warning_enabled", "no")
 
 
 def test_pyshell_protocol_has_set_editor_option() -> None:

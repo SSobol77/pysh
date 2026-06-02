@@ -42,6 +42,8 @@ class Key(StrEnum):
     LEFT = "left"
     HOME = "home"
     END = "end"
+    PASTE_START = "paste_start"
+    PASTE_END = "paste_end"
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,9 @@ _CSI_KEYS: dict[bytes, Key] = {
     b"\x1b[4~": Key.END,
     b"\x1b[8~": Key.END,
     b"\x1b[3~": Key.DELETE,
+    # Bracketed paste mode markers (XTerm / VTE / most modern terminals).
+    b"\x1b[200~": Key.PASTE_START,
+    b"\x1b[201~": Key.PASTE_END,
 }
 
 

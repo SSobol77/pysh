@@ -65,6 +65,18 @@ class FakeShell:
         validate_editor_option(name, value)
         self.editor_options[name] = value
 
+    def set_mc_integration(self, value: str) -> None:
+        from pysh.config_api import validate_editor_option
+
+        validate_editor_option("mc_integration", value)
+        self.editor_options["mc_integration"] = value
+
+    def set_mc_warning_enabled(self, value: bool) -> None:
+        from pysh.config_api import validate_editor_option
+
+        validate_editor_option("mc_warning_enabled", value)
+        self.editor_options["mc_warning_enabled"] = value
+
     def set_prompt_color(self, segment: str, color: str) -> None:
         validate_prompt_color(segment, color)
         self.prompt_colors[segment] = color
@@ -260,6 +272,18 @@ def configure(shell):
     #   readline -> force classic readline/input fallback.
     #   basic    -> raw editor without highlighting/autosuggest.
     #
+    # mc_integration:
+    #   auto     -> launch mc in PySH-safe mode when MC cannot use PySH as a
+    #               supported concurrent subshell.
+    #   safe     -> always add -u/--nosubshell for mc launched by PySH.
+    #   subshell -> pass mc through unchanged; advanced users accept MC's
+    #               shell-specific subshell behavior.
+    #   off      -> disable PySH's mc wrapper policy.
+    #
+    # mc_warning_enabled:
+    #   True  -> print one explanatory warning per PySH session in auto mode.
+    #   False -> suppress that warning.
+    #
     # autosuggest:
     #   Shows fish-style ghost-text suggestions from history.
     #
@@ -267,6 +291,8 @@ def configure(shell):
     #   Colors the editable command line while typing.
 
     shell.set_editor_option("line_editor", "auto")
+    shell.set_mc_integration("auto")
+    shell.set_mc_warning_enabled(True)
     shell.set_editor_option("autosuggest", True)
     shell.set_editor_option("syntax_highlight", True)
 

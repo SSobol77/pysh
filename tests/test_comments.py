@@ -99,7 +99,7 @@ def test_exec_hash_not_passed_to_external(
     """ls #abc must not receive '#abc' as an argument."""
     captured: list[list[str]] = []
 
-    def fake_run_external(argv, spec, *, original_stage=None):  # type: ignore[no-untyped-def]
+    def fake_run_external(argv, spec, *, original_stage=None, env_overrides=None):  # type: ignore[no-untyped-def]
         captured.append(list(argv))
         return 0
 
@@ -114,7 +114,7 @@ def test_exec_double_quoted_hash_preserved(
     """echo "#abc" must receive #abc as the argument, not strip it."""
     captured: list[list[str]] = []
 
-    def fake_run_external(argv, spec, *, original_stage=None):  # type: ignore[no-untyped-def]
+    def fake_run_external(argv, spec, *, original_stage=None, env_overrides=None):  # type: ignore[no-untyped-def]
         captured.append(list(argv))
         return 0
 
@@ -129,7 +129,7 @@ def test_exec_escaped_hash_preserved(
     r"""echo \#abc must pass literal #abc to the command."""
     captured: list[list[str]] = []
 
-    def fake_run_external(argv, spec, *, original_stage=None):  # type: ignore[no-untyped-def]
+    def fake_run_external(argv, spec, *, original_stage=None, env_overrides=None):  # type: ignore[no-untyped-def]
         captured.append(list(argv))
         return 0
 
@@ -144,7 +144,7 @@ def test_exec_hash_mid_token_preserved(
     """echo foo#bar must pass foo#bar as a single argument."""
     captured: list[list[str]] = []
 
-    def fake_run_external(argv, spec, *, original_stage=None):  # type: ignore[no-untyped-def]
+    def fake_run_external(argv, spec, *, original_stage=None, env_overrides=None):  # type: ignore[no-untyped-def]
         captured.append(list(argv))
         return 0
 
@@ -159,7 +159,7 @@ def test_exec_comment_after_chain(
     """echo a && echo b # comment — second command runs, no #comment arg."""
     captured: list[list[str]] = []
 
-    def fake_run_external(argv, spec, *, original_stage=None):  # type: ignore[no-untyped-def]
+    def fake_run_external(argv, spec, *, original_stage=None, env_overrides=None):  # type: ignore[no-untyped-def]
         captured.append(list(argv))
         return 0
 

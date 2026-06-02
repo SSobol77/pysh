@@ -242,6 +242,41 @@ This is a transition setting. It does not turn PySH into a zsh clone; it only
 allows commands PySH cannot parse or execute natively to be delegated through
 the zsh compatibility bridge.
 
+## Midnight Commander
+
+PySH wraps the `mc` command so Midnight Commander is launched with a policy that
+matches MC's shell-specific subshell support.  MC does not generically support
+arbitrary custom shells as concurrent subshells; `$SHELL=/path/to/pysh` alone is
+not sufficient.
+
+Configure the policy in `~/.pyshrc.py`:
+
+```python
+def configure(shell):
+    shell.set_mc_integration("auto")
+    shell.set_mc_warning_enabled(True)
+```
+
+Modes:
+
+| Mode | Behavior |
+|---|---|
+| `auto` | Default.  Use safe no-subshell launch behavior when PySH is not a supported MC subshell. |
+| `safe` | Always add `-u` / disable MC concurrent subshell for wrapped `mc`. |
+| `subshell` | Pass wrapped `mc` through unchanged. |
+| `off` | Disable PySH's wrapper policy. |
+
+`mc -u` disables MC's concurrent subshell.  Explicit paths such as `/usr/bin/mc`
+bypass the PySH builtin wrapper.  In `mc -u`, Ctrl+O only shows the previous
+terminal screen; it is not a live interactive PySH prompt.
+
+`auto` mode prints one explanatory warning per PySH session.  Suppress it with:
+
+```python
+def configure(shell):
+    shell.set_mc_warning_enabled(False)
+```
+
 ## Plugin directory: `~/.pyshrc.d/*.pysh`
 
 Files in `~/.pyshrc.d/` are loaded **after** `~/.pyshrc`, in

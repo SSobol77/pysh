@@ -103,16 +103,21 @@ DEFAULT_EDITOR_OPTIONS: dict[str, object] = {
     "autosuggest": True,
     "syntax_highlight": True,
     "line_editor": "auto",
+    "mc_integration": "auto",
+    "mc_warning_enabled": True,
 }
 
 EDITOR_OPTION_TYPES: dict[str, type] = {
     "autosuggest": bool,
     "syntax_highlight": bool,
     "line_editor": str,
+    "mc_integration": str,
+    "mc_warning_enabled": bool,
 }
 
 EDITOR_OPTION_VALUES: dict[str, frozenset[str]] = {
     "line_editor": frozenset({"auto", "readline", "basic"}),
+    "mc_integration": frozenset({"auto", "off", "subshell", "safe"}),
 }
 
 DEFAULT_CURSOR_OPTIONS: dict[str, object] = {
@@ -213,6 +218,14 @@ class ConfigurableShell(Protocol):
 
     def set_editor_option(self, name: str, value: object) -> None:
         """Set a single validated editor option."""
+        ...
+
+    def set_mc_integration(self, value: str) -> None:
+        """Set Midnight Commander integration mode."""
+        ...
+
+    def set_mc_warning_enabled(self, value: bool) -> None:
+        """Enable or disable PySH's MC auto-mode warning."""
         ...
 
     def set_prompt_color(self, segment: str, color: str) -> None:
@@ -456,9 +469,26 @@ class ShellConfigAPI:
         * ``autosuggest`` (bool) - show history ghost-text suggestions [True]
         * ``syntax_highlight`` (bool) - colorize editable input [True]
         * ``line_editor`` (str) - ``auto``, ``readline`` or ``basic`` ["auto"]
+        * ``mc_integration`` (str) - ``auto``, ``off``, ``subshell`` or ``safe`` ["auto"]
+        * ``mc_warning_enabled`` (bool) - show the MC safe-mode warning [True]
         """
         validate_editor_option(name, value)
         self._shell.set_editor_option(name, value)
+
+    def set_mc_integration(self, value: str) -> None:
+        """Set Midnight Commander integration mode.
+
+        ``auto`` and ``safe`` launch MC without its concurrent subshell when
+        PySH wraps ``mc``. ``subshell`` and ``off`` pass arguments through to
+        the external MC executable unchanged.
+        """
+        validate_editor_option("mc_integration", value)
+        self._shell.set_mc_integration(value)
+
+    def set_mc_warning_enabled(self, value: bool) -> None:
+        """Enable or disable PySH's MC auto-mode warning."""
+        validate_editor_option("mc_warning_enabled", value)
+        self._shell.set_mc_warning_enabled(value)
 
     def set_prompt_color(self, segment: str, color: str) -> None:
         """Set one prompt segment color.
@@ -670,6 +700,18 @@ def configure(shell):
     #   readline -> force classic readline/input fallback.
     #   basic    -> raw editor without highlighting/autosuggest.
     #
+    # mc_integration:
+    #   auto     -> launch mc in PySH-safe mode when MC cannot use PySH as a
+    #               supported concurrent subshell.
+    #   safe     -> always add -u/--nosubshell for mc launched by PySH.
+    #   subshell -> pass mc through unchanged; advanced users accept MC's
+    #               shell-specific subshell behavior.
+    #   off      -> disable PySH's mc wrapper policy.
+    #
+    # mc_warning_enabled:
+    #   True  -> print one explanatory warning per PySH session in auto mode.
+    #   False -> suppress that warning.
+    #
     # autosuggest:
     #   Shows fish-style ghost-text suggestions from history.
     #
@@ -677,6 +719,8 @@ def configure(shell):
     #   Colors the editable command line while typing.
 
     shell.set_editor_option("line_editor", "auto")
+    shell.set_mc_integration("auto")
+    shell.set_mc_warning_enabled(True)
     shell.set_editor_option("autosuggest", True)
     shell.set_editor_option("syntax_highlight", True)
 

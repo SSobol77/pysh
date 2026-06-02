@@ -130,6 +130,40 @@ Limitations: `source` executes the file through PySH's rc interpreter. Do not
 use it for arbitrary zsh/bash profile migration; use `source_zsh_profile` or
 `source_sh_aliases` for static import.
 
+## `command`
+
+Syntax:
+
+```sh
+command -v NAME
+command -V NAME
+command NAME [ARGS ...]
+```
+
+Purpose: provide POSIX-compatible command lookup and execution with alias
+expansion suppressed for `NAME`.
+
+Resolution order for `-v` and `-V` is:
+
+1. PySH builtin
+2. alias
+3. external executable found in `PATH`
+
+Examples:
+
+```sh
+command -v pysh
+command -V cd
+command ls -la
+```
+
+Return behavior:
+
+- `0` when `NAME` is resolved or the executed command succeeds.
+- `1` when `command -v NAME` or `command -V NAME` cannot resolve `NAME`.
+- The external command's exit status for `command NAME [ARGS ...]`.
+- `2` for invalid builtin usage.
+
 ## `secure`
 
 Syntax: `secure COMMAND [ARGS ...]`

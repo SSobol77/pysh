@@ -16,6 +16,25 @@ conservatively: it returns to the logical start row, clears from cursor to end
 of screen, reprints the prompt and buffer, then repositions the cursor by
 terminal column math. This avoids stale prompt fragments and scrollback
 corruption even when a terminal resizes while editing.
+
+Multiline paste support
+-----------------------
+When the user pastes a block of commands, the terminal typically delivers all
+pasted bytes in a single ``read()`` call.  The reader decodes those bytes into
+``KeyEvent`` objects and, upon the first ``ENTER`` event, returns the first
+complete command while queuing all subsequent complete lines in
+``_command_queue``.  The next call to :meth:`read_line` drains the queue
+without touching the TTY, so the shell's main loop transparently executes each
+pasted command in order.
+
+Bracketed paste mode
+--------------------
+Terminals that support bracketed paste mode wrap pasted text with the CSI
+sequences ``ESC [ 200 ~`` (paste-start) and ``ESC [ 201 ~`` (paste-end).
+When these markers are detected the reader collects the entire paste block,
+splits it on unquoted newlines using :func:`pysh.parser.split_paste_commands`,
+and queues all resulting commands.  Paste markers never appear in the command
+buffer or in the returned command string.
 """
 from __future__ import annotations
 
@@ -35,6 +54,7 @@ from pysh.lineedit.autosuggest import AutoSuggester
 from pysh.lineedit.buffer import LineBuffer, _display_width
 from pysh.lineedit.highlight import DEFAULT_SCHEME, ColorScheme, LineHighlighter
 from pysh.lineedit.keys import Key, KeyDecoder, KeyEvent
+from pysh.parser import split_paste_commands
 
 
 class _Options(Protocol):
@@ -74,12 +94,19 @@ atexit.register(_restore_saved_termios)
 
 
 class RawLineReader:
-    """Read one editable line from a raw-mode TTY."""
+    """Read one editable line from a raw-mode TTY.
+
+    The reader keeps a ``_command_queue`` for commands that arrive as part of a
+    pasted block but were not the first complete command.  Each call to
+    :meth:`read_line` returns exactly one command string.  When the queue is
+    non-empty the command is dequeued immediately without touching the terminal.
+    """
 
     def __init__(self, *, input_fd: int | None = None, output_fd: int | None = None) -> None:
         self.input_fd = input_fd
         self.output_fd = output_fd
         self._start_rows = 0
+        self._command_queue: list[str] = []
 
     def read_line(
         self,
@@ -100,7 +127,23 @@ class RawLineReader:
         When *initial_text* is provided the line buffer is pre-filled with that
         text and the cursor is positioned at its end before the first redraw.
         This enables auto-indentation in Python continuation prompts.
+
+        If the internal ``_command_queue`` is non-empty the first queued command
+        is returned without any TTY interaction.  This drains paste-queued
+        commands efficiently.
         """
+        if self._command_queue:
+            cmd = self._command_queue.pop(0)
+            # Echo prompt + command so the display matches interactive typing.
+            # We are outside raw mode here (terminal is in cooked/normal mode),
+            # so OPOST is active and the OS translates \n to \r\n automatically.
+            out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
+            try:
+                os.write(out_fd, (prompt + cmd + "\n").encode("utf-8", errors="replace"))
+            except OSError:
+                pass
+            return cmd
+
         self._start_rows = 0
         in_fd = self.input_fd if self.input_fd is not None else sys.stdin.fileno()
         out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
@@ -115,6 +158,11 @@ class RawLineReader:
         enabled = bool(options.syntax_highlight) and colors_enabled()
         history_list = list(history)
         suggestion = ""
+
+        # Bracketed paste state
+        in_paste = False
+        paste_buf: list[str] = []
+
         try:
             self._redraw(
                 prompt,
@@ -126,7 +174,7 @@ class RawLineReader:
                 line_renderer,
             )
             while True:
-                data = os.read(in_fd, 32)
+                data = os.read(in_fd, 512)
                 if not data:
                     raise EOFError
                 events = decoder.feed(data)
@@ -134,7 +182,39 @@ class RawLineReader:
                     ready, _, _ = select.select([in_fd], [], [], 0.005)
                     if not ready:
                         events.extend(decoder.flush_pending())
-                for event in events:
+
+                idx = 0
+                while idx < len(events):
+                    event = events[idx]
+                    idx += 1
+
+                    # --- bracketed paste collection ---
+                    if in_paste:
+                        if event.key is Key.PASTE_END:
+                            in_paste = False
+                            paste_text = "".join(paste_buf)
+                            paste_buf = []
+                            combined = buffer.text + paste_text
+                            cmds = split_paste_commands(combined)
+                            if cmds:
+                                # Queue commands after the first; first is returned.
+                                self._command_queue.extend(cmds[1:])
+                                self._enqueue_from_events(events[idx:])
+                                self._write("\r\n", out_fd)
+                                return cmds[0]
+                            # Empty paste: continue editing
+                        elif event.key is Key.ENTER:
+                            paste_buf.append("\n")
+                        elif event.key is Key.PRINTABLE and event.text:
+                            paste_buf.append(event.text)
+                        # Ignore all other keys (control, navigation) inside paste.
+                        continue
+
+                    if event.key is Key.PASTE_START:
+                        in_paste = True
+                        continue
+
+                    # --- normal interactive key processing ---
                     result = self._handle_event(
                         event,
                         prompt,
@@ -150,6 +230,8 @@ class RawLineReader:
                         tab_handler,
                     )
                     if isinstance(result, str):
+                        # First complete command: queue any remaining events.
+                        self._enqueue_from_events(events[idx:])
                         self._write("\r\n", out_fd)
                         return result
                     nav_index, suggestion = result
@@ -165,6 +247,30 @@ class RawLineReader:
         finally:
             termios.tcsetattr(in_fd, termios.TCSADRAIN, old_state)
             _saved_termios.pop(in_fd, None)
+
+    def _enqueue_from_events(self, events: list[KeyEvent]) -> None:
+        """Collect remaining key events into complete command lines and queue them.
+
+        Reconstructs the text stream from printable characters and ENTER events.
+        Uses :func:`pysh.parser.split_paste_commands` so that quoted newlines
+        are not treated as command boundaries.
+        """
+        parts: list[str] = []
+        for event in events:
+            if event.key is Key.ENTER:
+                parts.append("\n")
+            elif event.key in {Key.PASTE_START, Key.PASTE_END}:
+                pass  # drop paste markers
+            elif event.key is Key.CTRL_C:
+                break  # stop collecting on interrupt
+            elif event.key is Key.PRINTABLE and event.text:
+                parts.append(event.text)
+            # Navigation, backspace, etc. are meaningless outside a live buffer.
+        raw = "".join(parts)
+        if raw:
+            self._command_queue.extend(
+                cmd for cmd in split_paste_commands(raw) if cmd
+            )
 
     def _handle_event(
         self,

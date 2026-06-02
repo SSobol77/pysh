@@ -66,6 +66,8 @@ class Completer:
         "apt_search",
         "plan",
         "secure",
+        "mc",
+        "command",
     )
 
     def __init__(self, get_aliases: Callable[[], Iterable[str]]) -> None:

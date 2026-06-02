@@ -238,6 +238,7 @@ documented.
 | `unalias`  | Remove one or more aliases.                              |
 | `export`   | Define or display exported environment vars.             |
 | `source`   | Execute commands from a file (also `.`).                 |
+| `command`  | Resolve or execute a command with alias expansion suppressed. |
 | `secure`   | Explicit PTY runner for one command; never auto-wraps sudo/ssh/su/gpg. |
 | `source_zsh` | Safely import simple aliases from a zsh-compatible file. |
 | `source_zsh_profile` | Statically import simple zsh profile entries. |
@@ -253,6 +254,7 @@ documented.
 | `which_all` | Print every executable match for a command in PATH.     |
 | `apt_check` | Run `apt list --upgradable` (Debian helper, no sudo).   |
 | `apt_search` | Run `apt search <query>` (Debian helper, no sudo).     |
+| `mc`       | Launch external Midnight Commander using PySH MC integration policy. |
 | `plan`     | Preview classification/execution of a command, advisory. |
 | `pushd`    | Push CWD onto the directory stack and `cd` to a path.    |
 | `popd`     | Pop the directory stack and `cd` to the popped entry.    |

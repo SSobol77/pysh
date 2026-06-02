@@ -55,11 +55,13 @@ from pysh.history import DEFAULT_HISTORY_PATH, HistoryManager
 from pysh.lineedit.autosuggest import AutoSuggester
 from pysh.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
 from pysh.lineedit.reader import RawLineReader
+from pysh.mc_compat import is_mc_environment
 from pysh.parser import (
     ChainOp,
     expand_command_substitution,
     expand_variables,
     parse_assignment,
+    parse_leading_env_assignments,
     split_chain,
     split_pipeline,
     strip_comments,
@@ -188,6 +190,8 @@ class PyShell:
             "apt_search",
             "plan",
             "secure",
+            "mc",
+            "command",
         }
     )
 
@@ -212,6 +216,7 @@ class PyShell:
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
         self.cursor_options: dict[str, object] = dict(DEFAULT_CURSOR_OPTIONS)
         self._cursor_color_applied = False
+        self._mc_auto_warning_emitted = False
         # Read only by the explicit secure <cmd> PTY wrapper. Normal command
         # execution, prompt rendering and line editing do not consult it.
         self.sensitive_input: dict[str, object] = dict(DEFAULT_SENSITIVE_INPUT)
@@ -240,6 +245,7 @@ class PyShell:
         """Start the interactive shell loop."""
         self._print_banner()
         self._setup_readline()
+        self._export_interactive_shell_vars()
         load_default_rc(self.execute)
         load_plugins(self.execute, directory=PLUGIN_DIR)
         # Python-native configuration runs last so that ~/.pyshrc.py has the
@@ -253,7 +259,7 @@ class PyShell:
             while True:
                 try:
                     info_line = self._prompt_info_line()
-                    if info_line:
+                    if info_line and not is_mc_environment():
                         sys.stdout.write(info_line + "\n")
                         sys.stdout.flush()
                     line = self._read_interactive_line()
@@ -388,12 +394,24 @@ class PyShell:
             return 2
         if not argv:
             return 0
-        if argv[0] in self.BUILTINS:
-            return self._dispatch_builtin(argv)
-        return self._run_external(argv, spec, original_stage=stage)
+        env_overrides, cmd_argv = parse_leading_env_assignments(argv)
+        if not cmd_argv:
+            # All tokens are assignments with no command: update local vars.
+            for name, value in env_overrides.items():
+                self.local_vars[name] = value
+            return 0
+        if cmd_argv[0] in self.BUILTINS:
+            # Builtins run in-process; temporary env assignments do not apply.
+            return self._dispatch_builtin(cmd_argv)
+        return self._run_external(
+            cmd_argv,
+            spec,
+            original_stage=stage,
+            env_overrides=env_overrides if env_overrides else None,
+        )
 
     def _run_pipeline(self, stages: list[str], *, original_command: str) -> int:
-        parsed: list[tuple[list[str], RedirectionSpec]] = []
+        parsed: list[tuple[list[str], RedirectionSpec, dict[str, str] | None]] = []
         for s in stages:
             clean, spec = parse_redirections(s)
             try:
@@ -404,15 +422,24 @@ class PyShell:
             if not argv:
                 print("pysh: syntax error near unexpected '|'", file=sys.stderr)
                 return 2
-            parsed.append((argv, spec))
+            env_overrides, argv = parse_leading_env_assignments(argv)
+            if not argv:
+                print("pysh: syntax error: assignment without command before '|'", file=sys.stderr)
+                return 2
+            parsed.append((argv, spec, env_overrides if env_overrides else None))
 
         procs: list[subprocess.Popen[bytes]] = []
         opened: list[IO[bytes]] = []
         prev_out: IO[bytes] | None = None
         try:
-            for i, (argv, spec) in enumerate(parsed):
+            for i, (argv, spec, env_overrides) in enumerate(parsed):
                 is_first = i == 0
                 is_last = i == len(parsed) - 1
+
+                child_env: dict[str, str] | None = None
+                if env_overrides:
+                    child_env = dict(os.environ)
+                    child_env.update(env_overrides)
 
                 stdin_arg: IO[bytes] | int | None
                 if spec.stdin_path:
@@ -447,6 +474,7 @@ class PyShell:
                 try:
                     proc = subprocess.Popen(  # noqa: S603 - user-issued command
                         argv,
+                        env=child_env,
                         stdin=stdin_arg,
                         stdout=stdout_arg,
                         stderr=stderr_arg,
@@ -500,7 +528,12 @@ class PyShell:
         spec: RedirectionSpec,
         *,
         original_stage: str | None = None,
+        env_overrides: dict[str, str] | None = None,
     ) -> int:
+        child_env: dict[str, str] | None = None
+        if env_overrides:
+            child_env = dict(os.environ)
+            child_env.update(env_overrides)
         stdin_f: IO[bytes] | None = None
         stdout_f: IO[bytes] | None = None
         stderr_f: IO[bytes] | None = None
@@ -520,6 +553,7 @@ class PyShell:
             try:
                 proc = subprocess.Popen(  # noqa: S603 - user-issued command
                     argv,
+                    env=child_env,
                     stdin=stdin_f,
                     stdout=stdout_f,
                     stderr=stderr_arg,
@@ -583,6 +617,8 @@ class PyShell:
             "apt_search": self._builtin_apt_search,
             "plan": self._builtin_plan,
             "secure": self._builtin_secure,
+            "mc": self._builtin_mc,
+            "command": self._builtin_command,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -659,6 +695,52 @@ class PyShell:
                 else:
                     os.environ.setdefault(token, "")
         return 0
+
+    def _builtin_command(self, args: list[str]) -> int:
+        """Run or resolve a command with alias expansion suppressed."""
+        if not args:
+            print("command: usage: command [-v|-V] name [args ...]", file=sys.stderr)
+            return 2
+
+        if args[0] in {"-v", "-V"}:
+            if len(args) == 1:
+                print(f"command: {args[0]}: name argument required", file=sys.stderr)
+                return 2
+            verbose = args[0] == "-V"
+            status = 0
+            for name in args[1:]:
+                if not self._print_command_resolution(name, verbose=verbose):
+                    status = 1
+            return status
+
+        if args[0].startswith("-"):
+            print(f"command: unsupported option: {args[0]}", file=sys.stderr)
+            return 2
+
+        name = args[0]
+        if name == "command":
+            return self._builtin_command(args[1:])
+        if name in self.BUILTINS:
+            return self._dispatch_builtin(args)
+        return self._run_external(args, RedirectionSpec(), original_stage=" ".join(args))
+
+    def _print_command_resolution(self, name: str, *, verbose: bool) -> bool:
+        """Print POSIX-style command resolution details for ``command -v/-V``."""
+        if name in self.BUILTINS:
+            print(f"{name} is a PySH builtin" if verbose else name)
+            return True
+        alias = self.aliases.get(name)
+        if alias is not None:
+            if verbose:
+                print(f"{name} is aliased to {shlex.quote(alias)}")
+            else:
+                print(f"alias {name}={shlex.quote(alias)}")
+            return True
+        path = shutil.which(name)
+        if path is not None:
+            print(f"{name} is {path}" if verbose else path)
+            return True
+        return False
 
     def _builtin_source(self, args: list[str]) -> int:
         if not args:
@@ -794,6 +876,57 @@ class PyShell:
             vga=bool(self.prompt_color_modes.get("vga", True)),
         )
         return SecureRunner(config).run(args)
+
+    def _builtin_mc(self, args: list[str]) -> int:
+        """Launch Midnight Commander with PySH-aware subshell policy."""
+        mc_path = shutil.which("mc")
+        if mc_path is None:
+            print("mc: external Midnight Commander executable not found", file=sys.stderr)
+            return 127
+
+        mode = str(self.editor_options.get("mc_integration", "auto"))
+        mc_args = list(args)
+        if mode in {"auto", "safe"}:
+            mc_args = self._mc_safe_args(mc_args)
+            if self._should_warn_for_mc_auto(args, mode):
+                print(
+                    "pysh mc: MC does not support PySH as a live Ctrl+O subshell; "
+                    "launching with subshell disabled (-u). Ctrl+O will only show "
+                    "the previous screen, not an active PySH prompt.",
+                    file=sys.stderr,
+                )
+                self._mc_auto_warning_emitted = True
+        elif mode not in {"off", "subshell"}:
+            print(f"mc: invalid mc_integration mode: {mode}", file=sys.stderr)
+            return 2
+
+        return self._run_external(
+            [mc_path, *mc_args],
+            RedirectionSpec(),
+            original_stage=" ".join(["mc", *args]),
+        )
+
+    @staticmethod
+    def _mc_args_disable_subshell(args: list[str]) -> bool:
+        """Return True when MC args already request no concurrent subshell."""
+        return any(arg in {"-u", "--nosubshell"} for arg in args)
+
+    def _should_warn_for_mc_auto(self, args: list[str], mode: str) -> bool:
+        """Return True when auto mode should emit the MC no-subshell warning."""
+        return (
+            mode == "auto"
+            and bool(self.editor_options.get("mc_warning_enabled", True))
+            and not self._mc_auto_warning_emitted
+            and not self._mc_args_disable_subshell(args)
+        )
+
+    @classmethod
+    def _mc_safe_args(cls, args: list[str]) -> list[str]:
+        """Return MC argv with concurrent subshell disabled deterministically."""
+        filtered = [arg for arg in args if arg not in {"-U", "--subshell"}]
+        if cls._mc_args_disable_subshell(filtered):
+            return filtered
+        return ["-u", *filtered]
 
     def _builtin_exit(self, args: list[str]) -> int:
         code = 0
@@ -1091,6 +1224,16 @@ class PyShell:
         validate_editor_option(name, value)
         self.editor_options[name] = value
 
+    def set_mc_integration(self, value: str) -> None:
+        """Set Midnight Commander integration mode (ConfigurableShell contract)."""
+        validate_editor_option("mc_integration", value)
+        self.editor_options["mc_integration"] = value
+
+    def set_mc_warning_enabled(self, value: bool) -> None:
+        """Enable or disable MC auto-mode warning (ConfigurableShell contract)."""
+        validate_editor_option("mc_warning_enabled", value)
+        self.editor_options["mc_warning_enabled"] = value
+
     def set_prompt_color(self, segment: str, color: str) -> None:
         """Set a validated prompt segment color (ConfigurableShell contract)."""
         validate_prompt_color(segment, color)
@@ -1183,11 +1326,18 @@ class PyShell:
         return input(self._prompt())
 
     def _should_use_raw_editor(self) -> bool:
-        """Return True when the configured editor may use raw TTY mode."""
+        """Return True when the configured editor may use raw TTY mode.
+
+        Returns False in Midnight Commander environments (mc-safe mode) so
+        that PySH uses ``input()`` instead of the ANSI-repainting raw editor.
+        This prevents cursor-placement corruption when MC manages the terminal.
+        """
         mode = str(self.editor_options.get("line_editor", "auto"))
         if mode == "readline":
             return False
         if not self._stdio_is_tty():
+            return False
+        if is_mc_environment():
             return False
         if mode == "auto" and not colors_enabled():
             return False
@@ -1519,3 +1669,39 @@ class PyShell:
 
     def _save_history(self) -> None:
         self.history.save()
+
+    def _export_interactive_shell_vars(self) -> None:
+        """Set SHELL, PYSH_SHELL, and PYSH_INTERACTIVE when running interactively.
+
+        These exports let Midnight Commander and other tools that read ``$SHELL``
+        launch PySH as their subshell.  They are only set when stdin and stdout
+        are both TTYs so non-interactive invocations (scripts, ``-c`` mode) are
+        unaffected.
+        """
+        if not self._stdio_is_tty():
+            return
+        path = self._resolve_pysh_path()
+        for name, value in (
+            ("SHELL", path),
+            ("PYSH_SHELL", path),
+            ("PYSH_INTERACTIVE", "1"),
+        ):
+            os.environ[name] = value
+            self.local_vars[name] = value
+
+    @staticmethod
+    def _resolve_pysh_path() -> str:
+        """Return the absolute path of the running PySH executable.
+
+        Resolution order:
+        1. ``shutil.which("pysh")`` — follows ``$PATH``, works after pip install.
+        2. ``sys.argv[0]`` — works when invoked as a script or from a venv.
+        3. ``sys.executable`` — fallback; points to the Python interpreter.
+        """
+        found = shutil.which("pysh")
+        if found:
+            return found
+        argv0 = sys.argv[0] if sys.argv else ""
+        if argv0 and os.path.isfile(argv0):
+            return os.path.abspath(argv0)
+        return sys.executable
