@@ -46,6 +46,8 @@ import sys
 import termios
 import tty
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from pysh.completion import Completer
@@ -63,6 +65,18 @@ class _Options(Protocol):
 
 
 _saved_termios: dict[int, list[object]] = {}
+_BRACKETED_PASTE_ENABLE = b"\x1b[?2004h"
+_BRACKETED_PASTE_DISABLE = b"\x1b[?2004l"
+_PASTE_DEBUG_ENV = "PYSH_PASTE_DEBUG"
+_PASTE_DEBUG_PATH = Path("logs") / "pysh-paste-debug.log"
+
+
+@dataclass(frozen=True)
+class QueuedCommand:
+    """One pasted command waiting to be replayed by the shell loop."""
+
+    text: str
+    echo: bool = True
 
 # Matches ANSI CSI sequences (e.g. SGR color codes like "\x1b[32m"). The prompt
 # string handed to the reader may already contain color escapes; those bytes
@@ -106,7 +120,11 @@ class RawLineReader:
         self.input_fd = input_fd
         self.output_fd = output_fd
         self._start_rows = 0
-        self._command_queue: list[str] = []
+        self._command_queue: list[QueuedCommand] = []
+
+    def has_queued_commands(self) -> bool:
+        """Return True when pasted commands are waiting to be replayed."""
+        return bool(self._command_queue)
 
     def read_line(
         self,
@@ -133,16 +151,11 @@ class RawLineReader:
         commands efficiently.
         """
         if self._command_queue:
-            cmd = self._command_queue.pop(0)
-            # Echo prompt + command so the display matches interactive typing.
-            # We are outside raw mode here (terminal is in cooked/normal mode),
-            # so OPOST is active and the OS translates \n to \r\n automatically.
-            out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
-            try:
-                os.write(out_fd, (prompt + cmd + "\n").encode("utf-8", errors="replace"))
-            except OSError:
-                pass
-            return cmd
+            queued = self._command_queue.pop(0)
+            if queued.echo:
+                out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
+                self._write((prompt + queued.text + "\n"), out_fd)
+            return queued.text
 
         self._start_rows = 0
         in_fd = self.input_fd if self.input_fd is not None else sys.stdin.fileno()
@@ -164,6 +177,7 @@ class RawLineReader:
         paste_buf: list[str] = []
 
         try:
+            self._enable_bracketed_paste(out_fd)
             self._redraw(
                 prompt,
                 buffer,
@@ -183,6 +197,20 @@ class RawLineReader:
                     if not ready:
                         events.extend(decoder.flush_pending())
 
+                plain_paste = self._plain_paste_text(events)
+                if plain_paste is not None:
+                    combined = buffer.text + plain_paste
+                    cmds = split_paste_commands(combined)
+                    if cmds:
+                        self._queue_commands(cmds[1:], echo=True)
+                        returned_line = cmds[0]
+                        self._debug_read_chunk(data, events, buffer, returned=returned_line)
+                        self._write("\r" + prompt + returned_line + "\r\n", out_fd)
+                        return returned_line
+                    self._debug_read_chunk(data, events, buffer, returned=None)
+                    continue
+
+                returned_line: str | None = None
                 idx = 0
                 while idx < len(events):
                     event = events[idx]
@@ -198,10 +226,17 @@ class RawLineReader:
                             cmds = split_paste_commands(combined)
                             if cmds:
                                 # Queue commands after the first; first is returned.
-                                self._command_queue.extend(cmds[1:])
+                                self._queue_commands(cmds[1:], echo=True)
                                 self._enqueue_from_events(events[idx:])
-                                self._write("\r\n", out_fd)
-                                return cmds[0]
+                                returned_line = cmds[0]
+                                self._debug_read_chunk(
+                                    data,
+                                    events,
+                                    buffer,
+                                    returned=returned_line,
+                                )
+                                self._write("\r" + prompt + returned_line + "\r\n", out_fd)
+                                return returned_line
                             # Empty paste: continue editing
                         elif event.key is Key.ENTER:
                             paste_buf.append("\n")
@@ -232,8 +267,10 @@ class RawLineReader:
                     if isinstance(result, str):
                         # First complete command: queue any remaining events.
                         self._enqueue_from_events(events[idx:])
+                        returned_line = result
+                        self._debug_read_chunk(data, events, buffer, returned=returned_line)
                         self._write("\r\n", out_fd)
-                        return result
+                        return returned_line
                     nav_index, suggestion = result
                     self._redraw(
                         prompt,
@@ -244,7 +281,10 @@ class RawLineReader:
                         enabled,
                         line_renderer,
                     )
+                if returned_line is None:
+                    self._debug_read_chunk(data, events, buffer, returned=None)
         finally:
+            self._disable_bracketed_paste(out_fd)
             termios.tcsetattr(in_fd, termios.TCSADRAIN, old_state)
             _saved_termios.pop(in_fd, None)
 
@@ -268,9 +308,77 @@ class RawLineReader:
             # Navigation, backspace, etc. are meaningless outside a live buffer.
         raw = "".join(parts)
         if raw:
-            self._command_queue.extend(
-                cmd for cmd in split_paste_commands(raw) if cmd
-            )
+            self._queue_commands(split_paste_commands(raw), echo=True)
+
+    def _queue_commands(self, commands: list[str], *, echo: bool) -> None:
+        """Append commands to the replay queue with explicit echo policy."""
+        self._command_queue.extend(QueuedCommand(cmd, echo=echo) for cmd in commands if cmd)
+
+    @staticmethod
+    def _plain_paste_text(events: list[KeyEvent]) -> str | None:
+        """Return plain pasted text for simple multi-line printable chunks.
+
+        VTE may deliver paste bytes without bracketed-paste markers.  When a
+        single read contains newline-delimited printable text, handle it
+        atomically instead of redrawing character-by-character with suggestions.
+        """
+        if any(event.key in {Key.PASTE_START, Key.PASTE_END} for event in events):
+            return None
+        if not any(event.key is Key.ENTER for event in events):
+            return None
+        parts: list[str] = []
+        for event in events:
+            if event.key is Key.ENTER:
+                parts.append("\n")
+            elif event.key is Key.PRINTABLE and event.text:
+                parts.append(event.text)
+            else:
+                return None
+        text = "".join(parts)
+        return text if "\n" in text else None
+
+    def _enable_bracketed_paste(self, out_fd: int) -> None:
+        """Ask capable terminals to wrap pasted text in bracketed-paste markers."""
+        try:
+            os.write(out_fd, _BRACKETED_PASTE_ENABLE)
+        except OSError:
+            pass
+
+    def _disable_bracketed_paste(self, out_fd: int) -> None:
+        """Disable bracketed paste mode before leaving raw editor control."""
+        try:
+            os.write(out_fd, _BRACKETED_PASTE_DISABLE)
+        except OSError:
+            pass
+
+    def _debug_read_chunk(
+        self,
+        data: bytes,
+        events: list[KeyEvent],
+        buffer: LineBuffer,
+        *,
+        returned: str | None,
+    ) -> None:
+        """Append raw paste diagnostics when PYSH_PASTE_DEBUG=1 is set."""
+        if os.environ.get(_PASTE_DEBUG_ENV) != "1":
+            return
+        try:
+            _PASTE_DEBUG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            event_repr = [(event.key.value, event.text) for event in events]
+            seen_start = any(event.key is Key.PASTE_START for event in events)
+            seen_end = any(event.key is Key.PASTE_END for event in events)
+            with _PASTE_DEBUG_PATH.open("a", encoding="utf-8") as stream:
+                stream.write("read_chunk\n")
+                stream.write(f"raw={data!r}\n")
+                stream.write(f"len={len(data)}\n")
+                stream.write(f"events={event_repr!r}\n")
+                stream.write(f"paste_start={seen_start} paste_end={seen_end}\n")
+                stream.write(f"buffer_before_enter={buffer.text!r}\n")
+                stream.write(f"returned={returned!r}\n")
+                queued = [item.text for item in self._command_queue]
+                stream.write(f"queued={queued!r}\n\n")
+        except OSError:
+            pass
 
     def _handle_event(
         self,

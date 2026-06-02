@@ -157,6 +157,21 @@ command -V cd
 command ls -la
 ```
 
+`command -v NAME` prints only the resolved identity.  For a PySH builtin this
+is the builtin name; for an alias this is the alias definition; for an external
+command this is the resolved executable path.  Missing names produce no stdout
+and return 1.
+
+`command -V NAME` prints a human-readable description such as
+`cd is a PySH builtin`, `ll is an alias for 'ls -la'`, or
+`python is /usr/bin/python`.  Missing names are reported to stderr as
+`pysh: command: NAME: not found` and return 1.
+
+`command NAME [ARGS ...]` executes `NAME` without expanding aliases for `NAME`.
+PySH has no shell functions, so this mainly matters for aliases.  Builtins such
+as `command cd /tmp` and `command export FOO=bar` still execute as builtins;
+external commands execute normally.
+
 Return behavior:
 
 - `0` when `NAME` is resolved or the executed command succeeds.

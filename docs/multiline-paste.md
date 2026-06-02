@@ -36,7 +36,27 @@ BAR="hello world" env
 
 ## How it works
 
-When you paste multiple lines, your terminal emulator delivers all bytes at once.  PySH's raw-mode line editor reads the entire chunk, returns the first complete command line, and queues the remaining commands.  Each subsequent call to the prompt returns the next queued command.
+When you paste multiple lines, your terminal emulator may deliver the bytes in
+one read or in several reads.  PySH's raw-mode line editor returns the first
+complete command line and queues any remaining complete commands.  Each
+subsequent call to the prompt drains one queued command in order without reading
+more terminal input.
+
+Because the raw editor disables terminal echo, PySH explicitly replays pasted
+commands in a stable shell-like form before executing them.  Queued paste
+commands are shown with only the compact command prompt, for example:
+
+```text
+> echo FIRST
+FIRST
+> echo SECOND
+SECOND
+> echo THIRD
+THIRD
+```
+
+PySH intentionally does not repeat the full two-line informational prompt for
+queued paste replay.
 
 Commands that span multiple lines inside **quotes** are handled correctly — a newline inside `"..."` or `'...'` is part of the command, not a command boundary:
 
@@ -62,6 +82,40 @@ PySH recognises these markers and collects the entire paste block before splitti
 - The paste-start and paste-end markers never appear in the command buffer or in executed commands.
 - Newlines inside quoted strings in the pasted text are not treated as command boundaries.
 - The full paste is split atomically, so no partial commands are executed.
+
+When the raw-mode editor is active on an interactive TTY, PySH enables
+bracketed paste before reading input with:
+
+```
+ESC [ ? 2004 h
+```
+
+and disables it before leaving the reader with:
+
+```
+ESC [ ? 2004 l
+```
+
+If the raw editor is disabled, for example by `line_editor="readline"` or a
+non-TTY session, PySH does not emit bracketed-paste control sequences.
+
+## Developer Diagnostics
+
+Set `PYSH_PASTE_DEBUG=1` before launching PySH to write raw paste diagnostics:
+
+```sh
+PYSH_PASTE_DEBUG=1 uv run pysh
+```
+
+The raw line reader appends diagnostic records to:
+
+```text
+logs/pysh-paste-debug.log
+```
+
+The log includes raw `os.read()` chunks, decoded key events, bracketed-paste
+marker detection, the buffer at command submission, the command returned, and
+the queued command list.  Debug output is not printed to the terminal.
 
 ## Semicolon command chaining
 

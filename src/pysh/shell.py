@@ -259,6 +259,8 @@ class PyShell:
             while True:
                 try:
                     info_line = self._prompt_info_line()
+                    if self._should_use_raw_editor() and self.line_reader.has_queued_commands():
+                        info_line = ""
                     if info_line and not is_mc_environment():
                         sys.stdout.write(info_line + "\n")
                         sys.stdout.flush()
@@ -710,6 +712,8 @@ class PyShell:
             status = 0
             for name in args[1:]:
                 if not self._print_command_resolution(name, verbose=verbose):
+                    if verbose:
+                        print(f"pysh: command: {name}: not found", file=sys.stderr)
                     status = 1
             return status
 
@@ -732,7 +736,7 @@ class PyShell:
         alias = self.aliases.get(name)
         if alias is not None:
             if verbose:
-                print(f"{name} is aliased to {shlex.quote(alias)}")
+                print(f"{name} is an alias for {shlex.quote(alias)}")
             else:
                 print(f"alias {name}={shlex.quote(alias)}")
             return True

@@ -19,12 +19,15 @@ Covers:
 """
 from __future__ import annotations
 
+import os
+import pty
+import threading
 from types import SimpleNamespace
 
 from pysh.lineedit.autosuggest import AutoSuggester
 from pysh.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
 from pysh.lineedit.keys import Key, KeyDecoder, KeyEvent
-from pysh.lineedit.reader import RawLineReader
+from pysh.lineedit.reader import QueuedCommand, RawLineReader
 from pysh.parser import ChainOp, split_chain, split_paste_commands
 
 # ---------------------------------------------------------------- split_paste_commands
@@ -123,7 +126,11 @@ def _make_options(*, autosuggest: bool = False, syntax_highlight: bool = False) 
 
 def test_queue_drains_first_command() -> None:
     reader = _make_reader()
-    reader._command_queue = ["cmd1", "cmd2", "cmd3"]
+    reader._command_queue = [
+        QueuedCommand("cmd1"),
+        QueuedCommand("cmd2"),
+        QueuedCommand("cmd3"),
+    ]
     result = reader.read_line(
         "> ",
         history=[],
@@ -133,12 +140,40 @@ def test_queue_drains_first_command() -> None:
         options=_make_options(),
     )
     assert result == "cmd1"
-    assert reader._command_queue == ["cmd2", "cmd3"]
+    assert [cmd.text for cmd in reader._command_queue] == ["cmd2", "cmd3"]
+
+
+def test_queue_drain_echoes_prompt_and_command_once() -> None:
+    reader = _make_reader()
+    reader._command_queue = [QueuedCommand("cmd1", echo=True)]
+    master, slave = pty.openpty()
+    try:
+        reader.output_fd = slave
+        assert reader.read_line(
+            "> ",
+            history=[],
+            suggester=AutoSuggester(),
+            highlighter=LineHighlighter(()),
+            scheme=DEFAULT_SCHEME,
+            options=_make_options(),
+        ) == "cmd1"
+        os.close(slave)
+        slave = -1
+        echoed = os.read(master, 1024)
+        assert echoed == b"> cmd1\r\n"
+    finally:
+        os.close(master)
+        if slave >= 0:
+            os.close(slave)
 
 
 def test_queue_drains_in_order() -> None:
     reader = _make_reader()
-    reader._command_queue = ["first", "second", "third"]
+    reader._command_queue = [
+        QueuedCommand("first", echo=False),
+        QueuedCommand("second", echo=False),
+        QueuedCommand("third", echo=False),
+    ]
     results = []
     for _ in range(3):
         results.append(
@@ -169,7 +204,7 @@ def test_no_command_lost_after_first_newline() -> None:
     ]
     # Enqueue as if two commands arrived in one paste batch after "ls" was returned.
     reader._enqueue_from_events(events[3:])
-    assert reader._command_queue == ["pwd"]
+    assert [cmd.text for cmd in reader._command_queue] == ["pwd"]
 
 
 def test_enqueue_from_events_basic() -> None:
@@ -183,7 +218,7 @@ def test_enqueue_from_events_basic() -> None:
         KeyEvent(Key.ENTER),
     ]
     reader._enqueue_from_events(events)
-    assert reader._command_queue == ["mc", "ls"]
+    assert [cmd.text for cmd in reader._command_queue] == ["mc", "ls"]
 
 
 def test_enqueue_from_events_ignores_paste_markers() -> None:
@@ -199,7 +234,7 @@ def test_enqueue_from_events_ignores_paste_markers() -> None:
     ]
     reader._enqueue_from_events(events)
     # "echo" should be queued; paste markers must be dropped.
-    assert reader._command_queue == ["echo"]
+    assert [cmd.text for cmd in reader._command_queue] == ["echo"]
 
 
 def test_enqueue_from_events_respects_quoted_newlines() -> None:
@@ -230,7 +265,71 @@ def test_enqueue_from_events_respects_quoted_newlines() -> None:
         KeyEvent(Key.ENTER),   # trailing newline — command boundary
     ]
     reader._enqueue_from_events(events)
-    assert reader._command_queue == ['echo "hello\nworld"']
+    assert [cmd.text for cmd in reader._command_queue] == ['echo "hello\nworld"']
+
+
+def test_non_bracketed_three_command_events_queue_all_remaining() -> None:
+    reader = _make_reader()
+    events = KeyDecoder().feed(b"echo FIRST\necho SECOND\necho THIRD\n")
+    first_enter = next(i for i, event in enumerate(events) if event.key is Key.ENTER)
+    reader._enqueue_from_events(events[first_enter + 1 :])
+    assert [cmd.text for cmd in reader._command_queue] == ["echo SECOND", "echo THIRD"]
+
+
+def test_bracketed_three_command_events_queue_all_remaining() -> None:
+    reader = _make_reader()
+    events = KeyDecoder().feed(
+        b"\x1b[200~echo FIRST\necho SECOND\necho THIRD\n\x1b[201~"
+    )
+    paste_text: list[str] = []
+    in_paste = False
+    for event in events:
+        if event.key is Key.PASTE_START:
+            in_paste = True
+        elif event.key is Key.PASTE_END:
+            break
+        elif in_paste and event.key is Key.ENTER:
+            paste_text.append("\n")
+        elif in_paste and event.key is Key.PRINTABLE:
+            paste_text.append(event.text)
+    commands = split_paste_commands("".join(paste_text))
+    reader._queue_commands(commands[1:], echo=True)
+    assert commands[0] == "echo FIRST"
+    assert [cmd.text for cmd in reader._command_queue] == ["echo SECOND", "echo THIRD"]
+
+
+def test_read_line_enables_and_disables_bracketed_paste() -> None:
+    master, slave = pty.openpty()
+    reader = RawLineReader(input_fd=slave, output_fd=slave)
+    result: dict[str, str] = {}
+
+    def target() -> None:
+        result["line"] = reader.read_line(
+            "> ",
+            history=[],
+            suggester=AutoSuggester(),
+            highlighter=LineHighlighter(()),
+            scheme=DEFAULT_SCHEME,
+            options=_make_options(),
+        )
+
+    thread = threading.Thread(target=target)
+    try:
+        thread.start()
+        output = os.read(master, 1024)
+        assert b"\x1b[?2004h" in output
+        os.write(master, b"echo OK\n")
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        output += os.read(master, 1024)
+        assert b"\x1b[?2004l" in output
+        assert result["line"] == "echo OK"
+    finally:
+        if thread.is_alive():
+            os.write(master, b"\x04")
+            thread.join(timeout=1)
+        os.close(master)
+        os.close(slave)
 
 
 def test_no_unrelated_commands_concatenated() -> None:
@@ -250,7 +349,7 @@ def test_no_unrelated_commands_concatenated() -> None:
         KeyEvent(Key.PRINTABLE, "d"),
         KeyEvent(Key.ENTER),
     ])
-    assert reader._command_queue == ["cd /tmp", "pwd"]
+    assert [cmd.text for cmd in reader._command_queue] == ["cd /tmp", "pwd"]
 
 
 # ---------------------------------------------------------------- semicolon (Part E)

@@ -85,6 +85,12 @@ def _strip_ansi(data: bytes) -> bytes:
     return _ANSI_RE.sub(b"", data)
 
 
+def _visible_lines(data: bytes) -> list[str]:
+    """Return non-empty ANSI-stripped terminal lines for order assertions."""
+    text = _strip_ansi(data).decode("utf-8", errors="replace")
+    return [line.strip() for line in text.replace("\r", "\n").splitlines() if line.strip()]
+
+
 def _set_winsize(fd: int, rows: int = 24, cols: int = 80) -> None:
     try:
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
@@ -246,6 +252,35 @@ def test_pty_multiline_paste_no_command_lost() -> None:
     assert b"THIRD_CMD" in stripped, f"THIRD_CMD missing.\nRaw: {output!r}"
 
 
+def test_pty_plain_paste_three_echo_commands() -> None:
+    """Plain VTE paste without bracket markers must execute every line."""
+    output = _run_pty_session(b"echo FIRST\necho SECOND\necho THIRD\nexit\n")
+    stripped = _strip_ansi(output)
+    assert b"FIRST" in stripped, f"FIRST missing.\nRaw: {output!r}"
+    assert b"SECOND" in stripped, f"SECOND missing.\nRaw: {output!r}"
+    assert b"THIRD" in stripped, f"THIRD missing.\nRaw: {output!r}"
+
+
+def test_pty_plain_paste_replays_each_command_before_output() -> None:
+    output = _run_pty_session(b"echo FIRST\necho SECOND\necho THIRD\nexit\n")
+    lines = _visible_lines(output)
+    expected = [
+        "> echo FIRST",
+        "FIRST",
+        "> echo SECOND",
+        "SECOND",
+        "> echo THIRD",
+        "THIRD",
+    ]
+    positions = []
+    for item in expected:
+        try:
+            positions.append(lines.index(item))
+        except ValueError as exc:
+            raise AssertionError(f"{item!r} missing from visible lines: {lines!r}") from exc
+    assert positions == sorted(positions)
+
+
 def test_pty_multiline_paste_commands_not_concatenated() -> None:
     """Two pasted commands must not be merged into one malformed command."""
     output = _run_pty_session(b"echo AAA\necho BBB\nexit\n")
@@ -364,5 +399,75 @@ def test_pty_bracketed_paste_markers_not_in_output() -> None:
     )
     assert b"201~" not in stripped, (
         "PASTE_END marker text '201~' leaked into output.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+
+
+def test_pty_vte_bracketed_paste_three_echo_commands() -> None:
+    """VTE-style bracketed paste bytes must execute every pasted command."""
+    output = _run_pty_session(
+        b"\x1b[200~echo FIRST\necho SECOND\necho THIRD\n\x1b[201~exit\n"
+    )
+    stripped = _strip_ansi(output)
+    assert b"FIRST" in stripped, f"FIRST missing.\nRaw: {output!r}"
+    assert b"SECOND" in stripped, f"SECOND missing.\nRaw: {output!r}"
+    assert b"THIRD" in stripped, f"THIRD missing.\nRaw: {output!r}"
+    assert b"200~" not in stripped, f"PASTE_START leaked.\nRaw: {output!r}"
+    assert b"201~" not in stripped, f"PASTE_END leaked.\nRaw: {output!r}"
+
+
+def test_pty_bracketed_paste_replays_each_command_before_output() -> None:
+    output = _run_pty_session(
+        b"\x1b[200~echo FIRST\necho SECOND\necho THIRD\n\x1b[201~exit\n"
+    )
+    lines = _visible_lines(output)
+    expected = [
+        "> echo FIRST",
+        "FIRST",
+        "> echo SECOND",
+        "SECOND",
+        "> echo THIRD",
+        "THIRD",
+    ]
+    positions = []
+    for item in expected:
+        try:
+            positions.append(lines.index(item))
+        except ValueError as exc:
+            raise AssertionError(f"{item!r} missing from visible lines: {lines!r}") from exc
+    assert positions == sorted(positions)
+    assert not any(line.startswith("(.venv)") and "echo SECOND" in line for line in lines)
+
+
+def test_pty_bracketed_command_builtin_paste_replays_once() -> None:
+    output = _run_pty_session(
+        b"\x1b[200~command -v pysh\ncommand -v python\ncommand -V cd\n\x1b[201~exit\n"
+    )
+    lines = _visible_lines(output)
+    for command in ("command -v pysh", "command -v python", "command -V cd"):
+        assert lines.count(f"> {command}") == 1, (
+            f"{command!r} should be visibly replayed exactly once.\n"
+            f"Visible lines: {lines!r}\nRaw: {output!r}"
+        )
+    assert any(line.endswith("pysh") and "/" in line for line in lines)
+    assert any(("python" in line and "/" in line) for line in lines)
+    assert "cd is a PySH builtin" in lines
+    assert b"pysh: command: command not found" not in _strip_ansi(output)
+
+
+def test_pty_command_builtin_resolves_pysh_and_cd() -> None:
+    """Interactive PySH must support command -v/-V diagnostics."""
+    output = _run_pty_session(b"command -v pysh\ncommand -V cd\nexit\n")
+    stripped = _strip_ansi(output)
+    assert b"pysh: command: command not found" not in stripped, (
+        "command builtin was not available in interactive PySH.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+    assert re.search(rb"(?m)/\S*pysh\s*$", stripped), (
+        "command -v pysh did not print a path ending in pysh.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+    assert b"cd is a PySH builtin" in stripped, (
+        "command -V cd did not describe the cd builtin.\n"
         f"Raw PTY output:\n{output!r}"
     )
