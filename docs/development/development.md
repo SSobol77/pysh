@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-3.0-or-later
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-File: docs/development.md
+File: docs/development/development.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 
@@ -89,41 +89,32 @@ pysh/
 │   └── workflows/
 │       └── publish.yml         # PyPI Trusted Publishing workflow
 ├── docs/
+│   ├── README.md               # Canonical documentation index
 │   ├── img/                    # Logo and screenshots
-│   ├── installation.md
-│   ├── usage.md
-│   ├── builtins.md
-│   ├── operators.md
-│   ├── configuration.md
-│   ├── migration.md
-│   ├── zsh-compatibility.md
-│   ├── python-runtime.md
-│   ├── limitations.md
-│   ├── documentation-policy.md
-│   ├── development.md
-│   └── release.md
+│   ├── user/                   # End-user guides
+│   ├── shell/                  # Shell behavior documentation
+│   ├── python/                 # Python layer documentation
+│   ├── migration/              # Transition and compatibility guides
+│   ├── architecture/           # Architecture decisions and roadmap
+│   └── development/            # Contributor and release guides (this file)
 ├── src/
 │   └── pysh/
-│       ├── __init__.py
-│       ├── __main__.py
-│       ├── cli.py              # Console entry point (argparse + --version)
-│       ├── shell.py            # Main interactive shell
-│       ├── parser.py           # Quote-aware parser + command substitution
-│       ├── redirection.py      # Redirection parser
-│       ├── rc.py               # rc loader + mini-interpreter
-│       ├── plugins.py          # ~/.pyshrc.d/*.pysh loader
-│       ├── history.py          # Persistent history + Ctrl+R wiring
-│       ├── highlighting.py     # ANSI color helpers and classifier
-│       ├── completion.py       # Tab completion
-│       ├── service.py          # svc builtin client (PID-file based)
-│       ├── pyinit.py           # PyInit service metadata parser
-│       ├── profile_importer.py # Static profile import and compat reporting
-│       ├── script_runner.py    # Script transition runner
-│       ├── zsh_bridge.py       # Optional zsh -lc execution bridge
-│       ├── zsh_aliases.py      # Static zsh alias importer
-│       ├── python_runtime.py   # Persistent Python runtime (py + py { ... })
-│       ├── system_profile.py   # Debian/system helpers (sys_info, apt_check, …)
-│       └── command_plan.py     # plan builtin: command classification
+│       ├── __init__.py         # Package metadata: __version__, LICENSE_NAME
+│       ├── __main__.py         # python -m pysh entry point
+│       ├── cli.py              # Console script entry point (argparse + --version)
+│       ├── shell.py            # Compatibility shim → pysh.core.shell (Issue #19)
+│       ├── script_runner.py    # Script transition runner (shebang dispatch)
+│       ├── core/               # PyShell: REPL loop, command dispatch, builtins
+│       ├── parsing/            # Quote-aware parser, redirection
+│       ├── editor/             # Completer, history, ANSI helpers
+│       │   └── lineedit/       # Raw-mode line editing engine
+│       ├── prompt/             # Prompt rendering, color helpers, sys-profile
+│       ├── python_layer/       # Python runtime, #py mode, syntax highlighting
+│       ├── config/             # RC loader, plugin loader, ConfigAPI
+│       ├── compat/             # Zsh bridge, alias importer, MC detection
+│       ├── services/           # svc client, PyInit metadata parser
+│       ├── security/           # SecureRunner PTY bridge
+│       └── diagnostics/        # plan builtin, sys_info helpers
 └── tests/
     ├── test_parser.py
     ├── test_redirection.py
@@ -157,7 +148,7 @@ pysh/
 - New behavior must come with tests under `tests/`.
 - New builtins, parser behavior, configuration behavior, migration helpers
   and limitations must be documented in the same change. See
-  [`docs/documentation-policy.md`](documentation-policy.md).
+  [`docs/architecture/documentation-policy.md`](../architecture/documentation-policy.md).
 - Builtin and completion lists must stay aligned with the implementation.
 - Public modules carry an SPDX `GPL-3.0-or-later` header.
 - All documentation is written in **English**.

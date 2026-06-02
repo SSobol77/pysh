@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-3.0-or-later
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-File: docs/release.md
+File: docs/development/release.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 
@@ -17,11 +17,11 @@ See the LICENSE file in the project root for full license text.
 > Each release ships **three** artifact families: PyPI (wheel + sdist),
 > Debian `.deb`, and Red Hat/Fedora `.rpm`. See
 > [`packaging.md`](packaging.md) for the canonical naming contract and
-> [`installation.md`](installation.md) for end-user install commands.
+> [`installation.md`](../user/installation.md) for end-user install commands.
 
 PySH is published to PyPI as **`pysh-shell`** through GitHub Actions and
 **PyPI Trusted Publishing**. The workflow lives at
-[`.github/workflows/publish.yml`](../.github/workflows/publish.yml) and
+[`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) and
 uses `pypa/gh-action-pypi-publish@release/v1` with `id-token: write` under
 the `pypi` GitHub environment.
 
@@ -37,9 +37,9 @@ the `pypi` GitHub environment.
    git pull --ff-only origin main
    ```
 2. Bump the version everywhere it appears:
-   - [`pyproject.toml`](../pyproject.toml) → `version = "0.5.0"`
-   - [`src/pysh/__init__.py`](../src/pysh/__init__.py) → `__version__ = "0.5.0"`
-   - Any user-facing version strings in [`README.md`](../README.md).
+   - [`pyproject.toml`](../../pyproject.toml) → `version = "0.5.0"`
+   - [`src/pysh/__init__.py`](../../src/pysh/__init__.py) → `__version__ = "0.5.0"`
+   - Any user-facing version strings in [`README.md`](../../README.md).
 3. Run the full quality gate locally:
    ```bash
    uv sync
@@ -56,7 +56,7 @@ the `pypi` GitHub environment.
 - README updated for the current version and user-visible behavior.
 - Dedicated docs updated, including builtins, operators, configuration,
   migration, zsh compatibility, Python runtime and limitations.
-- Every builtin is documented in `docs/builtins.md`.
+- Every builtin is documented in `docs/user/builtins.md`.
 - Tests updated for every new builtin or behavior change.
 - CI is green.
 - Local build passes.

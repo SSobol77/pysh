@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-3.0-or-later
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-File: docs/system-profile.md
+File: docs/shell/system-profile.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 

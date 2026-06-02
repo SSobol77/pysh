@@ -134,7 +134,7 @@ not feature implementation.
 **Scope.**
 
 - `docs/compatibility.md`
-- `docs/zsh-compatibility.md`
+- `docs/migration/zsh-compatibility.md`
 - `docs/posix-sh-scope.md`
 - Feature matrix for quoting, expansion, redirection, pipelines, control flow,
   functions, job control, globbing, parameter expansion, arithmetic, traps, and

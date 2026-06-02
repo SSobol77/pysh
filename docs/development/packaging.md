@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-3.0-or-later
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-File: docs/packaging.md
+File: docs/development/packaging.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 
@@ -146,13 +146,13 @@ not publish to PyPI.
 
 The canonical naming contract is documented in:
 
-- [`AGENTS.md`](../AGENTS.md)
-- [`CLAUDE.md`](../CLAUDE.md)
-- [`CODEX.md`](../CODEX.md)
-- [`CURSOR.md`](../CURSOR.md)
-- [`.codex/rules/packaging-naming.md`](../.codex/rules/packaging-naming.md)
-- [`.claude/rules/packaging-naming.md`](../.claude/rules/packaging-naming.md)
-- [`.cursor/rules/packaging-naming.mdc`](../.cursor/rules/packaging-naming.mdc)
+- [`AGENTS.md`](../../AGENTS.md)
+- [`CLAUDE.md`](../../CLAUDE.md)
+- [`CODEX.md`](../../CODEX.md)
+- [`CURSOR.md`](../../CURSOR.md)
+- [`.codex/rules/packaging-naming.md`](../../.codex/rules/packaging-naming.md)
+- [`.claude/rules/packaging-naming.md`](../../.claude/rules/packaging-naming.md)
+- [`.cursor/rules/packaging-naming.mdc`](../../.cursor/rules/packaging-naming.mdc)
 
 Any future agent that produces release artifacts must follow that
 contract. The contract is enforced by:

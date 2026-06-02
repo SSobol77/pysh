@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-3.0-or-later
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-File: docs/builtins.md
+File: docs/user/builtins.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 
@@ -481,7 +481,7 @@ do not kill the shell. An unterminated `py { ... }` block in a script
 returns non-zero.
 
 Limitations: nested `py { ... }` blocks are rejected. See
-[python-runtime.md](python-runtime.md) for full behavior.
+[python-runtime.md](../python/python-runtime.md) for full behavior.
 
 ## `sys_info`
 
@@ -619,4 +619,4 @@ argument is supplied.
 
 Limitations: `plan` is advisory only. Policy enforcement is intentionally
 planned for a future release. See
-[command-planning.md](command-planning.md).
+[command-planning.md](../shell/command-planning.md).

@@ -191,24 +191,38 @@ pysh -c "echo hi; echo there"  # run one command line and exit
 
 ## Documentation
 
-Full documentation lives under the repository [`docs/`](https://github.com/SSobol77/pysh/tree/main/docs):
+Full documentation lives under the repository [`docs/`](https://github.com/SSobol77/pysh/tree/main/docs). See [`docs/README.md`](https://github.com/SSobol77/pysh/blob/main/docs/README.md) for the complete documentation index.
 
-- [Installation](https://github.com/SSobol77/pysh/blob/main/docs/installation.md) — installing from PyPI and dev install.
-- [Usage](https://github.com/SSobol77/pysh/blob/main/docs/usage.md) — invocation, operators, pipelines, redirection, command substitution, variables, builtins.
-- [Builtins](https://github.com/SSobol77/pysh/blob/main/docs/builtins.md) — syntax, examples, return behavior and limitations for every builtin.
-- [Operators](https://github.com/SSobol77/pysh/blob/main/docs/operators.md) — chains, pipelines, redirection, command substitution, quoting and parser limitations.
-- [Configuration](https://github.com/SSobol77/pysh/blob/main/docs/configuration.md) — `~/.pyshrc`, plugins under `~/.pyshrc.d/`, aliases, exports, prompt behavior.
-- [Migration](https://github.com/SSobol77/pysh/blob/main/docs/migration.md) — static profile import, script transition runner, and compatibility reporting.
-- [Zsh compatibility](https://github.com/SSobol77/pysh/blob/main/docs/zsh-compatibility.md) — transition bridge, safe profile import, explicit zsh delegation, optional fallback mode.
-- [Python runtime](https://github.com/SSobol77/pysh/blob/main/docs/python-runtime.md) — persistent Python-native `py` execution context.
-- [Development](https://github.com/SSobol77/pysh/blob/main/docs/development.md) — running the test suite, linting, building artifacts, repository layout.
-- [Release process](https://github.com/SSobol77/pysh/blob/main/docs/release.md) — how PySH ships via GitHub Actions and PyPI Trusted Publishing.
-- [System profile](https://github.com/SSobol77/pysh/blob/main/docs/system-profile.md) — `sys_info`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search`.
-- [Command planning](https://github.com/SSobol77/pysh/blob/main/docs/command-planning.md) — `plan <command...>`, the advisory classifier.
-- [Sensitive input](https://github.com/SSobol77/pysh/blob/main/docs/security-sensitive-input.md) — security boundary for password/passphrase prompts and the explicit `secure <cmd>` PTY runner.
-- [Packaging](https://github.com/SSobol77/pysh/blob/main/docs/packaging.md) — PyPI / `.deb` / `.rpm` artifact naming contract and build scripts.
-- [Limitations](https://github.com/SSobol77/pysh/blob/main/docs/limitations.md) — explicit non-goals and compatibility boundaries.
-- [Documentation policy](https://github.com/SSobol77/pysh/blob/main/docs/documentation-policy.md) — required coverage for new commands, parser behavior, migration helpers and limitations.
+**User guide**
+
+- [Installation](https://github.com/SSobol77/pysh/blob/main/docs/user/installation.md) — installing from PyPI and dev install.
+- [Usage](https://github.com/SSobol77/pysh/blob/main/docs/user/usage.md) — invocation, operators, pipelines, redirection, command substitution, variables, builtins.
+- [Builtins](https://github.com/SSobol77/pysh/blob/main/docs/user/builtins.md) — syntax, examples, return behavior and limitations for every builtin.
+- [Operators](https://github.com/SSobol77/pysh/blob/main/docs/user/operators.md) — chains, pipelines, redirection, command substitution, quoting and parser limitations.
+- [Configuration](https://github.com/SSobol77/pysh/blob/main/docs/user/configuration.md) — `~/.pyshrc`, plugins under `~/.pyshrc.d/`, aliases, exports, prompt behavior.
+- [Limitations](https://github.com/SSobol77/pysh/blob/main/docs/user/limitations.md) — explicit non-goals and compatibility boundaries.
+
+**Shell behavior**
+
+- [System profile](https://github.com/SSobol77/pysh/blob/main/docs/shell/system-profile.md) — `sys_info`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search`.
+- [Command planning](https://github.com/SSobol77/pysh/blob/main/docs/shell/command-planning.md) — `plan <command...>`, the advisory classifier.
+- [Sensitive input](https://github.com/SSobol77/pysh/blob/main/docs/shell/security-sensitive-input.md) — security boundary for password/passphrase prompts and the explicit `secure <cmd>` PTY runner.
+
+**Python layer**
+
+- [Python runtime](https://github.com/SSobol77/pysh/blob/main/docs/python/python-runtime.md) — persistent Python-native `py` execution context.
+- [Python command execution layer](https://github.com/SSobol77/pysh/blob/main/docs/python/python-command-execution-layer.md) — interactive `#py` mode with full REPL, source buffer, and file directives.
+
+**Migration**
+
+- [Migration](https://github.com/SSobol77/pysh/blob/main/docs/migration/migration.md) — static profile import, script transition runner, and compatibility reporting.
+- [Zsh compatibility](https://github.com/SSobol77/pysh/blob/main/docs/migration/zsh-compatibility.md) — transition bridge, safe profile import, explicit zsh delegation, optional fallback mode.
+
+**Development and release**
+
+- [Development](https://github.com/SSobol77/pysh/blob/main/docs/development/development.md) — running the test suite, linting, building artifacts, repository layout.
+- [Release process](https://github.com/SSobol77/pysh/blob/main/docs/development/release.md) — how PySH ships via GitHub Actions and PyPI Trusted Publishing.
+- [Packaging](https://github.com/SSobol77/pysh/blob/main/docs/development/packaging.md) — PyPI / `.deb` / `.rpm` artifact naming contract and build scripts.
 
 ---
 
@@ -220,7 +234,7 @@ continue to read secrets directly from the controlling terminal. A keypress
 indicator for such prompts is therefore available only through the explicit
 `secure <cmd>` PTY wrapper, not ordinary command execution.
 
-See [Sensitive input security boundary](https://github.com/SSobol77/pysh/blob/main/docs/security-sensitive-input.md).
+See [Sensitive input security boundary](https://github.com/SSobol77/pysh/blob/main/docs/shell/security-sensitive-input.md).
 
 ---
 
@@ -459,7 +473,7 @@ apt_search vim          # apt search vim
 
 Variables whose name contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASS`,
 `CREDENTIAL`, or `AUTH` are replaced with `<redacted>` in `env_audit`. See
-[docs/system-profile.md](https://github.com/SSobol77/pysh/blob/main/docs/system-profile.md).
+[docs/shell/system-profile.md](https://github.com/SSobol77/pysh/blob/main/docs/shell/system-profile.md).
 
 ---
 
@@ -477,7 +491,7 @@ plan py print("x")
 
 The output prints `original=`, `kind=`, `execution=`, `risk=` and `reason=`
 fields. See
-[docs/command-planning.md](https://github.com/SSobol77/pysh/blob/main/docs/command-planning.md).
+[docs/shell/command-planning.md](https://github.com/SSobol77/pysh/blob/main/docs/shell/command-planning.md).
 
 ---
 

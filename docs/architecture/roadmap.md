@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-3.0-or-later
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-File: docs/roadmap.md
+File: docs/architecture/roadmap.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 
@@ -238,7 +238,7 @@ Scope:
 
 ```text
 docs/compatibility.md
-docs/zsh-compatibility.md
+docs/migration/zsh-compatibility.md
 docs/posix-sh-scope.md
 ```
 

@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-3.0-or-later
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-File: docs/documentation-policy.md
+File: docs/architecture/documentation-policy.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 
@@ -20,26 +20,26 @@ documented.
 
 ## Required coverage
 
-- Every new builtin must be added to `README.md` and `docs/builtins.md`.
+- Every new builtin must be added to `README.md` and `docs/user/builtins.md`.
 - Every new operator or parser feature must be added to `README.md` and
-  `docs/operators.md`.
+  `docs/user/operators.md`.
 - Every new configuration or startup behavior must be added to
-  `docs/configuration.md`.
-- Every migration feature must be added to `docs/migration.md`.
+  `docs/user/configuration.md`.
+- Every migration feature must be added to `docs/migration/migration.md`.
 - Every zsh/bash/sh compatibility feature must be added to
-  `docs/zsh-compatibility.md`.
-- Every Python runtime feature must be added to `docs/python-runtime.md`.
+  `docs/migration/zsh-compatibility.md`.
+- Every Python runtime feature must be added to `docs/python/python-runtime.md`.
 - Every Debian/system profile helper must be added to
-  `docs/system-profile.md`.
+  `docs/shell/system-profile.md`.
 - Every command-planning behavior must be added to
-  `docs/command-planning.md`.
-- Every limitation must be added to `docs/limitations.md`.
+  `docs/shell/command-planning.md`.
+- Every limitation must be added to `docs/user/limitations.md`.
 - Every packaging change (artifact families, filenames, install
   layout, CI/release workflows) must be reflected in
-  `docs/packaging.md`, `docs/installation.md` and
-  `docs/release.md`.
-- Every CLI option must be documented in `README.md`, `docs/usage.md` and,
-  when installation-related, `docs/installation.md`.
+  `docs/development/packaging.md`, `docs/user/installation.md` and
+  `docs/development/release.md`.
+- Every CLI option must be documented in `README.md`, `docs/user/usage.md` and,
+  when installation-related, `docs/user/installation.md`.
 
 ## Engineering rule
 

@@ -162,4 +162,4 @@ python --version; pip --version
 ```
 
 Midnight Commander is handled by PySH's `mc` wrapper.  See
-`docs/midnight-commander.md` for the MC subshell policy.
+`docs/user/midnight-commander.md` for the MC subshell policy.

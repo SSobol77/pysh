@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-3.0-or-later
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-File: docs/usage.md
+File: docs/user/usage.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 
@@ -227,7 +227,7 @@ py {
 
 The opener line is exactly `py {`, the closer line is exactly `}`. Block
 bodies share the persistent Python runtime with one-line `py` invocations.
-See [python-runtime.md](python-runtime.md).
+See [python-runtime.md](../python/python-runtime.md).
 
 ## System profile helpers
 
@@ -241,7 +241,7 @@ apt_search vim
 ```
 
 These helpers are non-mutating and never call `sudo`. See
-[system-profile.md](system-profile.md).
+[system-profile.md](../shell/system-profile.md).
 
 ## Command planning
 
@@ -253,7 +253,7 @@ plan sudo apt update
 
 `plan` prints a deterministic classification (`kind`, `execution`, `risk`,
 `reason`) without executing the command. See
-[command-planning.md](command-planning.md).
+[command-planning.md](../shell/command-planning.md).
 
 ## Directory stack
 
@@ -352,7 +352,7 @@ Only successfully executed input is appended to the source buffer. Failed input
 (syntax errors, runtime exceptions) is never saved. Saved files contain clean
 Python source with no prompts and no ANSI escape sequences.
 
-See [python-command-execution-layer.md](python-command-execution-layer.md)
+See [python-command-execution-layer.md](../python/python-command-execution-layer.md)
 for the complete specification.
 
 ## Comments
