@@ -17,6 +17,7 @@ import sys
 from collections.abc import Sequence
 
 from pysh import __version__
+from pysh.core.errors import exception_to_diagnostic
 from pysh.core.shell import PyShell
 
 
@@ -42,9 +43,22 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the interactive PySH shell. Returns the final exit status."""
+    """Run the interactive PySH shell. Returns the final exit status.
+
+    Uncaught exceptions are converted to a :class:`~pysh.core.errors.Diagnostic`
+    via :func:`~pysh.core.errors.exception_to_diagnostic`, printed to stderr,
+    and returned as a non-zero exit code.  This is the single boundary function
+    for PySH top-level error handling (Issue #5).
+    """
     args = _build_parser().parse_args(argv if argv is not None else sys.argv[1:])
     shell = PyShell()
-    if args.command is not None:
-        return shell.execute(args.command)
-    return shell.run()
+    try:
+        if args.command is not None:
+            return shell.execute(args.command)
+        return shell.run()
+    except SystemExit as exc:
+        return int(exc.code) if exc.code is not None else 0
+    except BaseException as exc:  # noqa: BLE001
+        diag = exception_to_diagnostic(exc)
+        print(diag.format_stderr(), file=sys.stderr)
+        return diag.exit_code

@@ -219,16 +219,22 @@ def expand_variables(
     text: str,
     local_vars: dict[str, str],
     env_vars: dict[str, str] | None = None,
+    *,
+    special_vars: dict[str, str] | None = None,
 ) -> str:
-    """Expand ``$NAME`` and ``${NAME}`` references in ``text``.
+    """Expand ``$NAME``, ``${NAME}``, and ``$?`` references in ``text``.
 
     * Local variables shadow environment variables.
     * Unknown variables expand to an empty string.
     * Expansion is suppressed inside single quotes.
     * Backslash escapes are preserved so downstream shlex sees correct quoting.
+    * ``$?`` expands to the last command exit status supplied via *special_vars*.
+      Only ``$?`` is supported as a special parameter (Issue #5).  Other POSIX
+      special parameters (``$0``, ``$$``, ``$!``, etc.) are not implemented.
     """
     if env_vars is None:
         env_vars = dict(os.environ)
+    _special = special_vars or {}
 
     out: list[str] = []
     in_single = False
@@ -260,6 +266,11 @@ def expand_variables(
             continue
         if c == "$" and i + 1 < n:
             nxt = text[i + 1]
+            # $? — last exit status (the only special parameter owned by Issue #5)
+            if nxt == "?":
+                out.append(_special.get("?", "0"))
+                i += 2
+                continue
             if nxt == "{":
                 end = text.find("}", i + 2)
                 if end == -1:

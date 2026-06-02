@@ -52,6 +52,13 @@ are gaps that must be resolved before the claim can be published.
 | Backslash escapes are correct | Parser golden | `tests/test_parser.py` | None | — |
 | `$VAR` and `${VAR}` expansion works | Parser golden | `tests/test_parser.py` | None | — |
 | Temporary env assignment works | Unit test | `tests/test_env_assignment.py` | None | — |
+| Canonical exit codes (0/1/2/126/127/130) are defined and enforced | Unit test | `tests/test_error_exit_code_contract.py` | None | #5 |
+| `$?` expands to last command exit status | Unit test | `tests/test_error_exit_code_contract.py` | None | #5 |
+| External command exit code propagated exactly | Unit test | `tests/test_error_exit_code_contract.py` | None | #5 |
+| Command-not-found → 127 | Unit test | `tests/test_error_exit_code_contract.py` | None | #5 |
+| Cannot-execute → 126 | Unit test | `tests/test_error_exit_code_contract.py` | None | #5 |
+| Builtin misuse → 2 | Unit test | `tests/test_error_exit_code_contract.py` | None | #5 |
+| SIGINT → 130 | Unit test (`signal_exit_code`) | `tests/test_error_exit_code_contract.py` | Process-level flaky test deferred | #6 |
 | Comments (`#`) work correctly | Unit test | `tests/test_comments.py` | None | — |
 | Aliases are expanded correctly | Unit test | `tests/test_shell.py` | None | — |
 | `unalias` works | Unit test | `tests/test_unalias.py` | None | — |

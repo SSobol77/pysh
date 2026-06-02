@@ -56,6 +56,7 @@ from pysh.config.api import (
 )
 from pysh.config.plugins import PLUGIN_DIR, load_plugins
 from pysh.config.rc import RC_PATH, execute_rc, load_default_rc
+from pysh.core.errors import ExitCode
 from pysh.diagnostics.command_plan import plan as run_plan
 from pysh.editor.completion import Completer
 from pysh.editor.highlight import colors_enabled, diagnostic
@@ -379,8 +380,10 @@ class PyShell:
         stages = [self._expand_alias(s) for s in stages]
         # Variable expansion happens after alias expansion so that alias
         # bodies behave like literal text but user variables in arguments
-        # are still substituted.
-        stages = [expand_variables(s, self.local_vars) for s in stages]
+        # are still substituted.  $? is passed as a special variable so it
+        # expands to the last command exit status (Issue #5).
+        _sv = {"?": str(self.last_status)}
+        stages = [expand_variables(s, self.local_vars, special_vars=_sv) for s in stages]
         if len(stages) == 1:
             return self._run_simple(stages[0])
         return self._run_pipeline(stages, original_command=command)
@@ -495,7 +498,7 @@ class PyShell:
                     for p in procs:
                         p.terminate()
                         p.wait()
-                    return 127
+                    return ExitCode.COMMAND_NOT_FOUND
 
                 # The parent must close the read end of the previous pipe so
                 # that the child receives EOF after the upstream stage exits.
@@ -510,8 +513,8 @@ class PyShell:
                 for p in procs:
                     p.terminate()
                 results = [p.wait() for p in procs]
-                return 130
-            return results[-1] if results else 0
+                return ExitCode.SIGINT
+            return results[-1] if results else ExitCode.SUCCESS
         finally:
             for f in opened:
                 try:
@@ -564,19 +567,19 @@ class PyShell:
                 if self.zsh_fallback_enabled and original_stage is not None:
                     return self._run_zsh_fallback(original_stage)
                 print(f"pysh: {argv[0]}: command not found", file=sys.stderr)
-                return 127
+                return ExitCode.COMMAND_NOT_FOUND
             except PermissionError as exc:
                 print(f"pysh: {argv[0]}: {exc}", file=sys.stderr)
-                return 126
+                return ExitCode.CANNOT_EXECUTE
             try:
                 return proc.wait()
             except KeyboardInterrupt:
                 proc.terminate()
                 proc.wait()
-                return 130
+                return ExitCode.SIGINT
         except OSError as exc:
             print(f"pysh: {exc}", file=sys.stderr)
-            return 1
+            return ExitCode.GENERAL_ERROR
         finally:
             for f in (stdin_f, stdout_f, stderr_f):
                 if f is not None:

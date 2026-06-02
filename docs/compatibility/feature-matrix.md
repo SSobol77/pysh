@@ -86,9 +86,11 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Variables | Local assignment: `NAME=value` | Supported | Native | `tests/test_env_assignment.py` | — |
 | Variables | Simple expansion: `$NAME` | Supported | Native | `tests/test_parser.py` | — |
 | Variables | Braced expansion: `${NAME}` | Supported | Native | `tests/test_parser.py` | — |
+| Variables | `$?` last exit status (special parameter) | Supported | Native | `tests/test_error_exit_code_contract.py` | #5 |
 | Variables | Default value: `${NAME:-default}` | Unsupported | Planned | — | #8 |
 | Variables | Length: `${#NAME}` | Unsupported | Planned | — | #8 |
 | Variables | Substring/pattern expansion | Unsupported | Planned | — | #8 |
+| Variables | Other POSIX special params (`$0`, `$$`, `$!`, `$#`, `$@`) | Unsupported | Unsupported | — | — |
 
 ## Environment exports
 

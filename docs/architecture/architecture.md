@@ -21,6 +21,7 @@ lifecycle policy.
 
 **Relation to other documents:**
 - [source-tree.md](source-tree.md) — post-Issue #2 source tree: packages, modules, dependency diagram.
+- [error-exit-code-contract.md](error-exit-code-contract.md) — Issue #5: canonical exit codes, PyShError taxonomy, $? propagation, boundary function.
 - [ISSUE-2-refactor-source-tree.md](ISSUE-2-refactor-source-tree.md) — Issue #2 scope (relocation only).
 - [ISSUE-3-architecture-contracts.md](ISSUE-3-architecture-contracts.md) — Issue #3 spec (this implementation).
 - GitHub Issue #19 — shim lifecycle and removal.
