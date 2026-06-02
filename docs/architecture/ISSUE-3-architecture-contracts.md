@@ -28,7 +28,7 @@ ISSUE #3 owns:
 - layered dependency ratchet,
 - public API snapshot test,
 - import-time/cold-start budget test,
-- `docs/architecture.md`,
+- `docs/architecture/architecture.md`,
 - known layering violations table,
 - shim lifecycle/removal policy refinement,
 - minimal side-effect-free `__init__.py` policy.
@@ -126,7 +126,7 @@ The layer rule is a ratchet:
 - new violations fail CI,
 - the violations list may shrink but must not grow without architectural review.
 
-Required table format in `docs/architecture.md`:
+Required table format in `docs/architecture/architecture.md`:
 
 | Importing module | Imported module | Reason retained | Cleanup issue |
 | --- | --- | --- | --- |
@@ -186,9 +186,9 @@ Package `__init__.py` files must be minimal and side-effect free:
 Any re-export from `__init__.py` must be justified as public API or a narrow
 compatibility shim.
 
-## `docs/architecture.md`
+## `docs/architecture/architecture.md`
 
-Create `docs/architecture.md` with:
+Create `docs/architecture/architecture.md` with:
 
 1. package responsibilities,
 2. dependency direction,
@@ -209,7 +209,7 @@ ISSUE #2 may create narrow re-export shims. ISSUE #3 refines their policy:
 - every shim has an owner,
 - every shim has a removal milestone,
 - default removal milestone is ISSUE #19,
-- any shorter milestone is documented in the shim and in `docs/architecture.md`,
+- any shorter milestone is documented in the shim and in `docs/architecture/architecture.md`,
 - no shim contains behavior,
 - no permanent broad compatibility layer is permitted.
 
@@ -225,7 +225,7 @@ ISSUE #3 is complete only when:
 5. Layer ratchet is active with known violations documented.
 6. Public API snapshot test exists.
 7. Import-time/cold-start budget test exists.
-8. `docs/architecture.md` exists and matches the actual tree.
+8. `docs/architecture/architecture.md` exists and matches the actual tree.
 9. `__init__.py` files are minimal and side-effect free.
 10. Shim lifecycle/removal policy references ISSUE #19 or a narrower documented
     milestone.

@@ -25,8 +25,9 @@ merged during the refactor. The resulting import paths differ; the behavior
 is identical.
 
 **Issue #3 scope**: enforceable import-boundary contracts via static analysis.
-Until Issue #3 is implemented, the dependency direction described in this
-document is authoritative but not machine-enforced.
+Issue #3 has been implemented: `pysh.contracts` exists, import-boundary tests
+run in CI, and the full contract layer is documented in
+[architecture.md](architecture.md).
 
 ---
 
@@ -87,9 +88,13 @@ src/pysh/
 ├── security/
 │   └── secure_runner.py     ← SecureRunner: PTY bridge for sensitive commands
 │
-└── diagnostics/
-    ├── command_plan.py      ← plan builtin: advisory command classifier
-    └── system_info.py       ← sys_info and env_audit helpers
+├── diagnostics/
+│   ├── command_plan.py      ← plan builtin: advisory command classifier
+│   └── system_info.py       ← sys_info and env_audit helpers
+│
+└── contracts/               ← architecture protocol layer (Issue #3)
+    ├── __init__.py          ← re-exports all protocol names
+    └── protocols.py         ← typing.Protocol definitions; stdlib only
 ```
 
 ---
@@ -286,12 +291,16 @@ All gates must show PASS before a release tag is applied.
 
 ---
 
-## Future architecture work
+## Architecture work status
 
-| Issue | Scope |
-| ----- | ----- |
-| Issue #3 | Introduce enforceable import-boundary contracts; static analysis rules that fail CI when a package imports across a forbidden boundary. Until Issue #3 is merged, the rules in this document are authoritative but not checked by CI. |
-| Issue #19 | Remove the `pysh.shell` compatibility shim after downstream uses are updated. |
+| Issue | Scope | Status |
+| ----- | ----- | ------ |
+| Issue #2 | Source tree relocation into domain subpackages | **Completed** — this document |
+| Issue #3 | Import-boundary contracts, protocol layer, ratchet, public API snapshot, cold-start budget | **Completed** — see [architecture.md](architecture.md) |
+| Issue #6 | Signal and PTY cleanup: resolves `pysh.security → pysh.prompt` violation | Open |
+| Issue #8 | Parser/expansion/editor boundary cleanup: resolves most ratchet violations | Open |
+| Issue #14 | Script-mode cleanup: resolves `pysh.script_runner` ratchet violations | Open |
+| Issue #19 | Remove the `pysh.shell` compatibility shim after all callers are updated | Open |
 
-No architecture document may claim enforcement that does not yet exist. The
-boundary rules above are aspirational until Issue #3 implements the tooling.
+The import-boundary ratchet and cycle tests run in CI as of Issue #3.
+New cross-package violations fail automatically.

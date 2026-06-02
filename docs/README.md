@@ -59,6 +59,7 @@ docs/
 │   ├── migration.md
 │   └── zsh-compatibility.md
 ├── architecture/                      ← architecture decisions and roadmap
+│   ├── architecture.md
 │   ├── source-tree.md
 │   ├── roadmap.md
 │   ├── pysh-issue-backlog.md
@@ -131,12 +132,13 @@ Internal architecture decisions, issue tracking, and roadmap.
 
 | Document | Description |
 | -------- | ----------- |
-| [source-tree.md](architecture/source-tree.md) | Post-Issue #2 source tree architecture: packages, responsibilities, dependency direction |
+| [architecture.md](architecture/architecture.md) | Architecture contracts (Issue #3): boundaries, protocols, ratchet, shim policy |
+| [source-tree.md](architecture/source-tree.md) | Post-Issue #2 source tree: packages, modules, dependency direction |
 | [roadmap.md](architecture/roadmap.md) | Feature roadmap and milestone planning |
 | [pysh-issue-backlog.md](architecture/pysh-issue-backlog.md) | Issue backlog and linear architecture plan |
 | [documentation-policy.md](architecture/documentation-policy.md) | Required documentation coverage for new features |
 | [ISSUE-2-refactor-source-tree.md](architecture/ISSUE-2-refactor-source-tree.md) | Issue #2 design: relocating source into domain subpackages |
-| [ISSUE-3-architecture-contracts.md](architecture/ISSUE-3-architecture-contracts.md) | Issue #3 plan: enforceable import-boundary contracts |
+| [ISSUE-3-architecture-contracts.md](architecture/ISSUE-3-architecture-contracts.md) | Issue #3 spec: enforceable import-boundary contracts |
 
 ---
 
