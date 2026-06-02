@@ -18,17 +18,28 @@ PySH is a Python-first shell with a deliberately bounded compatibility
 surface. The goal is reliable interactive use and safe migration, not full
 emulation of POSIX sh, bash or zsh.
 
+> **Full compatibility contract**: see
+> [docs/compatibility/README.md](../compatibility/README.md) for the complete
+> per-feature matrix, scope tables, unsupported-construct list, and validation
+> plan. This page summarizes the most important non-goals.
+
 ## POSIX shell compatibility
 
 PySH is not a full POSIX shell. It implements the operators and builtins
 documented in this repository, but it does not implement the complete POSIX
 grammar, expansion model or script execution semantics.
 
+See [docs/compatibility/posix-sh-scope.md](../compatibility/posix-sh-scope.md)
+for the complete POSIX sh scope table and prohibition on `/bin/sh` use.
+
 ## zsh compatibility
 
 PySH is not a full zsh clone. The Zsh Transition Layer provides static alias
 and profile import plus explicit delegation to real zsh. zsh-specific
 features remain the responsibility of real zsh when delegated.
+
+See [docs/compatibility/zsh-scope.md](../compatibility/zsh-scope.md) for the
+complete zsh scope table.
 
 ## Job control
 

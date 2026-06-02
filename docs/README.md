@@ -55,6 +55,15 @@ docs/
 ├── python/                            ← Python execution layer
 │   ├── python-runtime.md
 │   └── python-command-execution-layer.md
+├── compatibility/                     ← compatibility contracts and scope (Issue #4)
+│   ├── README.md
+│   ├── shell-compatibility-contract.md
+│   ├── feature-matrix.md
+│   ├── posix-sh-scope.md
+│   ├── zsh-scope.md
+│   ├── bash-scope.md
+│   ├── unsupported-constructs.md
+│   └── validation-matrix.md
 ├── migration/                         ← transition and compatibility guides
 │   ├── migration.md
 │   └── zsh-compatibility.md
@@ -123,6 +132,24 @@ Guides for users transitioning from zsh, bash, or sh.
 | -------- | ----------- |
 | [migration.md](migration/migration.md) | Static profile import, script transition runner, compatibility reporting |
 | [zsh-compatibility.md](migration/zsh-compatibility.md) | Transition bridge, safe profile import, explicit zsh delegation, fallback mode |
+
+---
+
+## Compatibility
+
+Shell compatibility contracts, scope definitions, and feature matrices (Issue #4).
+All compatibility claims are explicit, scoped, and test-backed.
+
+| Document | Description |
+| -------- | ----------- |
+| [compatibility/README.md](compatibility/README.md) | Compatibility overview: status, categories, source-of-truth policy |
+| [shell-compatibility-contract.md](compatibility/shell-compatibility-contract.md) | Contract language, categories, governing rules, forbidden claim patterns |
+| [feature-matrix.md](compatibility/feature-matrix.md) | Per-feature matrix: status, category, evidence, owner issue |
+| [posix-sh-scope.md](compatibility/posix-sh-scope.md) | POSIX sh scope: what PySH supports, what it does not, `/bin/sh` prohibition |
+| [zsh-scope.md](compatibility/zsh-scope.md) | zsh scope: transition layer, static import, explicit delegation |
+| [bash-scope.md](compatibility/bash-scope.md) | bash scope: static import, shebang delegation, no broad compatibility claim |
+| [unsupported-constructs.md](compatibility/unsupported-constructs.md) | Complete list of unsupported constructs with user actions and owner issues |
+| [validation-matrix.md](compatibility/validation-matrix.md) | How each compatibility claim is validated; gap analysis |
 
 ---
 

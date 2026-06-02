@@ -218,6 +218,12 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 - [Migration](https://github.com/SSobol77/pysh/blob/main/docs/migration/migration.md) — static profile import, script transition runner, and compatibility reporting.
 - [Zsh compatibility](https://github.com/SSobol77/pysh/blob/main/docs/migration/zsh-compatibility.md) — transition bridge, safe profile import, explicit zsh delegation, optional fallback mode.
 
+**Compatibility contracts**
+
+- [Compatibility overview](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/README.md) — PySH is not a `/bin/sh` replacement, not a zsh clone, not bash. All claims are test-backed.
+- [Feature matrix](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/feature-matrix.md) — per-feature status, category, evidence, and owner issue.
+- [Unsupported constructs](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/unsupported-constructs.md) — what PySH does not support and what to do instead.
+
 **Development and release**
 
 - [Development](https://github.com/SSobol77/pysh/blob/main/docs/development/development.md) — running the test suite, linting, building artifacts, repository layout.
