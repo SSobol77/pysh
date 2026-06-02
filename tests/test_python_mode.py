@@ -19,7 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from pysh.python_mode import (
+from pysh.core.shell import PyShell
+from pysh.python_layer.mode import (
     PythonCommandMode,
     _check_missing_hash,
     _parse_directive,
@@ -27,8 +28,7 @@ from pysh.python_mode import (
     expand_tab,
     next_python_indent,
 )
-from pysh.python_runtime import PythonRuntime
-from pysh.shell import PyShell
+from pysh.python_layer.runtime import PythonRuntime
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Helpers
@@ -1592,7 +1592,7 @@ class TestEditMode:
     def test_no_edit_mode_prompt_is_default(self) -> None:
         mode, out, err = _mode(["#exit"])
         mode.run()
-        from pysh.python_mode import _PROMPT_PRIMARY
+        from pysh.python_layer.mode import _PROMPT_PRIMARY
         assert mode._get_primary_prompt() == _PROMPT_PRIMARY
 
     def test_python_source_after_open_appends_to_buffer(
@@ -2247,7 +2247,7 @@ class TestIdlikeMultiline:
         assert "\x1b[" not in content
 
     def test_tab_still_inserts_four_spaces(self) -> None:
-        from pysh.python_mode import expand_tab
+        from pysh.python_layer.mode import expand_tab
         line, cursor = expand_tab("def f():", 8)
         assert line == "def f():    "
         assert cursor == 12
@@ -2448,13 +2448,13 @@ class TestCompactRendering:
         assert "\n\n" not in after
 
     def test_render_line_no_trailing_newline_plain(self) -> None:
-        from pysh.python_highlight import PythonSyntaxRenderer
+        from pysh.python_layer.highlighting import PythonSyntaxRenderer
         r = PythonSyntaxRenderer(enabled=False)
         assert not r.render_line("x = 1").endswith("\n")
         assert not r.render_line("def f():").endswith("\n")
 
     def test_render_line_no_trailing_newline_highlighted(self) -> None:
-        from pysh.python_highlight import PythonSyntaxRenderer, pygments_available
+        from pysh.python_layer.highlighting import PythonSyntaxRenderer, pygments_available
         if not pygments_available():
             pytest.skip("pygments not installed")
         r = PythonSyntaxRenderer(force_color=True)
@@ -2474,7 +2474,7 @@ class TestCompactRendering:
         assert "\n\n" not in after
 
     def test_syntax_highlighting_still_works_compact(self) -> None:
-        from pysh.python_highlight import PythonSyntaxRenderer
+        from pysh.python_layer.highlighting import PythonSyntaxRenderer
         out = io.StringIO()
         err = io.StringIO()
         mode = PythonCommandMode(

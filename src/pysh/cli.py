@@ -17,7 +17,7 @@ import sys
 from collections.abc import Sequence
 
 from pysh import __version__
-from pysh.shell import PyShell
+from pysh.core.shell import PyShell
 
 
 def _build_parser() -> argparse.ArgumentParser:

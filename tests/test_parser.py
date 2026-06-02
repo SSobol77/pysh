@@ -12,7 +12,7 @@
 """Tests for the quote-aware command parser."""
 from __future__ import annotations
 
-from pysh.parser import (
+from pysh.parsing.parser import (
     ChainOp,
     expand_variables,
     has_unbalanced_quotes,

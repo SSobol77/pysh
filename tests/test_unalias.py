@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from pysh.shell import PyShell
+from pysh.core.shell import PyShell
 
 
 def test_unalias_removes_existing_alias() -> None:

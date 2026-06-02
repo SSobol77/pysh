@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from pysh.pyinit import (
+from pysh.services.pyinit import (
     ServiceMetadataError,
     discover_services,
     parse_service_file,

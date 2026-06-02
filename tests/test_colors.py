@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from pysh.colors import (
+from pysh.prompt.colors import (
     RGB,
     color_to_hex,
     colorize,

@@ -11,7 +11,7 @@
 # See the LICENSE file in the project root for full license text.
 from __future__ import annotations
 
-from pysh.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter, Role
+from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter, Role
 
 
 def _covered(line: str, spans) -> str:
@@ -25,7 +25,7 @@ def test_command_valid_invalid_and_which_cache(monkeypatch) -> None:
         calls.append(token)
         return "/bin/ls" if token == "ls" else None
 
-    monkeypatch.setattr("pysh.lineedit.highlight.shutil.which", fake_which)
+    monkeypatch.setattr("pysh.editor.lineedit.highlight.shutil.which", fake_which)
     highlighter = LineHighlighter({"cd"})
     line = "cd /tmp; ls -la | missing"
     spans = highlighter.tokenize(line)
@@ -37,7 +37,7 @@ def test_command_valid_invalid_and_which_cache(monkeypatch) -> None:
 
 
 def test_roles_and_coverage(monkeypatch) -> None:
-    monkeypatch.setattr("pysh.lineedit.highlight.shutil.which", lambda _token: None)
+    monkeypatch.setattr("pysh.editor.lineedit.highlight.shutil.which", lambda _token: None)
     line = "bad 'str' --flag $VAR ${HOME} | other > file"
     spans = LineHighlighter(set()).tokenize(line)
     assert _covered(line, spans) == line
@@ -46,7 +46,7 @@ def test_roles_and_coverage(monkeypatch) -> None:
 
 
 def test_partial_variable_does_not_drop_or_hang(monkeypatch) -> None:
-    monkeypatch.setattr("pysh.lineedit.highlight.shutil.which", lambda _token: None)
+    monkeypatch.setattr("pysh.editor.lineedit.highlight.shutil.which", lambda _token: None)
     line = "echo $"
     spans = LineHighlighter({"echo"}).tokenize(line)
     assert _covered(line, spans) == line
@@ -54,7 +54,7 @@ def test_partial_variable_does_not_drop_or_hang(monkeypatch) -> None:
 
 
 def test_pipeline_stages_recheck_command_and_render_disabled(monkeypatch) -> None:
-    monkeypatch.setattr("pysh.lineedit.highlight.shutil.which", lambda token: f"/bin/{token}")
+    monkeypatch.setattr("pysh.editor.lineedit.highlight.shutil.which", lambda token: f"/bin/{token}")
     highlighter = LineHighlighter(set())
     spans = highlighter.tokenize("one | two && three")
     command_spans = [span for span in spans if span.role is Role.COMMAND_VALID]

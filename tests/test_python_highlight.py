@@ -19,9 +19,9 @@ from pathlib import Path
 
 import pytest
 
-import pysh.python_highlight as _mod
-from pysh.python_highlight import PythonSyntaxRenderer, pygments_available
-from pysh.python_mode import PythonCommandMode
+import pysh.python_layer.highlighting as _mod
+from pysh.python_layer.highlighting import PythonSyntaxRenderer, pygments_available
+from pysh.python_layer.mode import PythonCommandMode
 
 # ─── helpers ────────────────────────────────────────────────────────────────
 

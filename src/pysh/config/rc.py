@@ -76,7 +76,7 @@ def iter_rc_lines(lines: Iterable[str]) -> list[str]:
     line (joined by ``\\n``) so that the mini-interpreter passes the whole
     block straight to the executor.
     """
-    from pysh.python_runtime import is_block_opener, iter_logical_lines
+    from pysh.python_layer.runtime import is_block_opener, iter_logical_lines
 
     cleaned: list[str] = []
     raw_text = list(lines)

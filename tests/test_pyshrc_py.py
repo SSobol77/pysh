@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from pysh.config_api import (
+from pysh.config.api import (
     DEFAULT_CURSOR_OPTIONS,
     DEFAULT_EDITOR_OPTIONS,
     DEFAULT_PROMPT_COLOR_MODES,
@@ -35,7 +35,7 @@ from pysh.config_api import (
     validate_prompt_color_mode,
     validate_prompt_option,
 )
-from pysh.shell import PyShell
+from pysh.core.shell import PyShell
 
 
 class FakeShell:
@@ -60,19 +60,19 @@ class FakeShell:
         self.prompt_options[name] = value
 
     def set_editor_option(self, name: str, value: object) -> None:
-        from pysh.config_api import validate_editor_option
+        from pysh.config.api import validate_editor_option
 
         validate_editor_option(name, value)
         self.editor_options[name] = value
 
     def set_mc_integration(self, value: str) -> None:
-        from pysh.config_api import validate_editor_option
+        from pysh.config.api import validate_editor_option
 
         validate_editor_option("mc_integration", value)
         self.editor_options["mc_integration"] = value
 
     def set_mc_warning_enabled(self, value: bool) -> None:
-        from pysh.config_api import validate_editor_option
+        from pysh.config.api import validate_editor_option
 
         validate_editor_option("mc_warning_enabled", value)
         self.editor_options["mc_warning_enabled"] = value
@@ -100,7 +100,7 @@ def strip_ansi(text: str) -> str:
 
 @pytest.fixture(autouse=True)
 def _hide_external_prompt_tools(monkeypatch) -> None:
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda _executable: None)
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda _executable: None)
 
 
 def _use_legacy_single_line_prompt(shell: PyShell) -> None:
@@ -716,8 +716,8 @@ def test_pyshell_prompt_tool_version_segments(
         calls.append(argv)
         return Result()
 
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
-    monkeypatch.setattr("pysh.shell.subprocess.run", fake_run)
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option(option, True)
@@ -732,8 +732,8 @@ def test_pyshell_prompt_tool_version_malformed_output_is_hidden(monkeypatch) -> 
         stdout = "uv unknown\n"
         stderr = ""
 
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
-    monkeypatch.setattr("pysh.shell.subprocess.run", lambda *_args, **_kwargs: Result())
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", lambda *_args, **_kwargs: Result())
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_uv_version", True)
@@ -742,8 +742,8 @@ def test_pyshell_prompt_tool_version_malformed_output_is_hidden(monkeypatch) -> 
 
 def test_pyshell_prompt_missing_tool_is_hidden(monkeypatch) -> None:
     calls: list[list[str]] = []
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda _exe: None)
-    monkeypatch.setattr("pysh.shell.subprocess.run", lambda argv, **_kwargs: calls.append(argv))
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda _exe: None)
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", lambda argv, **_kwargs: calls.append(argv))
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_node_version", True)
@@ -771,8 +771,8 @@ def test_pyshell_prompt_all_tool_versions_are_cached(monkeypatch) -> None:
         calls.append(argv)
         return Result(outputs[argv[0]])
 
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
-    monkeypatch.setattr("pysh.shell.subprocess.run", fake_run)
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
     shell = PyShell()
     shell._prompt_info_line()
     shell._prompt_info_line()
@@ -989,8 +989,8 @@ def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path
             return Result("10.8.1\n")
         raise AssertionError(f"unexpected argv: {argv!r}")
 
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
-    monkeypatch.setattr("pysh.shell.subprocess.run", fake_run)
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
     shell = PyShell()
     shell.set_prompt_option("cwd_style", "home")
     py = ".".join(str(p) for p in sys.version_info[:2])

@@ -17,14 +17,14 @@ from pathlib import Path
 
 import pytest
 
-from pysh.service import (
+from pysh.core.shell import PyShell
+from pysh.services.service import (
     ServiceClient,
     ServiceController,
     ServiceError,
     format_list,
     format_status,
 )
-from pysh.shell import PyShell
 
 
 def _write_pid(root: Path, name: str, pid: int) -> Path:

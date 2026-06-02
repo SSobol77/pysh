@@ -16,7 +16,7 @@ import shutil
 
 import pytest
 
-from pysh.zsh_bridge import ZSH_MISSING_STATUS, ZshBridge
+from pysh.compat.zsh_bridge import ZSH_MISSING_STATUS, ZshBridge
 
 
 def test_zsh_bridge_missing_zsh_is_deterministic() -> None:

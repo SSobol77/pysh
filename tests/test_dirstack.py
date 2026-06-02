@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from pysh.shell import PyShell
+from pysh.core.shell import PyShell
 
 
 @pytest.fixture

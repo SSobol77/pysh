@@ -11,7 +11,7 @@
 # See the LICENSE file in the project root for full license text.
 from __future__ import annotations
 
-from pysh.lineedit.keys import Key, KeyDecoder, KeyEvent
+from pysh.editor.lineedit.keys import Key, KeyDecoder, KeyEvent
 
 
 def _keys(data: bytes) -> list[KeyEvent]:

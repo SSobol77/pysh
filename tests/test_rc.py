@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from pysh.rc import execute_rc, iter_rc_lines, read_rc_file
-from pysh.shell import PyShell
+from pysh.config.rc import execute_rc, iter_rc_lines, read_rc_file
+from pysh.core.shell import PyShell
 
 
 def test_iter_rc_lines_strips_comments_and_blanks() -> None:

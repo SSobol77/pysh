@@ -24,11 +24,11 @@ import pty
 import threading
 from types import SimpleNamespace
 
-from pysh.lineedit.autosuggest import AutoSuggester
-from pysh.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
-from pysh.lineedit.keys import Key, KeyDecoder, KeyEvent
-from pysh.lineedit.reader import QueuedCommand, RawLineReader
-from pysh.parser import ChainOp, split_chain, split_paste_commands
+from pysh.editor.lineedit.autosuggest import AutoSuggester
+from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
+from pysh.editor.lineedit.keys import Key, KeyDecoder, KeyEvent
+from pysh.editor.lineedit.reader import QueuedCommand, RawLineReader
+from pysh.parsing.parser import ChainOp, split_chain, split_paste_commands
 
 # ---------------------------------------------------------------- split_paste_commands
 

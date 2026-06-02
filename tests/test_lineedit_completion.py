@@ -11,7 +11,7 @@
 # See the LICENSE file in the project root for full license text.
 from __future__ import annotations
 
-from pysh.lineedit.completion import apply_single_completion, complete_line
+from pysh.editor.lineedit.completion import apply_single_completion, complete_line
 
 BUILTINS = (
     "cd",

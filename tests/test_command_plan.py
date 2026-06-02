@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from pysh.command_plan import classify, plan
-from pysh.shell import PyShell
+from pysh.core.shell import PyShell
+from pysh.diagnostics.command_plan import classify, plan
 
 
 def _classify(line: str) -> dict[str, str]:

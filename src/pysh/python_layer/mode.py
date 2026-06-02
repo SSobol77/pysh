@@ -26,7 +26,7 @@ The mode maintains an *active edit workspace* consisting of:
   recently opened or saved, or ``None``.
 * ``_edit_mode``   — ``True`` when a file has been opened and is active for
   editing; cleared by ``#reset``.
-* ``_runtime``     — a :class:`~pysh.python_runtime.PythonRuntime` instance
+* ``_runtime``     — a :class:`~pysh.python_layer.runtime.PythonRuntime` instance
   that holds the persistent ``__main__`` namespace for the session.
 
 After ``#open file.py``, PySH enters file-backed edit mode.  The prompt
@@ -46,13 +46,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import IO
 
-from pysh.lineedit.autosuggest import AutoSuggester
-from pysh.lineedit.buffer import LineBuffer
-from pysh.lineedit.completion import CompletionResult, apply_single_completion
-from pysh.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
-from pysh.lineedit.reader import RawLineReader
-from pysh.python_runtime import PythonRuntime
-from pysh.python_terminal_render import PythonSyntaxRenderer
+from pysh.editor.lineedit.autosuggest import AutoSuggester
+from pysh.editor.lineedit.buffer import LineBuffer
+from pysh.editor.lineedit.completion import CompletionResult, apply_single_completion
+from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
+from pysh.editor.lineedit.reader import RawLineReader
+from pysh.python_layer.render import PythonSyntaxRenderer
+from pysh.python_layer.runtime import PythonRuntime
 
 # ---------------------------------------------------------------------------
 # Prompt strings
@@ -450,7 +450,7 @@ class PythonCommandMode:
     Parameters
     ----------
     runtime:
-        :class:`~pysh.python_runtime.PythonRuntime` instance.  When *None*
+        :class:`~pysh.python_layer.runtime.PythonRuntime` instance.  When *None*
         a fresh session-local instance is created.
     input_source:
         Iterable of pre-supplied lines used instead of ``input()``.  When

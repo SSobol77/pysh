@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from pysh.history import HistoryManager, dedupe_consecutive, split_history_lines
+from pysh.editor.history import HistoryManager, dedupe_consecutive, split_history_lines
 
 
 def test_split_history_lines_drops_blanks() -> None:

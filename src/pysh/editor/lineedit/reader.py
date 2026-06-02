@@ -32,7 +32,7 @@ Bracketed paste mode
 Terminals that support bracketed paste mode wrap pasted text with the CSI
 sequences ``ESC [ 200 ~`` (paste-start) and ``ESC [ 201 ~`` (paste-end).
 When these markers are detected the reader collects the entire paste block,
-splits it on unquoted newlines using :func:`pysh.parser.split_paste_commands`,
+splits it on unquoted newlines using :func:`pysh.parsing.parser.split_paste_commands`,
 and queues all resulting commands.  Paste markers never appear in the command
 buffer or in the returned command string.
 """
@@ -50,13 +50,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from pysh.completion import Completer
-from pysh.highlighting import colors_enabled
-from pysh.lineedit.autosuggest import AutoSuggester
-from pysh.lineedit.buffer import LineBuffer, _display_width
-from pysh.lineedit.highlight import DEFAULT_SCHEME, ColorScheme, LineHighlighter
-from pysh.lineedit.keys import Key, KeyDecoder, KeyEvent
-from pysh.parser import split_paste_commands
+from pysh.editor.completion import Completer
+from pysh.editor.highlight import colors_enabled
+from pysh.editor.lineedit.autosuggest import AutoSuggester
+from pysh.editor.lineedit.buffer import LineBuffer, _display_width
+from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, ColorScheme, LineHighlighter
+from pysh.editor.lineedit.keys import Key, KeyDecoder, KeyEvent
+from pysh.parsing.parser import split_paste_commands
 
 
 class _Options(Protocol):
@@ -292,7 +292,7 @@ class RawLineReader:
         """Collect remaining key events into complete command lines and queue them.
 
         Reconstructs the text stream from printable characters and ENTER events.
-        Uses :func:`pysh.parser.split_paste_commands` so that quoted newlines
+        Uses :func:`pysh.parsing.parser.split_paste_commands` so that quoted newlines
         are not treated as command boundaries.
         """
         parts: list[str] = []

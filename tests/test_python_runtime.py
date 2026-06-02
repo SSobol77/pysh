@@ -16,7 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from pysh.python_runtime import (
+from pysh.core.shell import PyShell
+from pysh.python_layer.runtime import (
     NestedBlockError,
     PythonRuntime,
     UnterminatedBlockError,
@@ -25,7 +26,6 @@ from pysh.python_runtime import (
     is_block_opener,
     iter_logical_lines,
 )
-from pysh.shell import PyShell
 
 
 def test_py_builtin_executes_code(capsys: pytest.CaptureFixture[str]) -> None:

@@ -21,14 +21,14 @@ import inspect
 
 import pytest
 
-from pysh.config_api import (
+from pysh.config.api import (
     DEFAULT_SENSITIVE_INPUT,
     ConfigError,
     ConfigurableShell,
     ShellConfigAPI,
     validate_sensitive_input,
 )
-from pysh.shell import PyShell
+from pysh.core.shell import PyShell
 
 
 class FakeShell:

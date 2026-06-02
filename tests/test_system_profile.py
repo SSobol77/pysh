@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from pysh.shell import PyShell
-from pysh.system_profile import (
+from pysh.core.shell import PyShell
+from pysh.prompt.system_profile import (
     REDACTED_PLACEHOLDER,
     apt_check,
     apt_search,
@@ -247,7 +247,7 @@ def test_shell_builtin_apt_check_when_missing(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr("pysh.system_profile.shutil.which", lambda _n: None)
+    monkeypatch.setattr("pysh.prompt.system_profile.shutil.which", lambda _n: None)
     shell = PyShell()
     assert shell.execute("apt_check") == 127
     assert "apt not found" in capsys.readouterr().err

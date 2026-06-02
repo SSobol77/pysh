@@ -43,8 +43,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Protocol, runtime_checkable
 
-from pysh.colors import color_to_hex, parse_color
-from pysh.lineedit.buffer import _display_width
+from pysh.editor.lineedit.buffer import _display_width
+from pysh.prompt.colors import color_to_hex, parse_color
 
 # Canonical location of the Python-native user configuration file.
 PYSHRC_PY_PATH = Path("~/.pyshrc.py").expanduser()
@@ -199,7 +199,7 @@ class ConfigError(ValueError):
 class ConfigurableShell(Protocol):
     """Narrow contract the configuration API needs from the shell.
 
-    Implemented by :class:`pysh.shell.PyShell`. Declaring it here (instead of
+    Implemented by :class:`pysh.core.shell.PyShell`. Declaring it here (instead of
     importing the concrete shell) keeps this module free of import cycles and
     makes the API unit-testable against a fake implementation.
     """

@@ -23,8 +23,8 @@ import time
 
 import pytest
 
-import pysh.secure_runner as secure_runner
-from pysh.secure_runner import (
+import pysh.security.secure_runner as secure_runner
+from pysh.security.secure_runner import (
     KeypressIndicator,
     SecureRunner,
     SensitiveIndicatorConfig,

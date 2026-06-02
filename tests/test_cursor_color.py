@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from pysh.config_api import (
+from pysh.config.api import (
     DEFAULT_CURSOR_OPTIONS,
     ConfigError,
     ShellConfigAPI,
@@ -24,7 +24,7 @@ from pysh.config_api import (
     validate_cursor_color,
     validate_cursor_color_enabled,
 )
-from pysh.shell import PyShell, _osc_reset_cursor_color, _osc_set_cursor_color
+from pysh.core.shell import PyShell, _osc_reset_cursor_color, _osc_set_cursor_color
 
 
 class FakeStdout:
@@ -92,7 +92,7 @@ def test_cursor_osc_sequences_are_exact() -> None:
 def test_disabled_cursor_color_emits_no_osc(monkeypatch) -> None:
     stream = FakeStdout(tty=True)
     shell = PyShell()
-    monkeypatch.setattr("pysh.shell.sys.stdout", stream)
+    monkeypatch.setattr("pysh.core.shell.sys.stdout", stream)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.delenv("NO_COLOR", raising=False)
 
@@ -108,7 +108,7 @@ def test_no_color_dumb_and_non_tty_emit_no_osc(monkeypatch) -> None:
     shell.set_cursor_color("#FF9900")
 
     stream = FakeStdout(tty=True)
-    monkeypatch.setattr("pysh.shell.sys.stdout", stream)
+    monkeypatch.setattr("pysh.core.shell.sys.stdout", stream)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("NO_COLOR", "1")
     shell._apply_cursor_color()
@@ -130,7 +130,7 @@ def test_enabled_tty_gate_emits_set_osc_once_and_reset(monkeypatch) -> None:
     shell = PyShell()
     shell.set_cursor_color_enabled(True)
     shell.set_cursor_color("#FF9900")
-    monkeypatch.setattr("pysh.shell.sys.stdout", stream)
+    monkeypatch.setattr("pysh.core.shell.sys.stdout", stream)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.delenv("NO_COLOR", raising=False)
 
@@ -150,7 +150,7 @@ def test_enabled_tty_gate_emits_set_osc_once_and_reset(monkeypatch) -> None:
 def test_reset_does_not_emit_if_never_applied(monkeypatch) -> None:
     stream = FakeStdout(tty=True)
     shell = PyShell()
-    monkeypatch.setattr("pysh.shell.sys.stdout", stream)
+    monkeypatch.setattr("pysh.core.shell.sys.stdout", stream)
 
     shell._reset_cursor_color()
 

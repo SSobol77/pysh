@@ -11,7 +11,7 @@
 # See the LICENSE file in the project root for full license text.
 from __future__ import annotations
 
-from pysh.lineedit.buffer import LineBuffer, _display_width
+from pysh.editor.lineedit.buffer import LineBuffer, _display_width
 
 
 def test_edit_operations_and_bounds() -> None:

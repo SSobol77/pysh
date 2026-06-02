@@ -31,7 +31,7 @@ import tty
 from dataclasses import dataclass
 from typing import IO
 
-from pysh.colors import colorize, parse_color
+from pysh.prompt.colors import colorize, parse_color
 
 
 @dataclass(frozen=True)

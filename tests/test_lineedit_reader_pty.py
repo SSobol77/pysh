@@ -21,10 +21,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from pysh.completion import Completer
-from pysh.lineedit.autosuggest import AutoSuggester
-from pysh.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
-from pysh.lineedit.reader import RawLineReader
+from pysh.editor.completion import Completer
+from pysh.editor.lineedit.autosuggest import AutoSuggester
+from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
+from pysh.editor.lineedit.reader import RawLineReader
 
 CSI_RE = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from pysh.system_info import SystemSummary, get_system_summary
+from pysh.diagnostics.system_info import SystemSummary, get_system_summary
 
 
 class TestSystemSummary:

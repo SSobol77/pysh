@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from pysh.parser import strip_comments
-from pysh.shell import PyShell
+from pysh.core.shell import PyShell
+from pysh.parsing.parser import strip_comments
 
 
 # ---------------------------------------------------------------- strip_comments

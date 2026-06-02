@@ -24,8 +24,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import IO
 
-from pysh.parser import ChainOp, split_chain, split_pipeline
-from pysh.python_runtime import PY_BLOCK_OPENER, is_block_opener
+from pysh.parsing.parser import ChainOp, split_chain, split_pipeline
+from pysh.python_layer.runtime import PY_BLOCK_OPENER, is_block_opener
 
 ZSH_DELEGATION_BUILTINS: frozenset[str] = frozenset({"zsh", "zsh_fallback"})
 SCRIPT_BUILTINS: frozenset[str] = frozenset({"run_script", "source", ".", "source_zsh"})

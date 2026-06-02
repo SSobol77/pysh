@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from pysh.rc import WHILE_ITER_LIMIT, evaluate_condition, execute_rc
+from pysh.config.rc import WHILE_ITER_LIMIT, evaluate_condition, execute_rc
 
 
 # --------------------------------------------------------------- conditions

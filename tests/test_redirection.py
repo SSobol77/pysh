@@ -12,7 +12,7 @@
 """Tests for the redirection parser."""
 from __future__ import annotations
 
-from pysh.redirection import parse_redirections
+from pysh.parsing.redirection import parse_redirections
 
 
 def test_no_redirection() -> None:

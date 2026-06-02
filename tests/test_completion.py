@@ -12,8 +12,8 @@
 """Tests for interactive completion metadata."""
 from __future__ import annotations
 
-from pysh.completion import Completer
-from pysh.shell import PyShell
+from pysh.core.shell import PyShell
+from pysh.editor.completion import Completer
 
 
 def test_completer_builtin_list_matches_shell_builtins() -> None:

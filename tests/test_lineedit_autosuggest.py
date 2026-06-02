@@ -11,7 +11,7 @@
 # See the LICENSE file in the project root for full license text.
 from __future__ import annotations
 
-from pysh.lineedit.autosuggest import AutoSuggester
+from pysh.editor.lineedit.autosuggest import AutoSuggester
 
 
 def test_suggest_most_recent_distinct_tail() -> None:

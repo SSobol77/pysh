@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from pysh.profile_importer import CompatAction, analyze_compatibility
-from pysh.shell import PyShell
+from pysh.compat.profile_importer import CompatAction, analyze_compatibility
+from pysh.core.shell import PyShell
 
 
 def test_source_zsh_profile_imports_simple_aliases(

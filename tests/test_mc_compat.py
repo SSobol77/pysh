@@ -16,8 +16,8 @@ import unittest.mock as mock
 
 import pytest
 
-from pysh.mc_compat import is_mc_environment
-from pysh.shell import PyShell
+from pysh.compat.mc import is_mc_environment
+from pysh.core.shell import PyShell
 
 # ---------------------------------------------------------------- detection
 
@@ -78,7 +78,7 @@ def test_mc_env_disables_raw_editor(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with mock.patch.object(PyShell, "_stdio_is_tty", return_value=True):
         # Patch where the name is bound inside shell.py, not at the source module.
-        with mock.patch("pysh.shell.colors_enabled", return_value=True):
+        with mock.patch("pysh.core.shell.colors_enabled", return_value=True):
             assert not shell._should_use_raw_editor()
 
 
@@ -90,7 +90,7 @@ def test_no_mc_env_allows_raw_editor(monkeypatch: pytest.MonkeyPatch) -> None:
     import unittest.mock as mock
 
     with mock.patch.object(PyShell, "_stdio_is_tty", return_value=True):
-        with mock.patch("pysh.shell.colors_enabled", return_value=True):
+        with mock.patch("pysh.core.shell.colors_enabled", return_value=True):
             assert shell._should_use_raw_editor()
 
 
@@ -132,7 +132,7 @@ def test_mc_builtin_auto_adds_no_subshell(
     shell = PyShell()
     calls: list[list[str]] = []
 
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
     monkeypatch.setattr(
         shell,
         "_run_external",
@@ -150,7 +150,7 @@ def test_mc_builtin_preserves_existing_no_subshell(monkeypatch: pytest.MonkeyPat
     shell = PyShell()
     calls: list[list[str]] = []
 
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
     monkeypatch.setattr(
         shell,
         "_run_external",
@@ -168,7 +168,7 @@ def test_mc_builtin_auto_warning_once_per_session(
     shell = PyShell()
     calls: list[list[str]] = []
 
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
     monkeypatch.setattr(
         shell,
         "_run_external",
@@ -190,7 +190,7 @@ def test_mc_builtin_auto_warning_can_be_disabled(
     shell.set_mc_warning_enabled(False)
     calls: list[list[str]] = []
 
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
     monkeypatch.setattr(
         shell,
         "_run_external",
@@ -208,7 +208,7 @@ def test_mc_builtin_safe_removes_subshell_request(monkeypatch: pytest.MonkeyPatc
     shell.set_mc_integration("safe")
     calls: list[list[str]] = []
 
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
     monkeypatch.setattr(
         shell,
         "_run_external",
@@ -228,7 +228,7 @@ def test_mc_builtin_passthrough_modes(
     shell.set_mc_integration(mode)
     calls: list[list[str]] = []
 
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda name: "/usr/bin/mc" if name == "mc" else None)
     monkeypatch.setattr(
         shell,
         "_run_external",
@@ -242,7 +242,7 @@ def test_mc_builtin_passthrough_modes(
 def test_mc_builtin_missing_external_returns_127(monkeypatch: pytest.MonkeyPatch) -> None:
     shell = PyShell()
 
-    monkeypatch.setattr("pysh.shell.shutil.which", lambda _name: None)
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda _name: None)
     with mock.patch.object(shell, "_run_external") as run_external:
         assert shell.execute("mc") == 127
     run_external.assert_not_called()

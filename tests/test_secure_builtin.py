@@ -17,8 +17,8 @@ import sys
 
 import pytest
 
-import pysh.secure_runner as secure_runner
-from pysh.shell import PyShell
+import pysh.security.secure_runner as secure_runner
+from pysh.core.shell import PyShell
 
 
 def test_secure_builtin_no_args_returns_usage(capsys: pytest.CaptureFixture[str]) -> None:

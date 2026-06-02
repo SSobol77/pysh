@@ -25,7 +25,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from pysh.rc import execute_rc
+from pysh.config.rc import execute_rc
 
 PLUGIN_DIR = Path("~/.pyshrc.d").expanduser()
 PLUGIN_SUFFIX = ".pysh"

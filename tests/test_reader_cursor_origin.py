@@ -35,10 +35,10 @@ SRC = str(Path(__file__).resolve().parents[1] / "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from pysh.lineedit.autosuggest import AutoSuggester  # noqa: E402
-from pysh.lineedit.buffer import _display_width  # noqa: E402
-from pysh.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter  # noqa: E402
-from pysh.lineedit.reader import RawLineReader, _visible_width  # noqa: E402
+from pysh.editor.lineedit.autosuggest import AutoSuggester  # noqa: E402
+from pysh.editor.lineedit.buffer import _display_width  # noqa: E402
+from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter  # noqa: E402
+from pysh.editor.lineedit.reader import RawLineReader, _visible_width  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not hasattr(os, "openpty"), reason="pty unavailable")
 

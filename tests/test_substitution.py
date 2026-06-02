@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from pysh.parser import expand_command_substitution
+from pysh.parsing.parser import expand_command_substitution
 
 
 def _record_runner(log: list[str]):

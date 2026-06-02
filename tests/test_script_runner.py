@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from pysh.core.shell import PyShell
 from pysh.script_runner import ScriptRunner, detect_script_type
-from pysh.shell import PyShell
 
 
 def test_detects_zsh_bash_and_sh_shebangs(tmp_path: Path) -> None:

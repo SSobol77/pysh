@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-# File: src/pysh/shell.py
+# File: src/pysh/prompt/__init__.py
 # Repository: https://github.com/SSobol77/pysh
 # PyPI: https://pypi.org/project/pysh-shell
 #
@@ -9,13 +9,5 @@
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See the LICENSE file in the project root for full license text.
-"""Compatibility import shim for the moved PyShell runtime.
-
-The runtime implementation lives in pysh.core.shell.
-Scheduled removal milestone: GitHub Issue #19.
-"""
+"""Prompt rendering support."""
 from __future__ import annotations
-
-from pysh.core.shell import PyShell
-
-__all__ = ["PyShell"]

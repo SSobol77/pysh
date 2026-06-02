@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from pysh.shell import PyShell
-from pysh.zsh_bridge import ZSH_MISSING_STATUS, ZshResult
+from pysh.compat.zsh_bridge import ZSH_MISSING_STATUS, ZshResult
+from pysh.core.shell import PyShell
 
 
 class _FakeZshBridge:

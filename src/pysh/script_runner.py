@@ -20,8 +20,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from pysh.parser import ChainOp, split_chain
-from pysh.python_runtime import is_block_opener, iter_logical_lines
+from pysh.parsing.parser import ChainOp, split_chain
+from pysh.python_layer.runtime import is_block_opener, iter_logical_lines
 
 SUPPORTED_INTERPRETERS = frozenset({"zsh", "bash", "sh"})
 

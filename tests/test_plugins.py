@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pysh.plugins import discover_plugins, load_plugins
+from pysh.config.plugins import discover_plugins, load_plugins
 
 
 def test_discover_plugins_returns_lexicographic_order(tmp_path: Path) -> None:

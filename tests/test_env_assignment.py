@@ -21,8 +21,8 @@ import unittest.mock as mock
 
 import pytest
 
-from pysh.parser import parse_leading_env_assignments
-from pysh.shell import PyShell
+from pysh.core.shell import PyShell
+from pysh.parsing.parser import parse_leading_env_assignments
 
 # ---------------------------------------------------------------- parser unit tests
 
@@ -180,7 +180,7 @@ def test_command_substitution_in_assignment_value(
     # the bound name in that module to avoid subprocess.run / Popen conflicts.
     with (
         mock.patch(
-            "pysh.shell.expand_command_substitution",
+            "pysh.core.shell.expand_command_substitution",
             side_effect=lambda text, **_kw: text.replace("$(echo hello)", "hello"),
         ),
         mock.patch("subprocess.Popen", mock_popen),

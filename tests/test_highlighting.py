@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import io
 
-from pysh.highlighting import (
+from pysh.editor.highlight import (
     TokenKind,
     classify,
     colors_enabled,

@@ -29,7 +29,7 @@ from __future__ import annotations
 import re
 from typing import IO
 
-from pysh.highlighting import colors_enabled, paint
+from pysh.editor.highlight import colors_enabled, paint
 
 # ---------------------------------------------------------------------------
 # Defensive Pygments import — the package depends on it at runtime, but render

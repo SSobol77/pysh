@@ -26,7 +26,7 @@ import os
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from pysh.lineedit.completion import (
+from pysh.editor.lineedit.completion import (
     CompletionResult,
     apply_single_completion,
     complete_line,

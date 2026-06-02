@@ -27,7 +27,7 @@ Recognised fields:
 
 This module never starts services. It is a metadata-only layer that allows
 PySH and PyInit to share a vocabulary; the actual control plane lives in
-:mod:`pysh.service`.
+:mod:`pysh.services.service`.
 """
 from __future__ import annotations
 
