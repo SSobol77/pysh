@@ -11,6 +11,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -51,6 +52,18 @@ from pysh.config.api import (
 from pysh.config.plugins import PLUGIN_DIR, load_plugins
 from pysh.config.rc import RC_PATH, execute_rc, load_default_rc
 from pysh.core.errors import ExitCode
+from pysh.core.jobs import (
+    Job,
+    JobStatus,
+    JobTable,
+    _raw_to_exit,
+    has_job_control,
+    make_child_preexec,
+    open_tty,
+    reset_child_job_control_signals,
+    sigtstp_exit_status,
+    tcsetpgrp_safely,
+)
 from pysh.core.signals import returncode_to_exit_status
 from pysh.diagnostics.command_plan import plan as run_plan
 from pysh.editor.completion import Completer
@@ -197,6 +210,9 @@ class PyShell:
             "pushd",
             "popd",
             "dirs",
+            "jobs",
+            "fg",
+            "bg",
             "svc",
             "source_zsh",
             "source_zsh_profile",
@@ -234,6 +250,8 @@ class PyShell:
         self.aliases: dict[str, str] = dict(self.DEFAULT_ALIASES)
         self.last_status: int = 0
         self.dir_stack: list[Path] = []
+        self.job_table: JobTable = JobTable()
+        self._tty_fd: int | None = None
         self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
         self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
@@ -279,8 +297,19 @@ class PyShell:
             print(f"pysh: created {PYSHRC_PY_PATH}")
         load_python_config(self)
         self._apply_cursor_color()
+        # Job control: open /dev/tty and set SIGTSTP to SIG_IGN so the shell
+        # itself is never suspended by Ctrl+Z; the foreground child resets it.
+        if self._stdio_is_tty():
+            self._tty_fd = open_tty()
+            if has_job_control():
+                try:
+                    signal.signal(signal.SIGTSTP, signal.SIG_IGN)
+                except OSError:
+                    pass
         try:
             while True:
+                # Reap completed background jobs before showing the prompt.
+                self._reap_and_notify_jobs()
                 try:
                     info_line = self._prompt_info_line()
                     if self._should_use_raw_editor() and self.line_reader.has_queued_commands():
@@ -316,6 +345,18 @@ class PyShell:
         finally:
             self._reset_cursor_color()
             self._save_history()
+            # Clean up tty fd and restore SIGTSTP.
+            if self._tty_fd is not None:
+                try:
+                    os.close(self._tty_fd)
+                except OSError:
+                    pass
+                self._tty_fd = None
+            if has_job_control():
+                try:
+                    signal.signal(signal.SIGTSTP, signal.SIG_DFL)
+                except OSError:
+                    pass
 
     def _collect_block_interactive(self, opener: str) -> str | None:
         """Read continuation lines until the ``py { ... }`` block closes.
@@ -445,13 +486,17 @@ class PyShell:
         run_next = True
         for elem in chain:
             if run_next:
-                status = self._run_chain_element(elem.command, heredoc_bodies)
+                is_background = elem.operator is ChainOp.BACKGROUND
+                status = self._run_chain_element(
+                    elem.command, heredoc_bodies, background=is_background
+                )
                 self.last_status = status
             if elem.operator is ChainOp.AND:
                 run_next = status == 0
             elif elem.operator is ChainOp.OR:
                 run_next = status != 0
             else:
+                # SEMI, BACKGROUND, or None: always run next element.
                 run_next = True
         return status
 
@@ -460,6 +505,8 @@ class PyShell:
         self,
         command: str,
         heredoc_bodies: list[HereDocBody] | None = None,
+        *,
+        background: bool = False,
     ) -> int:
         try:
             stages = split_pipeline(command)
@@ -477,15 +524,22 @@ class PyShell:
         _sv = {"?": str(self.last_status)}
         stages = [expand_variables(s, self.local_vars, special_vars=_sv) for s in stages]
         if len(stages) == 1:
-            return self._run_simple(stages[0], heredoc_bodies)
+            return self._run_simple(stages[0], heredoc_bodies, background=background)
         if not heredoc_bodies:
-            return self._run_pipeline(stages, original_command=command)
-        return self._run_pipeline(stages, original_command=command, heredoc_bodies=heredoc_bodies)
+            return self._run_pipeline(stages, original_command=command, background=background)
+        return self._run_pipeline(
+            stages,
+            original_command=command,
+            heredoc_bodies=heredoc_bodies,
+            background=background,
+        )
 
     def _run_simple(
         self,
         stage: str,
         heredoc_bodies: list[HereDocBody] | None = None,
+        *,
+        background: bool = False,
     ) -> int:
         try:
             clean, spec = parse_redirections(stage, heredoc_bodies)
@@ -511,13 +565,14 @@ class PyShell:
                 self.local_vars[name] = value
             return 0
         if cmd_argv[0] in self.BUILTINS:
-            # Builtins run in-process; temporary env assignments do not apply.
+            # Builtins run in-process; background flag has no effect for builtins.
             return self._dispatch_builtin(cmd_argv)
         return self._run_external(
             cmd_argv,
             spec,
             original_stage=stage,
             env_overrides=env_overrides if env_overrides else None,
+            background=background,
         )
 
     def _run_pipeline(
@@ -526,6 +581,7 @@ class PyShell:
         *,
         original_command: str,
         heredoc_bodies: list[HereDocBody] | None = None,
+        background: bool = False,
     ) -> int:
         parsed: list[tuple[list[str], RedirectionSpec, dict[str, str] | None]] = []
         remaining_heredocs = heredoc_bodies if heredoc_bodies is not None else []
@@ -553,6 +609,9 @@ class PyShell:
         procs: list[subprocess.Popen[bytes]] = []
         opened: list[IO[bytes]] = []
         prev_out: IO[bytes] | None = None
+        pipeline_pgid: int | None = None
+        jc_available = has_job_control()
+
         try:
             for i, (argv, spec, env_overrides) in enumerate(parsed):
                 is_first = i == 0
@@ -599,6 +658,19 @@ class PyShell:
                 else:
                     stderr_arg = None
 
+                # Build preexec_fn for process-group assignment.
+                preexec_fn: Callable[[], None] | None = None
+                if jc_available:
+                    if is_first:
+                        preexec_fn = make_child_preexec
+                    else:
+                        # Subsequent stages join the first process's group.
+                        _target_pgid = pipeline_pgid
+                        def _join_pgid(pgid: int = _target_pgid) -> None:  # type: ignore[assignment]
+                            os.setpgid(0, pgid)
+                            reset_child_job_control_signals()
+                        preexec_fn = _join_pgid
+
                 try:
                     proc = subprocess.Popen(  # noqa: S603 - user-issued command
                         argv,
@@ -606,6 +678,7 @@ class PyShell:
                         stdin=stdin_arg,
                         stdout=stdout_arg,
                         stderr=stderr_arg,
+                        preexec_fn=preexec_fn,
                     )
                 except FileNotFoundError:
                     if self.zsh_fallback_enabled and argv[0] not in self.BUILTINS:
@@ -623,6 +696,14 @@ class PyShell:
                         p.wait()
                     return ExitCode.COMMAND_NOT_FOUND
 
+                if is_first and jc_available:
+                    pipeline_pgid = proc.pid
+                if jc_available and pipeline_pgid is not None:
+                    try:
+                        os.setpgid(proc.pid, pipeline_pgid)
+                    except OSError:
+                        pass
+
                 # The parent must close the read end of the previous pipe so
                 # that the child receives EOF after the upstream stage exits.
                 if prev_out is not None:
@@ -630,13 +711,40 @@ class PyShell:
                 prev_out = proc.stdout
                 procs.append(proc)
 
+            if not procs:
+                return ExitCode.SUCCESS
+
+            pids = [p.pid for p in procs]
+            pgid = pipeline_pgid or (procs[0].pid if procs else 0)
+
+            if background:
+                # Register as background job; do not wait.
+                job = self.job_table.add_job(
+                    pgid, original_command, pids, background=True
+                )
+                print(f"[{job.job_id}] {pids[-1]}", flush=True)
+                return ExitCode.SUCCESS
+
+            # Foreground pipeline: give terminal, wait, restore terminal.
+            tty_fd = self._tty_fd
+            if tty_fd is not None and pgid:
+                if not tcsetpgrp_safely(tty_fd, pgid):
+                    tty_fd = None
+
             try:
                 results = [p.wait() for p in procs]
             except KeyboardInterrupt:
                 for p in procs:
-                    p.terminate()
+                    try:
+                        p.terminate()
+                    except OSError:
+                        pass
                 results = [p.wait() for p in procs]
                 return ExitCode.SIGINT
+            finally:
+                if tty_fd is not None:
+                    tcsetpgrp_safely(tty_fd, os.getpgrp())
+
             return returncode_to_exit_status(results[-1]) if results else ExitCode.SUCCESS
         finally:
             for f in opened:
@@ -657,6 +765,7 @@ class PyShell:
         *,
         original_stage: str | None = None,
         env_overrides: dict[str, str] | None = None,
+        background: bool = False,
     ) -> int:
         child_env: dict[str, str] | None = None
         if env_overrides:
@@ -666,6 +775,10 @@ class PyShell:
         stdout_f: IO[bytes] | None = None
         stderr_f: IO[bytes] | None = None
         stderr_arg: IO[bytes] | int | None
+
+        jc_available = has_job_control()
+        preexec_fn: Callable[[], None] | None = make_child_preexec if jc_available else None
+
         try:
             if spec.stdin_path:
                 stdin_f = open(spec.stdin_path, "rb")
@@ -689,6 +802,7 @@ class PyShell:
                     stdin=stdin_f,
                     stdout=stdout_f,
                     stderr=stderr_arg,
+                    preexec_fn=preexec_fn,
                 )
             except FileNotFoundError:
                 if self.zsh_fallback_enabled and original_stage is not None:
@@ -698,12 +812,82 @@ class PyShell:
             except PermissionError as exc:
                 print(f"pysh: {argv[0]}: {exc}", file=sys.stderr)
                 return ExitCode.CANNOT_EXECUTE
+
+            pgid = proc.pid
+            cmd_text = original_stage or " ".join(argv)
+            if jc_available:
+                try:
+                    os.setpgid(proc.pid, pgid)
+                except OSError:
+                    pass
+
+            if background:
+                # Register as background job; return immediately.
+                job = self.job_table.add_job(pgid, cmd_text, [proc.pid], background=True)
+                print(f"[{job.job_id}] {proc.pid}", flush=True)
+                return ExitCode.SUCCESS
+
+            # Foreground: give terminal to child's process group.
+            tty_fd = self._tty_fd
+            if tty_fd is not None:
+                if not tcsetpgrp_safely(tty_fd, pgid):
+                    tty_fd = None
+
             try:
-                return returncode_to_exit_status(proc.wait())
-            except KeyboardInterrupt:
-                proc.terminate()
-                proc.wait()
-                return ExitCode.SIGINT
+                if jc_available and hasattr(os, "WUNTRACED"):
+                    # Use os.waitpid with WUNTRACED to detect Ctrl+Z stops.
+                    # Falls back to proc.wait() when pid is unavailable
+                    # (e.g., test environments that mock subprocess.Popen).
+                    try:
+                        _, raw_status = os.waitpid(proc.pid, os.WUNTRACED)
+                    except ChildProcessError:
+                        # pid not a real child (mock or already reaped).
+                        try:
+                            return returncode_to_exit_status(proc.wait())
+                        except KeyboardInterrupt:
+                            proc.terminate()
+                            proc.wait()
+                            return ExitCode.SIGINT
+                    except (TypeError, ValueError, OSError):
+                        # proc.pid not usable as a pid (e.g., mock object).
+                        try:
+                            return returncode_to_exit_status(proc.wait())
+                        except KeyboardInterrupt:
+                            proc.terminate()
+                            proc.wait()
+                            return ExitCode.SIGINT
+                    except KeyboardInterrupt:
+                        try:
+                            os.killpg(pgid, signal.SIGINT)
+                        except OSError:
+                            pass
+                        try:
+                            os.waitpid(proc.pid, 0)
+                        except OSError:
+                            pass
+                        return ExitCode.SIGINT
+                    if hasattr(os, "WIFSTOPPED") and os.WIFSTOPPED(raw_status):
+                        # Child stopped by Ctrl+Z (SIGTSTP).
+                        job = self.job_table.add_job(
+                            pgid, cmd_text, [proc.pid], background=False
+                        )
+                        self.job_table.mark_stopped(job.job_id)
+                        print(
+                            f"\n[{job.job_id}]+ Stopped     {cmd_text}",
+                            file=sys.stderr,
+                        )
+                        return sigtstp_exit_status()
+                    return _raw_to_exit(raw_status)
+                else:
+                    try:
+                        return returncode_to_exit_status(proc.wait())
+                    except KeyboardInterrupt:
+                        proc.terminate()
+                        proc.wait()
+                        return ExitCode.SIGINT
+            finally:
+                if tty_fd is not None:
+                    tcsetpgrp_safely(tty_fd, os.getpgrp())
         except OSError as exc:
             print(f"pysh: {exc}", file=sys.stderr)
             return ExitCode.GENERAL_ERROR
@@ -732,6 +916,9 @@ class PyShell:
             "pushd": self._builtin_pushd,
             "popd": self._builtin_popd,
             "dirs": self._builtin_dirs,
+            "jobs": self._builtin_jobs,
+            "fg": self._builtin_fg,
+            "bg": self._builtin_bg,
             "svc": self._builtin_svc,
             "source_zsh": self._builtin_source_zsh,
             "source_zsh_profile": self._builtin_source_zsh_profile,
@@ -1121,6 +1308,133 @@ class PyShell:
             return "~/" + str(rel)
         except ValueError:
             return str(path)
+
+    # ----------------------------------------------------------------- job control
+    def _builtin_jobs(self, _args: list[str]) -> int:
+        """List tracked background and stopped jobs."""
+        self._reap_and_notify_jobs()
+        output = self.job_table.format_jobs()
+        if output:
+            print(output)
+        # Done jobs are removed after being displayed once.
+        self.job_table.remove_done()
+        return 0
+
+    def _builtin_fg(self, args: list[str]) -> int:
+        """Bring a job to the foreground."""
+        if not args:
+            job = self.job_table.get_current_job()
+            if job is None:
+                print("fg: no current job", file=sys.stderr)
+                return 1
+        else:
+            job = self._resolve_job_arg(args, "fg")
+            if job is None:
+                return 1
+        print(job.command_text)
+
+        tty_fd = self._tty_fd
+        if tty_fd is not None and job.pgid > 0:
+            if not tcsetpgrp_safely(tty_fd, job.pgid):
+                tty_fd = None
+
+        if job.status == JobStatus.STOPPED and job.pgid > 0:
+            try:
+                os.killpg(job.pgid, signal.SIGCONT)
+            except OSError:
+                pass
+        self.job_table.mark_running(job.job_id)
+
+        try:
+            return self._wait_for_job(job)
+        finally:
+            if tty_fd is not None:
+                tcsetpgrp_safely(tty_fd, os.getpgrp())
+
+    def _builtin_bg(self, args: list[str]) -> int:
+        """Resume a stopped job in the background."""
+        if not args:
+            job = self.job_table.get_current_job()
+            if job is None:
+                print("bg: no current job", file=sys.stderr)
+                return 1
+        else:
+            job = self._resolve_job_arg(args, "bg")
+            if job is None:
+                return 1
+        if job.status != JobStatus.STOPPED:
+            print(f"bg: [{job.job_id}] job is not stopped", file=sys.stderr)
+            return 1
+        if job.pgid > 0:
+            try:
+                os.killpg(job.pgid, signal.SIGCONT)
+            except OSError as exc:
+                print(f"bg: [{job.job_id}] {exc}", file=sys.stderr)
+                return 1
+        self.job_table.mark_running(job.job_id)
+        job.background = True
+        print(f"[{job.job_id}]+ {job.command_text} &", flush=True)
+        return 0
+
+    def _resolve_job_arg(self, args: list[str], builtin: str) -> Job | None:
+        """Return the job referenced by ``args``, or the current job if no args.
+
+        Returns None on lookup failure; the caller handles the error message.
+        """
+        if not args:
+            return self.job_table.get_current_job()
+        raw = args[0]
+        if raw.startswith("%"):
+            raw = raw[1:]
+        try:
+            job_id = int(raw)
+        except ValueError:
+            print(f"{builtin}: {args[0]}: no such job", file=sys.stderr)
+            return None
+        job = self.job_table.get_job(job_id)
+        if job is None:
+            print(f"{builtin}: {job_id}: no such job", file=sys.stderr)
+        return job
+
+    def _wait_for_job(self, job: Job) -> int:
+        """Wait for *job* to finish or stop.  Returns PySH exit status."""
+        exit_status = 0
+        try:
+            for pid in list(job.pids):
+                try:
+                    _, raw_status = os.waitpid(pid, getattr(os, "WUNTRACED", 0))
+                except ChildProcessError:
+                    continue
+                if hasattr(os, "WIFSTOPPED") and os.WIFSTOPPED(raw_status):
+                    self.job_table.mark_stopped(job.job_id)
+                    print(
+                        f"\n[{job.job_id}]+ Stopped     {job.command_text}",
+                        file=sys.stderr,
+                    )
+                    return sigtstp_exit_status()
+                exit_status = _raw_to_exit(raw_status)
+        except KeyboardInterrupt:
+            if job.pgid > 0:
+                try:
+                    os.killpg(job.pgid, signal.SIGINT)
+                except OSError:
+                    pass
+            for pid in list(job.pids):
+                try:
+                    os.waitpid(pid, 0)
+                except OSError:
+                    pass
+            self.job_table.mark_done(job.job_id, ExitCode.SIGINT)
+            return ExitCode.SIGINT
+        self.job_table.mark_done(job.job_id, exit_status)
+        return exit_status
+
+    def _reap_and_notify_jobs(self) -> None:
+        """Non-blocking reap of completed background jobs with notifications."""
+        reaped = self.job_table.reap_background_jobs()
+        for job, status in reaped:
+            label = "Done" if status == 0 else f"Done({status})"
+            print(f"[{job.job_id}]  {label:<12}{job.command_text}", file=sys.stderr)
 
     # ----------------------------------------------------------------- svc
     def _builtin_svc(self, args: list[str]) -> int:

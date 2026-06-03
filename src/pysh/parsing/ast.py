@@ -15,6 +15,7 @@ class ChainOp(StrEnum):
     SEMI = ";"
     AND = "&&"
     OR = "||"
+    BACKGROUND = "&"
 
 
 @dataclass(frozen=True)

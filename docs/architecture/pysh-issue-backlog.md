@@ -512,7 +512,7 @@ sequence is integrated.
 | #8 | Parser, expansion and multiline grammar foundation |
 | #9 | Native glob and path expansion |
 | #10 | Here-documents |
-| #11 | Job control and process groups |
+| #11 | Job control and process groups (Implemented) |
 | #12 | Completion engine v1 |
 | #13 | Observability and diagnostics |
 | #14 | Script mode v1 |

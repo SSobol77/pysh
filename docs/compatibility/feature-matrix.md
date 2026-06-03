@@ -58,6 +58,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Builtins | `sys_info`, `env_audit`, `path_audit` | Supported | Native | `tests/test_system_profile.py`, `tests/test_system_info.py` | — |
 | Builtins | `which_all`, `apt_check`, `apt_search` | Supported | Native | `tests/test_system_profile.py` | — |
 | Builtins | `mc` (MC wrapper) | Supported | Native | `tests/test_mc_compat.py` | — |
+| Builtins | `jobs`, `fg`, `bg` | Supported | Native | `tests/test_job_control.py` | #11 |
 | Builtins | `exit`, `quit` | Supported | Native | `tests/test_shell.py` | — |
 | Builtins | `source_zsh` | Supported | Transition | `tests/test_profile_importer.py` | — |
 | Builtins | `source_zsh_profile` | Supported | Transition | `tests/test_profile_importer.py` | — |
@@ -125,6 +126,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Operators | `\|\|` (conditional OR) | Supported | Native | `tests/test_parser.py` | — |
 | Operators | `\|` (pipe) | Supported | Native | `tests/test_parser.py` | — |
 | Operators | Trailing pipe parse error | Supported | Native | `tests/test_parser_foundation.py` | #8 |
+| Operators | `&` (background execution) | Supported | Native | `tests/test_job_control.py` | #11 |
 
 ## Pipelines
 
@@ -329,7 +331,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Signal handling | `py` builtin `KeyboardInterrupt` → `$?=130` | Supported | Native | `tests/test_signal_handling.py` | #6 |
 | Signal handling | Terminal state restored after Ctrl+C | Supported | Native | `tests/test_lineedit_reader_pty.py` | #6 |
 | Signal handling | Bracketed paste disabled after Ctrl+C | Supported | Native | `src/pysh/editor/lineedit/reader.py` | #6 |
-| Signal handling | SIGTSTP job suspend/resume | Unsupported | Planned | — | #11 |
+| Signal handling | SIGTSTP job suspend/resume | Supported | Native | `tests/test_job_control.py` | #11 |
 
 ## Traps
 
@@ -343,12 +345,14 @@ shell feature area in PySH 0.5.x. Category definitions are in
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| Job control | Background execution (`cmd &`) | Unsupported | Planned | — | #11 |
-| Job control | `jobs` | Unsupported | Planned | — | #11 |
-| Job control | `bg` | Unsupported | Planned | — | #11 |
-| Job control | `fg` | Unsupported | Planned | — | #11 |
-| Job control | TTY suspend key (SIGTSTP) | Unsupported | Planned | — | #11 |
-| Job control | `wait` builtin | Unsupported | Planned | — | #11 |
+| Job control | Background execution (`cmd &`) | Supported | Native | `tests/test_job_control.py` | #11 |
+| Job control | `jobs` | Supported | Native | `tests/test_job_control.py` | #11 |
+| Job control | `bg` | Supported | Native | `tests/test_job_control.py` | #11 |
+| Job control | `fg` | Supported | Native | `tests/test_job_control.py` | #11 |
+| Job control | TTY suspend key (SIGTSTP) / Ctrl+Z | Supported | Native | `tests/test_job_control.py`, `docs/architecture/job-control-contract.md` | #11 |
+| Job control | Process-group isolation (foreground/background) | Supported | Native | `tests/test_job_control.py` | #11 |
+| Job control | Background job reaping before prompt | Supported | Native | `tests/test_job_control.py` | #11 |
+| Job control | `wait` builtin | Unsupported | Planned | — | — |
 | Job control | `disown` | Unsupported | Unsupported | — | — |
 
 ## Process substitution

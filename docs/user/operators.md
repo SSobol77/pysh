@@ -153,8 +153,32 @@ world
 
 The command above is parsed as `echo hello world`.
 
+## Background execution
+
+Syntax: `cmd &`
+
+Purpose: Run `cmd` in the background.  The shell returns to the prompt
+immediately; `cmd` runs asynchronously in its own process group.
+
+Examples:
+
+```sh
+sleep 30 &
+ls | grep py &
+echo first & echo second
+```
+
+The shell prints `[N] PID` when the job starts.  Background output is not
+suppressed; redirect it if needed.  Use `jobs` to list jobs, `fg` to bring a
+job to the foreground, and `bg` to resume a stopped job in the background.
+
+A bare `&` with no preceding command is a parse error (status 2).
+
+`&&` (conditional AND) and `&>` / `&>>` (redirections) are NOT background
+operators and continue to work unchanged.
+
 ## Known limitations
 
 PySH does not implement the full POSIX, bash or zsh grammar. Current
-non-goals include job control operators, process substitution, brace
-expansion, shell arrays and multiline shell functions.
+non-goals include process substitution, brace expansion, shell arrays and
+multiline shell functions.

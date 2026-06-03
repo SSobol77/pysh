@@ -73,7 +73,7 @@ The formula is implemented in:
 | **External command** | Child receives SIGINT via PTY/tty; parent catches `KeyboardInterrupt`, terminates child, returns 130 | Child returncode mapped via `returncode_to_exit_status` → 143 | Unsupported — Issue #11 | Yes — file descriptors closed in `finally` |
 | **Python runtime** (`py` builtin) | `KeyboardInterrupt` caught in `_execute_compiled`; returns 130; no traceback | N/A | N/A | N/A (in-process) |
 | **Secure PTY runner** | `KeyboardInterrupt` sends SIGINT to child via `os.kill`; waits; terminal state restored in `finally` | Child signal mapped via `_status_to_returncode` → 143 | N/A | Yes — `termios.tcsetattr` in `finally` |
-| **Future job control** | Issue #11 | Issue #11 | Issue #11 | Issue #11 |
+| **Job control** | Preserved (see Issue #6 behavior) | Preserved | SIGTSTP stops foreground child; `os.waitpid(WUNTRACED)` detects it; job added to table as Stopped; `$?=148` | Terminal restored via `tcsetpgrp` in `finally` |
 
 ---
 
@@ -138,17 +138,23 @@ PySH does not install a custom SIGTERM handler. Default OS behavior applies:
 
 ## SIGTSTP / Ctrl+Z
 
-**SIGTSTP job suspend/resume is outside Issue #6.**
+**Issue #11 implements SIGTSTP job control for foreground external commands.**
 
-Current state: SIGTSTP is not handled in the line editor or shell run loop.
-If Ctrl+Z is pressed, the terminal may suspend the PySH process using the
-OS default `SIGTSTP` disposition. This is safe but unsupported.
+When PySH is running in interactive mode (both stdin and stdout are TTYs):
 
-Owner issue: **#11** (full job control implementation).
+1. PySH sets its own `SIGTSTP` disposition to `SIG_IGN` at startup so the
+   shell process itself is never stopped by Ctrl+Z.
+2. The foreground child process runs in its own process group.  The child's
+   `preexec_fn` (`make_child_preexec`) resets `SIGTSTP` to `SIG_DFL` so the
+   child can be stopped.
+3. PySH waits with `os.waitpid(pid, WUNTRACED)` so it can detect when the
+   child is stopped by SIGTSTP.
+4. On detection: the job is registered in the job table as Stopped; the shell
+   returns `148` (= `128 + SIGTSTP`) as `$?`.
+5. The terminal foreground process group is restored to PySH in a `finally`
+   block.
 
-This is documented as unsupported in:
-- `docs/compatibility/feature-matrix.md` (Job control section)
-- `docs/user/limitations.md`
+See [job-control-contract.md](job-control-contract.md) for the full model.
 
 ---
 

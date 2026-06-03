@@ -39,7 +39,7 @@ ANSI C quoting, or full script loop semantics.
 | `fd` duplication `2>&1` | Unsupported | — |
 | Nested command substitution | Unsupported | — |
 | Native glob expansion | Supported (Issue #9) | #9 |
-| Job control | Planned | #11 |
+| Job control (`&`, `jobs`, `fg`, `bg`, Ctrl+Z) | Supported (Issue #11) | #11 |
 | Process substitution `<(cmd)` | Unsupported | — |
 | Brace expansion `{a,b,c}` | Unsupported | — |
 | `case` / `select` statements | Unsupported | — |

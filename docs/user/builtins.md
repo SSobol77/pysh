@@ -216,6 +216,57 @@ Example:
 
 Return behavior: same as `source`.
 
+## `jobs`
+
+Syntax: `jobs`
+
+Purpose: List background and stopped jobs managed by the current shell.
+
+Each line shows `[N]+ STATUS  command_text` where `N` is the job ID, `+`
+marks the current job, and STATUS is one of `Running`, `Stopped`, or `Done`.
+
+Return behavior: returns 0 always.  Done jobs are removed from the table
+after being displayed.
+
+## `fg`
+
+Syntax: `fg [N | %N]`
+
+Purpose: Bring a job to the foreground.  If no argument is given, the current
+job (most recently used alive job) is brought forward.  `%N` is accepted as
+an alias for `N`.
+
+Examples:
+
+```sh
+fg
+fg 2
+fg %1
+```
+
+Return behavior: returns the job's exit status on normal exit, `130` if
+interrupted by Ctrl+C, `148` if stopped again by Ctrl+Z, or `1` if the job
+does not exist or there is no current job.
+
+Limitations: requires a real TTY for full terminal handover.
+
+## `bg`
+
+Syntax: `bg [N | %N]`
+
+Purpose: Resume a stopped job in the background.  If no argument is given,
+the current job is resumed.
+
+Examples:
+
+```sh
+bg
+bg 2
+```
+
+Return behavior: returns `0` on success, `1` if the job is not stopped or
+does not exist.
+
 ## `pushd`
 
 Syntax: `pushd DIRECTORY`

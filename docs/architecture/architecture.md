@@ -23,6 +23,7 @@ lifecycle policy.
 - [parser-expansion-contract.md](parser-expansion-contract.md) — Issue #8: parser modules, expansion order, multiline grammar, unsupported syntax ownership.
 - [signal-handling.md](signal-handling.md) — Issue #6: signal-handling architecture, terminal restoration guarantees, exit-code mapping.
 - [security-trust-model.md](security-trust-model.md) — Issue #7: security and trust model, execution surfaces table, static import policy, sensitive input boundary.
+- [job-control-contract.md](job-control-contract.md) — Issue #11: job-control model, process-group ownership, `jobs`/`fg`/`bg` builtins, SIGTSTP handling, background job reaping.
 - [path-expansion-contract.md](path-expansion-contract.md) — Issue #9: native glob and path expansion, tilde expansion, dotfile policy, quoting contract.
 - [ISSUE-2-refactor-source-tree.md](ISSUE-2-refactor-source-tree.md) — Issue #2 scope (relocation only).
 - [ISSUE-3-architecture-contracts.md](ISSUE-3-architecture-contracts.md) — Issue #3 spec (this implementation).
@@ -54,7 +55,7 @@ It is not a full layer-boundary enforcement; that belongs to Issue #3's successo
 | `pysh` | Package identity and version metadata | `__version__`, `__author__`, `LICENSE_NAME` | Runtime logic |
 | `pysh.__main__` | `python -m pysh` execution shim | Module-level `main()` dispatch | Argument parsing, shell logic |
 | `pysh.cli` | Console script entry point | Argument parsing, `--version`, `-c`, interactive start | Shell execution, builtin dispatch |
-| `pysh.core` | Main shell runtime (fan-in hub) | `PyShell`: REPL loop, all builtin implementations, pipeline and redirection execution; `errors.py`: canonical exit codes; `signals.py`: signal helpers | Parser primitives, editor rendering, config loading (delegates to leaves) |
+| `pysh.core` | Main shell runtime (fan-in hub) | `PyShell`: REPL loop, all builtin implementations, pipeline and redirection execution; `errors.py`: canonical exit codes; `signals.py`: signal helpers; `jobs.py`: job table, POSIX job-control helpers, process-group model | Parser primitives, editor rendering, config loading (delegates to leaves) |
 | `pysh.parsing` | Quote-aware text parsing, expansion, and path glob helpers | Parser AST values, parse errors, lexical scanning, chain/pipeline/paste splitting, multiline continuation, heredoc collection, variable/command substitution helpers, redirection parsing, tilde expansion, glob/path expansion (`tokenize_and_glob_expand`, `expand_tilde`, `expand_path_word`), no-match policy, dotfile policy | Shell state, command dispatch, editor rendering |
 | `pysh.editor` | Interactive line editor (coordinator) | `Completer`, `HistoryManager`, `colors_enabled`, `paint` | Shell state, prompt rendering |
 | `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder` | Higher-level shell concepts, history persistence |

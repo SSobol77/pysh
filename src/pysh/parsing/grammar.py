@@ -58,10 +58,32 @@ def split_chain(line: str) -> list[ChainElement]:
             buf.append(c)
             i += 1
             continue
-        if c == "&" and i + 1 < n and line[i + 1] == "&":
-            parts.append(ChainElement("".join(buf).strip(), ChainOp.AND))
+        if c == "&":
+            if i + 1 < n and line[i + 1] == "&":
+                parts.append(ChainElement("".join(buf).strip(), ChainOp.AND))
+                buf = []
+                i += 2
+                continue
+            if i + 1 < n and line[i + 1] == ">":
+                # &> or &>> redirection -- not a chain operator; pass through as literal.
+                buf.append(c)
+                i += 1
+                continue
+            if i > 0 and line[i - 1] in "><":
+                # Unsupported fd-duplication forms such as 2>&1 or <&0 must
+                # not be misclassified as background execution.  Leave them
+                # intact for the redirection/argv path to reject or pass
+                # consistently with the existing unsupported-syntax contract.
+                buf.append(c)
+                i += 1
+                continue
+            # Bare unquoted & — background execution operator.
+            cmd = "".join(buf).strip()
+            if not cmd:
+                raise ParseError("syntax error near unexpected '&'")
+            parts.append(ChainElement(cmd, ChainOp.BACKGROUND))
             buf = []
-            i += 2
+            i += 1
             continue
         if c == "|" and i + 1 < n and line[i + 1] == "|":
             parts.append(ChainElement("".join(buf).strip(), ChainOp.OR))

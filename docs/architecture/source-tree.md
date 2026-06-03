@@ -41,6 +41,7 @@ src/pysh/
 │
 ├── core/
 │   ├── errors.py            ← canonical ExitCode / PyShError / Diagnostic contract
+│   ├── jobs.py              ← Job, JobTable, JobStatus; POSIX job-control helpers (Issue #11)
 │   ├── shell.py             ← PyShell: REPL loop, command dispatch, builtins
 │   └── signals.py           ← signal return-code and status helpers
 │

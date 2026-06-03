@@ -90,6 +90,15 @@ are gaps that must be resolved before the claim can be published.
 | `secure` PTY runner works | Unit test, PTY test | `tests/test_secure_builtin.py`, `tests/test_secure_runner.py` | None | — |
 | `svc` service control works | Unit test | `tests/test_service.py` | None | — |
 | Multiline paste handling works | PTY test | `tests/test_multiline_paste.py` | None | — |
+| Background execution (`cmd &`) starts job immediately | Unit test | `tests/test_job_control.py` | None | #11 |
+| Background job registers in job table | Unit test | `tests/test_job_control.py` | None | #11 |
+| `jobs` lists running/stopped jobs | Unit test | `tests/test_job_control.py` | None | #11 |
+| `fg` on unknown job → 1 | Unit test | `tests/test_job_control.py` | None | #11 |
+| `bg` on non-stopped job → 1 | Unit test | `tests/test_job_control.py` | None | #11 |
+| Bare `&` is parse error status 2 | Unit test | `tests/test_job_control.py` | None | #11 |
+| `&>` redirection unchanged | Unit test | `tests/test_job_control.py` | None | #11 |
+| `&&` operator unchanged | Unit test | `tests/test_job_control.py` | None | #11 |
+| SIGTSTP → 148 for foreground job | Manual acceptance (TTY required) | `docs/architecture/job-control-contract.md` | Manual test | #11 |
 | History persists across sessions | Unit test | `tests/test_history.py` | None | — |
 | Tab completion (alias/builtin/filesystem) | Unit test | `tests/test_completion.py` | Programmatic completion | #12 |
 | Python `py` one-line execution | Unit test | `tests/test_python_runtime.py` | None | — |

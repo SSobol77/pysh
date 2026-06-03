@@ -76,17 +76,25 @@ document for the full signal contract.
 
 ## Job control
 
-PySH does not implement job control:
+PySH implements a minimal job-control model (Issue #11):
 
-- no background execution with `&`,
-- no `jobs`,
-- no `bg`,
-- no `fg`,
-- no `Ctrl+Z` (SIGTSTP) job suspension.
+- Background execution with `cmd &`.
+- `jobs` lists running and stopped jobs.
+- `fg [N]` brings a job to the foreground.
+- `bg [N]` resumes a stopped job in the background.
+- Ctrl+Z (SIGTSTP) suspends the foreground child when running on a real TTY.
 
-Ctrl+Z at an interactive prompt may suspend the PySH process using the OS
-default `SIGTSTP` disposition. This is safe but provides no job-control
-features. Full job control is planned for Issue #11.
+**Limitations of the current job-control model:**
+
+- Full interactive job control requires a real TTY.  In non-interactive mode
+  (`pysh -c`) background jobs start but Ctrl+Z detection and `tcsetpgrp`
+  handover are disabled.
+- `wait` and `disown` builtins are not yet implemented.
+- Background job output writes to the terminal unless explicitly redirected.
+- FreeBSD full validation is planned for Issue #18.
+
+See [job-control-contract.md](../architecture/job-control-contract.md) for
+the complete contract, process-group model, and exit-status mapping.
 
 ## Glob expansion
 

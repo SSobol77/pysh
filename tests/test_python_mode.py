@@ -469,7 +469,7 @@ class TestModeLifecycle:
         shell = PyShell()
         captured_argv: list[list[str]] = []
 
-        def fake_run_external(argv, spec, *, original_stage=None, env_overrides=None):  # type: ignore[no-untyped-def]
+        def fake_run_external(argv, spec, *, original_stage=None, env_overrides=None, background=False):  # noqa: PLR0913  # type: ignore[no-untyped-def]
             captured_argv.append(list(argv))
             return 0
 
@@ -839,7 +839,7 @@ class TestShellIntegration:
         shell = PyShell()
         captured_argv: list[list[str]] = []
 
-        def fake_run_external(argv, spec, *, original_stage=None, env_overrides=None):  # type: ignore[no-untyped-def]
+        def fake_run_external(argv, spec, *, original_stage=None, env_overrides=None, background=False):  # noqa: PLR0913  # type: ignore[no-untyped-def]
             captured_argv.append(list(argv))
             return 0
 
