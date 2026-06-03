@@ -139,7 +139,9 @@ are gaps that must be resolved before the claim can be published.
 | No-match returns literal pattern | Unit test | `tests/test_path_expansion.py` | None | #9 |
 | Quoted glob patterns remain literal | Unit test | `tests/test_path_expansion.py` | None | #9 |
 | Brace expansion stays literal (unsupported) | Unit test | `tests/test_path_expansion.py` | None | #9 |
-| Heredocs produce parser diagnostics | Negative unit test | `tests/test_parser_foundation.py` | None | #10 |
+| Heredocs and here-strings feed stdin | Unit/integration test | `tests/test_heredoc.py` | None | #10 |
+| Quoted heredoc delimiter disables body expansion | Unit/integration test | `tests/test_heredoc.py` | None | #10 |
+| Here-string content does not glob-expand | Unit/integration test | `tests/test_heredoc.py` | None | #10 |
 | Job control is absent (no `&` background) | Negative unit test | Gap | Negative test needed | #11 |
 | Shell functions are absent | Negative unit test | Gap | Negative test needed | — |
 
@@ -157,7 +159,7 @@ are gaps that must be resolved before the claim can be published.
 | Compatibility docs existence check | Active (Issue #4) | None |
 | Feature matrix broad-claim audit | Active (Issue #4) | None |
 | Shell comparison tests | Not yet | Issue #16 |
-| Negative construct tests (heredoc, job) | Partial | Issues #10, #11 |
+| Negative construct tests (job control) | Partial | Issue #11 |
 | FreeBSD validation | Not yet | Issue #18 |
 
 ---

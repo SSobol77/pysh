@@ -447,8 +447,8 @@ Scope:
 
 Non-goals:
 
-- no glob expansion; ISSUE #9,
-- no heredoc body handling; ISSUE #10,
+- no glob expansion; ISSUE #9 owned and implemented that later,
+- inline stdin data was deferred to ISSUE #10, which implemented it later,
 - no arithmetic,
 - no functions.
 

@@ -76,8 +76,8 @@ world
 
 Paste splitting is implemented by `pysh.parsing.multiline.split_paste_commands`.
 It is quote-aware and shares the parser's multiline contract. Heredoc body
-collection is not implemented by the paste splitter; heredoc syntax is reported
-as unsupported parser syntax owned by Issue #10.
+collection is handled by the heredoc collector before command execution; paste
+splitting itself remains a command-queue mechanism, not a shell script parser.
 
 ## Bracketed paste mode
 

@@ -70,7 +70,7 @@ This document defines PySH's relationship to the POSIX shell standard
 | `for` / `while` / `until` loops (in scripts) | **Not supported** (native) | Mini-interpreter in rc files only | — |
 | `test` / `[` builtin | **Not supported** | Use Python in `py { ... }` | — |
 | Arithmetic expansion (`$((expr))`) | **Not supported** | Deterministic parser diagnostic | — |
-| Here-documents (`<< DELIM`) | **Not supported** | Planned | #10 |
+| Here-documents (`<< DELIM`) | Supported for documented native policy | Native | #10 |
 | Native glob expansion (`*`, `?`, `[...]`) | **Not supported** | Arguments pass literally | #9 |
 | Parameter expansion (advanced forms) | **Not supported** | Simple forms only; advanced forms remain literal | — |
 | `set -e`, `set -x`, `set -u` | **Not supported** | Planned for script mode | #14 |
@@ -105,7 +105,7 @@ hooks, and init system scripts must continue to use a real POSIX sh
 ### For interactive use
 
 PySH's documented native constructs cover the common interactive shell
-workflow. Features not yet native (glob, heredocs, job control) have roadmap
+workflow. Features not yet native (job control and full script mode) have roadmap
 issues. For constructs that will never be native, use `zsh <cmd>` or
 `run_script`.
 

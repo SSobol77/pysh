@@ -16,7 +16,7 @@ import pytest
 
 from pysh.core.errors import ExitCode
 from pysh.core.shell import PyShell
-from pysh.parsing.errors import ParseError, UnsupportedSyntaxError
+from pysh.parsing.errors import ParseError
 from pysh.parsing.parser import ChainOp, split_chain, split_pipeline, validate_unsupported_syntax
 from pysh.parsing.redirection import parse_redirections
 
@@ -54,9 +54,8 @@ def test_shell_maps_parser_error_to_exit_code_2(capsys: pytest.CaptureFixture[st
     assert "parse error" in captured.err
 
 
-def test_heredoc_syntax_is_recognized_as_unsupported() -> None:
-    with pytest.raises(UnsupportedSyntaxError, match="Issue #10"):
-        validate_unsupported_syntax("cat << EOF")
+def test_heredoc_syntax_is_no_longer_unsupported() -> None:
+    validate_unsupported_syntax("cat << EOF")
 
 
 def test_quoted_heredoc_token_is_literal_text() -> None:

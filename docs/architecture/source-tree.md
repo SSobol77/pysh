@@ -51,6 +51,7 @@ src/pysh/
 │   ├── errors.py            ← parser-local ParseError taxonomy
 │   ├── expansion.py         ← variable and command-substitution helpers
 │   ├── grammar.py           ← chain/pipeline/assignment grammar helpers
+│   ├── heredoc.py           ← here-document and here-string parser model
 │   ├── lexer.py             ← quote, escape and comment scanner
 │   ├── multiline.py         ← continuation, Python block and paste splitting
 │   ├── parser.py            ← compatibility facade for parser helpers
@@ -119,7 +120,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.__main__` | `python -m pysh` execution shim | Module-level `main()` call | Argument parsing, shell logic |
 | `pysh.cli` | Console script entry point | Argument parsing, `--version`, `-c` flag, interactive REPL start | Shell execution, builtin dispatch |
 | `pysh.core` | Main shell runtime | `PyShell` class, canonical exit/error contract, signal status helpers, builtin dispatch, pipeline execution | Parser primitives, editor rendering, config loading |
-| `pysh.parsing` | Quote-aware text parsing and expansion helpers | Parser AST values, parse errors, lexical scanning, chain splitting, pipeline splitting, paste command splitting, multiline continuation, variable/command substitution helpers, `RedirectionSpec`, redirection parsing and application | Shell state, command dispatch, editor rendering |
+| `pysh.parsing` | Quote-aware text parsing and expansion helpers | Parser AST values, parse errors, lexical scanning, chain splitting, pipeline splitting, paste command splitting, multiline continuation, heredoc collection, variable/command substitution helpers, `RedirectionSpec`, redirection parsing and application | Shell state, command dispatch, editor rendering |
 | `pysh.editor` | Interactive line editor (coordinator) | `Completer`, `HistoryManager`, `colors_enabled`, `diagnostic`, ANSI `paint` helper | Shell state, prompt rendering |
 | `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder`, raw-mode completion | Higher-level shell concepts, history persistence |
 | `pysh.prompt` | Prompt segment rendering | `colorize`, `color_to_hex`, `parse_color`, two-line prompt assembly, `system_profile` Debian helpers | Shell state, RC parsing |
@@ -145,6 +146,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.parsing.errors` | `ParseError`, `UnsupportedSyntaxError`: parser-local diagnostics |
 | `pysh.parsing.lexer` | Quote state, escape handling, comments, unquoted-marker detection |
 | `pysh.parsing.grammar` | `split_chain`, `split_pipeline`, assignment parsing, unsupported syntax validation |
+| `pysh.parsing.heredoc` | Here-document and here-string operator model, body collection, delimiter policy, and expansion policy |
 | `pysh.parsing.expansion` | `$NAME`, `${NAME}`, `$?`, command substitution, unsupported parameter-expansion classification |
 | `pysh.parsing.multiline` | Quote continuation, backslash-newline joining, Python block coalescing, paste command splitting |
 | `pysh.parsing.parser` | Compatibility facade that re-exports the parser helper surface |

@@ -15,10 +15,7 @@ from __future__ import annotations
 import subprocess
 import unittest.mock as mock
 
-import pytest
-
 from pysh.core.shell import PyShell
-from pysh.parsing.errors import UnsupportedSyntaxError
 from pysh.parsing.multiline import (
     ContinuationKind,
     continuation_state,
@@ -68,6 +65,10 @@ def test_python_block_coalescing_remains_correct() -> None:
     assert list(iter_logical_lines(lines)) == ["py {\nx = 1\nprint(x)\n}"]
 
 
-def test_heredoc_placeholder_is_unsupported_not_executed() -> None:
-    with pytest.raises(UnsupportedSyntaxError, match="Issue #10"):
-        validate_unsupported_syntax("cat << EOF")
+def test_heredoc_placeholder_no_longer_rejects_issue_10_syntax() -> None:
+    validate_unsupported_syntax("cat << EOF")
+
+
+def test_iter_logical_lines_coalesces_heredoc_body() -> None:
+    lines = ["cat << EOF", "hello", "EOF", "echo done"]
+    assert list(iter_logical_lines(lines)) == ["cat << EOF\nhello\nEOF", "echo done"]

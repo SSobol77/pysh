@@ -72,12 +72,25 @@ apt list --upgradable 2>/dev/null | grep -c "/"
 | `2>> file`  | Write stderr to `file` (append).        |
 | `&> file`   | Write stdout + stderr to `file`.        |
 | `&>> file`  | Append stdout + stderr to `file`.       |
+| `<< WORD`   | Read stdin from a following heredoc body. |
+| `<<- WORD`  | Read stdin from a heredoc body after stripping leading tabs. |
+| `<<< WORD`  | Read stdin from one expanded word plus newline. |
 
 ```sh
 ls -la 2>/dev/null | head -3
 echo "hello" > out.txt
 echo "again" >> out.txt
+cat << EOF
+hello
+EOF
+cat <<< "$HOME"
 ```
+
+For heredocs, quoted delimiters (`<< 'EOF'`, `<< "EOF"`) make the body
+literal. Unquoted delimiters expand variables and supported command
+substitution in the body. Here-strings expand variables and supported command
+substitution, remove quotes for grouping, append one newline, and never
+glob-expand their content.
 
 ## Command substitution
 

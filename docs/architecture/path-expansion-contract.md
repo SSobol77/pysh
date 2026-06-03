@@ -23,7 +23,8 @@ PySH 0.5.x.  All claims are backed by tests in `tests/test_path_expansion.py`.
 
 Issue #9 implements native glob and path expansion.  It does not implement:
 
-- Heredocs or here-strings — Issue #10.
+- Heredoc bodies and here-string content — implemented in Issue #10, but path
+  and glob expansion are intentionally not applied there.
 - Job control, `&` background, `jobs`, `fg`, `bg` — Issue #11.
 - Completion engine — Issue #12.
 - Brace expansion (`{a,b}`) — unsupported; passes literal to commands.
@@ -225,7 +226,7 @@ Public API:
 |-------|----------|
 | Issue #8 | Parser foundation: `expand_variables` and grammar that feeds into `tokenize_and_glob_expand` |
 | Issue #9 | This document |
-| Issue #10 | Heredocs and here-strings (not in scope for path expansion) |
+| Issue #10 | Heredocs and here-strings; no path/glob expansion in their stdin content |
 | Issue #11 | Job control (not in scope; process-group ownership separate) |
 | Issue #14 | Script mode: path expansion applies the same rules in script execution |
 | Issue #16 | Shell comparison hardening: will validate glob behavior against real zsh/bash |

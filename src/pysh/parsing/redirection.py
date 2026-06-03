@@ -20,6 +20,9 @@ Supported operators (only recognized outside of single/double quotes):
 * ``2>> file``         - stderr to file (append)
 * ``&> file``          - stdout + stderr to file (truncate)
 * ``&>> file``         - stdout + stderr to file (append)
+* ``<< WORD``          - stdin from collected heredoc body
+* ``<<- WORD``         - stdin from collected heredoc body with tab stripping
+* ``<<< WORD``         - stdin from collected here-string content
 
 The target file may be attached to the operator (``>file``) or separated by
 whitespace (``> file``). Targets may be quoted.
@@ -29,12 +32,16 @@ from __future__ import annotations
 import shlex
 from dataclasses import dataclass
 
+from pysh.parsing.errors import ParseError
+from pysh.parsing.heredoc import HereDocBody, parse_heredoc_operator
+
 
 @dataclass
 class RedirectionSpec:
     """Captured redirections for a single command."""
 
     stdin_path: str | None = None
+    stdin_data: bytes | None = None
     stdout_path: str | None = None
     stdout_append: bool = False
     stderr_path: str | None = None
@@ -44,6 +51,7 @@ class RedirectionSpec:
     def is_empty(self) -> bool:
         return (
             self.stdin_path is None
+            and self.stdin_data is None
             and self.stdout_path is None
             and self.stderr_path is None
             and not self.stderr_to_stdout
@@ -114,7 +122,10 @@ def _at_token_boundary(command: str, i: int) -> bool:
     return prev in " \t<>&;|"
 
 
-def parse_redirections(command: str) -> tuple[str, RedirectionSpec]:
+def parse_redirections(
+    command: str,
+    heredoc_bodies: list[HereDocBody] | None = None,
+) -> tuple[str, RedirectionSpec]:
     """Strip redirection clauses from ``command``.
 
     Returns ``(clean_command, RedirectionSpec)`` where ``clean_command`` is
@@ -122,6 +133,7 @@ def parse_redirections(command: str) -> tuple[str, RedirectionSpec]:
     single or double quotes are left intact.
     """
     spec = RedirectionSpec()
+    heredocs = heredoc_bodies if heredoc_bodies is not None else []
     out: list[str] = []
     in_single = False
     in_double = False
@@ -160,6 +172,18 @@ def parse_redirections(command: str) -> tuple[str, RedirectionSpec]:
             in_double = True
             out.append(c)
             i += 1
+            continue
+        heredoc_operator = parse_heredoc_operator(command, i)
+        if heredoc_operator is not None:
+            target, end = _read_target(command, i + len(heredoc_operator.value))
+            if not target:
+                raise ParseError(f"missing heredoc delimiter after {heredoc_operator.value}")
+            if not heredocs:
+                raise ParseError(f"missing heredoc body for {target}")
+            body = heredocs.pop(0)
+            spec.stdin_path = None
+            spec.stdin_data = body.data.encode("utf-8")
+            i = end
             continue
         # Combined stdout/stderr redirection
         if (
@@ -234,6 +258,7 @@ def parse_redirections(command: str) -> tuple[str, RedirectionSpec]:
         if c == "<":
             target, end = _read_target(command, i + 1)
             spec.stdin_path = target
+            spec.stdin_data = None
             i = end
             continue
         out.append(c)

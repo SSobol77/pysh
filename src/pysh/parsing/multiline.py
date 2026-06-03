@@ -16,6 +16,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 
+from pysh.parsing.heredoc import heredoc_line_matches, pending_heredoc_specs
 from pysh.parsing.lexer import scan_quote_state
 
 PY_BLOCK_OPENER = "py {"
@@ -118,7 +119,8 @@ def iter_logical_lines(lines: Iterable[str]) -> Iterator[str]:
     state: list[str] | None = None
     quote_lines: list[str] | None = None
     backslash_buffer = ""
-    for raw in lines:
+    source = iter(lines)
+    for raw in source:
         line = raw.rstrip("\n").rstrip("\r")
         if state is not None:
             if is_block_opener(line):
@@ -146,6 +148,20 @@ def iter_logical_lines(lines: Iterable[str]) -> Iterator[str]:
             continue
         if scan_quote_state(line).is_open:
             quote_lines = [line]
+            continue
+        specs = pending_heredoc_specs(line)
+        if specs:
+            collected = [line]
+            for spec in specs:
+                for body_raw in source:
+                    body_line = body_raw.rstrip("\n").rstrip("\r")
+                    collected.append(body_line)
+                    if heredoc_line_matches(body_line, spec):
+                        break
+                else:
+                    yield "\n".join(collected)
+                    return
+            yield "\n".join(collected)
             continue
         yield line
     if state is not None:

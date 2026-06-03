@@ -169,12 +169,6 @@ def parse_leading_env_assignments(tokens: list[str]) -> tuple[dict[str, str], li
 
 def validate_unsupported_syntax(line: str) -> None:
     """Raise :class:`UnsupportedSyntaxError` for syntax owned by later issues."""
-    if _contains_unquoted(line, "<<-"):
-        raise UnsupportedSyntaxError("here-document with tab stripping (<<-)", owner="Issue #10")
-    if _contains_unquoted(line, "<<<"):
-        raise UnsupportedSyntaxError("here-string (<<<)", owner="Issue #10")
-    if _contains_unquoted(line, "<<"):
-        raise UnsupportedSyntaxError("here-document (<<)", owner="Issue #10")
     if _contains_unquoted(line, "$(("):
         raise UnsupportedSyntaxError("arithmetic expansion $((...))", owner="Issue #8")
     stripped = line.lstrip()

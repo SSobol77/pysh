@@ -21,6 +21,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import termios
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -65,6 +66,12 @@ from pysh.editor.history import DEFAULT_HISTORY_PATH, HistoryManager
 from pysh.editor.lineedit.autosuggest import AutoSuggester
 from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
 from pysh.editor.lineedit.reader import RawLineReader
+from pysh.parsing.heredoc import (
+    HereDocBody,
+    collect_heredoc_bodies,
+    heredoc_line_matches,
+    pending_heredoc_specs,
+)
 from pysh.parsing.parser import (
     ChainOp,
     ParseError,
@@ -163,6 +170,7 @@ def _tilde_expand_spec(spec: RedirectionSpec) -> RedirectionSpec:
     """
     return RedirectionSpec(
         stdin_path=expand_tilde(spec.stdin_path) if spec.stdin_path else None,
+        stdin_data=spec.stdin_data,
         stdout_path=expand_tilde(spec.stdout_path) if spec.stdout_path else None,
         stdout_append=spec.stdout_append,
         stderr_path=expand_tilde(spec.stderr_path) if spec.stderr_path else None,
@@ -302,6 +310,11 @@ class PyShell:
                     if collected is None:
                         continue
                     line = collected
+                elif pending_heredoc_specs(line):
+                    collected = self._collect_heredoc_interactive(line)
+                    if collected is None:
+                        continue
+                    line = collected
                 try:
                     self.last_status = self.execute(line)
                     self.history.add(line)
@@ -338,9 +351,43 @@ class PyShell:
             if is_block_closer(cont):
                 return "\n".join(collected)
 
+    def _collect_heredoc_interactive(self, command_line: str) -> str | None:
+        """Read heredoc body lines until all pending delimiters are seen."""
+        try:
+            specs = pending_heredoc_specs(command_line)
+        except ParseError as exc:
+            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            self.last_status = ExitCode.BUILTIN_MISUSE
+            return None
+        collected: list[str] = [command_line]
+        for spec in specs:
+            while True:
+                try:
+                    line = input(self._heredoc_prompt())
+                except EOFError:
+                    print()
+                    print(
+                        f"pysh: parse error: missing heredoc terminator: {spec.delimiter}",
+                        file=sys.stderr,
+                    )
+                    self.last_status = ExitCode.BUILTIN_MISUSE
+                    return None
+                except KeyboardInterrupt:
+                    print()
+                    self.last_status = ExitCode.SIGINT
+                    return None
+                collected.append(line)
+                if heredoc_line_matches(line, spec):
+                    break
+        return "\n".join(collected)
+
     @staticmethod
     def _continuation_prompt() -> str:
         return "py> "
+
+    @staticmethod
+    def _heredoc_prompt() -> str:
+        return "heredoc> "
 
     # --------------------------------------------------------------- execute
     def execute(self, line: str) -> int:
@@ -351,6 +398,17 @@ class PyShell:
         # at the start of a token-boundary is otherwise treated as a comment.
         if line.strip() == "#py":
             return self._enter_python_mode()
+        if self._is_python_block_text(line):
+            return self._run_python_block(line)
+        try:
+            line, heredoc_bodies = collect_heredoc_bodies(
+                line,
+                self.local_vars,
+                special_vars={"?": str(self.last_status)},
+            )
+        except ParseError as exc:
+            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
         line = strip_comments(line)
         if not line.strip():
             return 0
@@ -394,7 +452,7 @@ class PyShell:
         run_next = True
         for elem in chain:
             if run_next:
-                status = self._run_chain_element(elem.command)
+                status = self._run_chain_element(elem.command, heredoc_bodies)
                 self.last_status = status
             if elem.operator is ChainOp.AND:
                 run_next = status == 0
@@ -405,7 +463,11 @@ class PyShell:
         return status
 
     # ------------------------------------------------------------- internals
-    def _run_chain_element(self, command: str) -> int:
+    def _run_chain_element(
+        self,
+        command: str,
+        heredoc_bodies: list[HereDocBody] | None = None,
+    ) -> int:
         try:
             stages = split_pipeline(command)
         except ParseError as exc:
@@ -422,11 +484,21 @@ class PyShell:
         _sv = {"?": str(self.last_status)}
         stages = [expand_variables(s, self.local_vars, special_vars=_sv) for s in stages]
         if len(stages) == 1:
-            return self._run_simple(stages[0])
-        return self._run_pipeline(stages, original_command=command)
+            return self._run_simple(stages[0], heredoc_bodies)
+        if not heredoc_bodies:
+            return self._run_pipeline(stages, original_command=command)
+        return self._run_pipeline(stages, original_command=command, heredoc_bodies=heredoc_bodies)
 
-    def _run_simple(self, stage: str) -> int:
-        clean, spec = parse_redirections(stage)
+    def _run_simple(
+        self,
+        stage: str,
+        heredoc_bodies: list[HereDocBody] | None = None,
+    ) -> int:
+        try:
+            clean, spec = parse_redirections(stage, heredoc_bodies)
+        except ParseError as exc:
+            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
         # Tilde expansion on redirection targets (glob expansion is not applied
         # to redirection targets to avoid unsafe multi-target behavior).
         spec = _tilde_expand_spec(spec)
@@ -455,10 +527,21 @@ class PyShell:
             env_overrides=env_overrides if env_overrides else None,
         )
 
-    def _run_pipeline(self, stages: list[str], *, original_command: str) -> int:
+    def _run_pipeline(
+        self,
+        stages: list[str],
+        *,
+        original_command: str,
+        heredoc_bodies: list[HereDocBody] | None = None,
+    ) -> int:
         parsed: list[tuple[list[str], RedirectionSpec, dict[str, str] | None]] = []
+        remaining_heredocs = heredoc_bodies if heredoc_bodies is not None else []
         for s in stages:
-            clean, spec = parse_redirections(s)
+            try:
+                clean, spec = parse_redirections(s, remaining_heredocs)
+            except ParseError as exc:
+                print(f"pysh: parse error: {exc}", file=sys.stderr)
+                return ExitCode.BUILTIN_MISUSE
             spec = _tilde_expand_spec(spec)
             try:
                 argv = tokenize_and_glob_expand(clean, cwd=Path(os.getcwd()))
@@ -490,6 +573,12 @@ class PyShell:
                 stdin_arg: IO[bytes] | int | None
                 if spec.stdin_path:
                     f = open(spec.stdin_path, "rb")
+                    opened.append(f)
+                    stdin_arg = f
+                elif spec.stdin_data is not None:
+                    f = tempfile.TemporaryFile("w+b")
+                    f.write(spec.stdin_data)
+                    f.seek(0)
                     opened.append(f)
                     stdin_arg = f
                 elif is_first:
@@ -587,6 +676,10 @@ class PyShell:
         try:
             if spec.stdin_path:
                 stdin_f = open(spec.stdin_path, "rb")
+            elif spec.stdin_data is not None:
+                stdin_f = tempfile.TemporaryFile("w+b")
+                stdin_f.write(spec.stdin_data)
+                stdin_f.seek(0)
             if spec.stdout_path:
                 stdout_f = open(spec.stdout_path, "ab" if spec.stdout_append else "wb")
             if spec.stderr_to_stdout:

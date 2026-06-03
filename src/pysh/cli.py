@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from pysh import __version__
 from pysh.core.errors import exception_to_diagnostic
 from pysh.core.shell import PyShell
+from pysh.parsing.multiline import iter_logical_lines
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -54,6 +55,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     shell = PyShell()
     try:
         if args.command is not None:
+            if "\n" in args.command:
+                status = 0
+                for logical_line in iter_logical_lines(args.command.splitlines()):
+                    status = shell.execute(logical_line)
+                return status
             return shell.execute(args.command)
         return shell.run()
     except SystemExit as exc:

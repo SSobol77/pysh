@@ -70,12 +70,12 @@ but PySH is not bash and does not claim bash compatibility.
 | `printf` builtin | Not supported | Unsupported (use Python `print`) | — |
 | bash `[[ ... ]]` conditional | Not supported | Unsupported | — |
 | bash `case` / `select` | Not supported | Unsupported | — |
-| bash globbing (`*`, `?`, `[...]`, `**`) | Not natively supported | Planned | #9 |
+| bash globbing (`*`, `?`, `[...]`, `**`) | Supported for documented native path expansion | Native | #9 |
 | bash extended glob (`extglob`) | Not supported | Unsupported | — |
 | bash brace expansion (`{a,b,c}`, `{1..5}`) | Not supported | Unsupported | — |
 | bash process substitution (`<(cmd)`) | Not supported | Unsupported | — |
-| bash here-strings (`<<<`) | Not supported | Planned | #10 |
-| bash heredocs (`<< DELIM`) | Not supported | Planned | #10 |
+| bash here-strings (`<<<`) | Supported for documented native policy | Native | #10 |
+| bash heredocs (`<< DELIM`) | Supported for documented native policy | Native | #10 |
 | bash `set -e`, `set -x`, `set -u` | Not supported | Planned for script mode | #14 |
 | bash job control (`&`, `jobs`, `bg`, `fg`) | Not supported | Planned | #11 |
 | bash traps (`trap`) | Not supported | Not on current roadmap | — |

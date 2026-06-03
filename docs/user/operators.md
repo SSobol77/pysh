@@ -66,6 +66,9 @@ echo hello |
 | `2>> file` | Write stderr to `file`, appending.    |
 | `&> file`  | Write stdout and stderr to `file`.    |
 | `&>> file` | Append stdout and stderr to `file`.   |
+| `<< WORD`  | Read stdin from following heredoc body. |
+| `<<- WORD` | Read stdin from body with leading tabs stripped. |
+| `<<< WORD` | Read stdin from one expanded word plus newline. |
 
 Examples:
 
@@ -78,6 +81,30 @@ ls -la &> listing.log
 
 Redirection paths are parsed outside quotes. Redirection operators inside
 quotes remain literal arguments.
+
+Heredocs and here-strings are stdin redirections. Unquoted heredoc delimiters
+enable `$NAME`, `${NAME}`, `$?`, and supported command substitution in body
+text; quoted delimiters make the body literal. Glob/path expansion is not
+applied to heredoc body text or here-string content. For `<<-`, only leading
+tab characters are stripped; spaces are preserved. When multiple stdin
+redirections are present, PySH applies them left to right and the last stdin
+redirection wins.
+
+```sh
+cat << EOF
+hello
+EOF
+
+cat << 'EOF'
+$HOME stays literal
+EOF
+
+cat <<- EOF
+	leading tab stripped
+	EOF
+
+cat <<< "*.py"
+```
 
 ## Command substitution
 
@@ -131,6 +158,5 @@ The command above is parsed as `echo hello world`.
 ## Known limitations
 
 PySH does not implement the full POSIX, bash or zsh grammar. Current
-non-goals include job control operators, here-documents,
-process substitution, brace expansion, native glob expansion, shell arrays
-and multiline shell functions.
+non-goals include job control operators, process substitution, brace
+expansion, shell arrays and multiline shell functions.

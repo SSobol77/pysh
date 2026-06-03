@@ -41,8 +41,6 @@ ANSI C quoting, or full script loop semantics.
 | `fd` duplication `2>&1` | Unsupported | — |
 | Nested command substitution | Unsupported | — |
 | Native glob expansion | Supported (Issue #9) | #9 |
-| Heredocs `<< DELIM` | Planned | #10 |
-| Here-strings `<<<` | Planned | #10 |
 | Job control | Planned | #11 |
 | Process substitution `<(cmd)` | Unsupported | — |
 | Brace expansion `{a,b,c}` | Unsupported | — |
@@ -125,24 +123,6 @@ Implemented in Issue #9.
 | Construct | `*.py`, `file?.txt`, `dir/[abc]*`, `**/*.md` |
 | Current behavior | Supported. PySH expands unquoted glob patterns before passing arguments to commands. Quoted patterns (`"*.py"`, `'*.py'`) remain literal. No-match returns the literal pattern. |
 | Owner issue | Issue #9 (implemented) |
-
-### Heredocs
-
-| Field | Value |
-| ----- | ----- |
-| Construct | `cmd << DELIM ... DELIM` |
-| Current behavior | Not supported. Parser-owned diagnostic; returns exit status 2. |
-| Required user action | Use `echo` or Python string passing via `py` for multiline input. |
-| Owner issue | Issue #10 |
-
-### Here-strings
-
-| Field | Value |
-| ----- | ----- |
-| Construct | `cmd <<< "string"` |
-| Current behavior | Not supported. Parser-owned diagnostic; returns exit status 2. |
-| Required user action | Pipe from `echo`: `echo "string" \| cmd` |
-| Owner issue | Issue #10 |
 
 ### Job control
 

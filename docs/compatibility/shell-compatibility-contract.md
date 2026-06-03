@@ -129,8 +129,6 @@ PySH delegates the following explicitly:
 
 The following are not natively implemented in PySH 0.5.x:
 
-- Native glob expansion — planned in Issue #9.
-- Heredocs — planned in Issue #10.
 - Job control — planned in Issue #11.
 - Shell functions.
 - Shell arrays.

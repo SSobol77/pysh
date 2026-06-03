@@ -57,7 +57,7 @@ It is not a full layer-boundary enforcement; that belongs to Issue #3's successo
 | `pysh.__main__` | `python -m pysh` execution shim | Module-level `main()` dispatch | Argument parsing, shell logic |
 | `pysh.cli` | Console script entry point | Argument parsing, `--version`, `-c`, interactive start | Shell execution, builtin dispatch |
 | `pysh.core` | Main shell runtime (fan-in hub) | `PyShell`: REPL loop, all builtin implementations, pipeline and redirection execution; `errors.py`: canonical exit codes; `signals.py`: signal helpers | Parser primitives, editor rendering, config loading (delegates to leaves) |
-| `pysh.parsing` | Quote-aware text parsing, expansion, and path glob helpers | Parser AST values, parse errors, lexical scanning, chain/pipeline/paste splitting, multiline continuation, variable/command substitution helpers, redirection parsing, tilde expansion, glob/path expansion (`tokenize_and_glob_expand`, `expand_tilde`, `expand_path_word`), no-match policy, dotfile policy | Shell state, command dispatch, editor rendering |
+| `pysh.parsing` | Quote-aware text parsing, expansion, and path glob helpers | Parser AST values, parse errors, lexical scanning, chain/pipeline/paste splitting, multiline continuation, heredoc collection, variable/command substitution helpers, redirection parsing, tilde expansion, glob/path expansion (`tokenize_and_glob_expand`, `expand_tilde`, `expand_path_word`), no-match policy, dotfile policy | Shell state, command dispatch, editor rendering |
 | `pysh.editor` | Interactive line editor (coordinator) | `Completer`, `HistoryManager`, `colors_enabled`, `paint` | Shell state, prompt rendering |
 | `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder` | Higher-level shell concepts, history persistence |
 | `pysh.prompt` | Prompt segment rendering | `colorize`, `color_to_hex`, `parse_color`, Debian profile helpers | Shell state, RC parsing |
@@ -173,7 +173,8 @@ checks.
 ## Parser / execution / editor boundaries
 
 ```text
-pysh.parsing  ──►  provides: ast, errors, lexer, grammar, expansion, multiline,
+pysh.parsing  ──►  provides: ast, errors, lexer, grammar, expansion, heredoc,
+                             multiline,
                              split_chain, split_pipeline, split_paste_commands,
                              RedirectionSpec, parse_redirections,
                              path_expansion, tokenize_and_glob_expand,
@@ -312,6 +313,7 @@ subprocess calls) that should be deferred to first use.
 | Issue #7 | Security and trust model: execution surfaces, static import policy, sensitive input boundary, trust levels, diagnostics non-mutation. See [security-trust-model.md](security-trust-model.md). |
 | Issue #8 | Parser/expansion/multiline foundation: decomposes parser modules, defines unsupported syntax ownership, and classifies `pysh.parsing` as a shared leaf consumed by editor, diagnostics and script runner. |
 | Issue #9 | Native path and glob expansion: `tokenize_and_glob_expand`, tilde expansion, dotfile policy, no-match policy. See [path-expansion-contract.md](path-expansion-contract.md). |
+| Issue #10 | Here-documents and here-strings: stdin inline-data parser model, body collection, delimiter expansion policy, and redirection precedence. See [heredoc-contract.md](heredoc-contract.md). |
 | Issue #14 | Script/config mode cleanup: resolves `pysh.config → pysh.python_layer` and finalizes native script-mode contracts. |
 | Issue #12 | Editor/completion contract cleanup: resolves `pysh.python_layer → pysh.editor`. |
 | Issue #19 | Shim removal: removes `pysh.shell` compatibility shim after all callers are updated. |

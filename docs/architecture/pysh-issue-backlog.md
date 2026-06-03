@@ -243,8 +243,8 @@ continuation and future heredoc terminators.
 - Deterministic parser-local errors mapped to exit status 2.
 - Parser decomposition deferred from ISSUE #2.
 
-**Non-goals.** No native glob expansion; no heredoc body handling; no shell
-functions; no arithmetic expansion.
+**Non-goals.** No shell functions; no arithmetic expansion. Native glob
+expansion is owned by Issue #9 and heredoc body handling by Issue #10.
 
 **Validation.**
 
@@ -273,7 +273,7 @@ functions; no arithmetic expansion.
 
 ## ISSUE #10 - Here-Documents
 
-**Goal.** Implement heredocs and here-strings on top of the ISSUE #8 grammar.
+**Goal.** Implemented heredocs and here-strings on top of the ISSUE #8 grammar.
 
 **Depends on.** #5, #8, #9.
 
@@ -286,8 +286,8 @@ functions; no arithmetic expansion.
 **Validation.**
 
 - `uv run ruff check src tests`
+- `uv run pytest -q tests/test_heredoc.py`
 - `uv run pytest -q`
-- PTY tests for interactive heredoc collection and interrupt cleanup.
 
 ## ISSUE #11 - Job Control and Process Groups
 

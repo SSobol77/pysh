@@ -259,9 +259,11 @@ shell feature area in PySH 0.5.x. Category definitions are in
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| Heredocs | `<< DELIM` heredoc syntax | Unsupported | Planned | `tests/test_parser_foundation.py` | #10 |
-| Heredocs | `<<- DELIM` (strip leading tabs) | Unsupported | Planned | `tests/test_parser_foundation.py` | #10 |
-| Heredocs | `<<< word` herestring | Unsupported | Planned | `tests/test_parser_foundation.py` | #10 |
+| Heredocs | `<< DELIM` heredoc syntax | Supported | Native | `tests/test_heredoc.py` | #10 |
+| Heredocs | `<<- DELIM` (strip leading tabs) | Supported | Native | `tests/test_heredoc.py` | #10 |
+| Heredocs | `<<< word` here-string | Supported | Native | `tests/test_heredoc.py` | #10 |
+| Heredocs | Quoted delimiter disables body expansion | Supported | Native | `tests/test_heredoc.py` | #10 |
+| Heredocs | No glob expansion in body or here-string content | Supported | Native | `tests/test_heredoc.py` | #10 |
 
 ## Functions
 

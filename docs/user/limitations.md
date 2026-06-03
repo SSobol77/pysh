@@ -109,13 +109,14 @@ brace expansion.
 ## Shell grammar
 
 The native parser supports documented chains, pipelines, redirection,
-command substitution, `$NAME`, `${NAME}`, `$?`, quote handling and
-backslash-newline continuation. It does not support here-documents, process
+here-documents, here-strings, command substitution, `$NAME`, `${NAME}`, `$?`,
+quote handling and backslash-newline continuation. It does not support process
 substitution, shell arrays, shell functions, case statements, arithmetic
 expansion or advanced parameter expansion.
 
-Parser-owned unsupported constructs such as `$((expr))`, `(( expr ))`, `let`,
-`<<`, `<<-` and `<<<` return a parse diagnostic with status 2.
+Parser-owned unsupported constructs such as `$((expr))`, `(( expr ))` and
+`let` return a parse diagnostic with status 2. Heredoc parse errors such as a
+missing delimiter word or missing terminator also return status 2.
 
 ## Static zsh/sh import
 
