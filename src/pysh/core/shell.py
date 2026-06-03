@@ -78,6 +78,7 @@ from pysh.parsing.parser import (
     strip_comments,
     validate_unsupported_syntax,
 )
+from pysh.parsing.path_expansion import expand_tilde, tokenize_and_glob_expand
 from pysh.parsing.redirection import RedirectionSpec, parse_redirections
 from pysh.prompt.colors import color_to_hex, colorize, parse_color
 from pysh.prompt.system_profile import (
@@ -151,6 +152,23 @@ class _ExitShell(Exception):
     def __init__(self, code: int = 0) -> None:
         super().__init__()
         self.code = code
+
+
+def _tilde_expand_spec(spec: RedirectionSpec) -> RedirectionSpec:
+    """Apply tilde expansion to all file paths in a :class:`RedirectionSpec`.
+
+    Glob expansion is intentionally NOT applied to redirection targets to
+    prevent unsafe multi-target behavior (e.g., ``> *.out`` must not redirect
+    to multiple files).  Only ``~`` and ``~user`` are expanded.
+    """
+    return RedirectionSpec(
+        stdin_path=expand_tilde(spec.stdin_path) if spec.stdin_path else None,
+        stdout_path=expand_tilde(spec.stdout_path) if spec.stdout_path else None,
+        stdout_append=spec.stdout_append,
+        stderr_path=expand_tilde(spec.stderr_path) if spec.stderr_path else None,
+        stderr_append=spec.stderr_append,
+        stderr_to_stdout=spec.stderr_to_stdout,
+    )
 
 
 class PyShell:
@@ -409,8 +427,11 @@ class PyShell:
 
     def _run_simple(self, stage: str) -> int:
         clean, spec = parse_redirections(stage)
+        # Tilde expansion on redirection targets (glob expansion is not applied
+        # to redirection targets to avoid unsafe multi-target behavior).
+        spec = _tilde_expand_spec(spec)
         try:
-            argv = shlex.split(clean, posix=True)
+            argv = tokenize_and_glob_expand(clean, cwd=Path(os.getcwd()))
         except ValueError as exc:
             if self.zsh_fallback_enabled:
                 return self._run_zsh_fallback(stage)
@@ -438,8 +459,9 @@ class PyShell:
         parsed: list[tuple[list[str], RedirectionSpec, dict[str, str] | None]] = []
         for s in stages:
             clean, spec = parse_redirections(s)
+            spec = _tilde_expand_spec(spec)
             try:
-                argv = shlex.split(clean, posix=True)
+                argv = tokenize_and_glob_expand(clean, cwd=Path(os.getcwd()))
             except ValueError as exc:
                 print(f"pysh: parse error: {exc}", file=sys.stderr)
                 return 2

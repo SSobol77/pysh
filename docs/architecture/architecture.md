@@ -25,6 +25,7 @@ lifecycle policy.
 - [parser-expansion-contract.md](parser-expansion-contract.md) — Issue #8: parser modules, expansion order, multiline grammar, unsupported syntax ownership.
 - [signal-handling.md](signal-handling.md) — Issue #6: signal-handling architecture, terminal restoration guarantees, exit-code mapping.
 - [security-trust-model.md](security-trust-model.md) — Issue #7: security and trust model, execution surfaces table, static import policy, sensitive input boundary.
+- [path-expansion-contract.md](path-expansion-contract.md) — Issue #9: native glob and path expansion, tilde expansion, dotfile policy, quoting contract.
 - [ISSUE-2-refactor-source-tree.md](ISSUE-2-refactor-source-tree.md) — Issue #2 scope (relocation only).
 - [ISSUE-3-architecture-contracts.md](ISSUE-3-architecture-contracts.md) — Issue #3 spec (this implementation).
 - GitHub Issue #19 — shim lifecycle and removal.
@@ -56,7 +57,7 @@ It is not a full layer-boundary enforcement; that belongs to Issue #3's successo
 | `pysh.__main__` | `python -m pysh` execution shim | Module-level `main()` dispatch | Argument parsing, shell logic |
 | `pysh.cli` | Console script entry point | Argument parsing, `--version`, `-c`, interactive start | Shell execution, builtin dispatch |
 | `pysh.core` | Main shell runtime (fan-in hub) | `PyShell`: REPL loop, all builtin implementations, pipeline and redirection execution; `errors.py`: canonical exit codes; `signals.py`: signal helpers | Parser primitives, editor rendering, config loading (delegates to leaves) |
-| `pysh.parsing` | Quote-aware text parsing and expansion helpers | Parser AST values, parse errors, lexical scanning, chain/pipeline/paste splitting, multiline continuation, variable/command substitution helpers, redirection parsing | Shell state, command dispatch, editor rendering |
+| `pysh.parsing` | Quote-aware text parsing, expansion, and path glob helpers | Parser AST values, parse errors, lexical scanning, chain/pipeline/paste splitting, multiline continuation, variable/command substitution helpers, redirection parsing, tilde expansion, glob/path expansion (`tokenize_and_glob_expand`, `expand_tilde`, `expand_path_word`), no-match policy, dotfile policy | Shell state, command dispatch, editor rendering |
 | `pysh.editor` | Interactive line editor (coordinator) | `Completer`, `HistoryManager`, `colors_enabled`, `paint` | Shell state, prompt rendering |
 | `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder` | Higher-level shell concepts, history persistence |
 | `pysh.prompt` | Prompt segment rendering | `colorize`, `color_to_hex`, `parse_color`, Debian profile helpers | Shell state, RC parsing |
@@ -174,7 +175,9 @@ checks.
 ```text
 pysh.parsing  ──►  provides: ast, errors, lexer, grammar, expansion, multiline,
                              split_chain, split_pipeline, split_paste_commands,
-                             RedirectionSpec, parse_redirections
+                             RedirectionSpec, parse_redirections,
+                             path_expansion, tokenize_and_glob_expand,
+                             expand_tilde, expand_path_word
                    consumed by: core, editor.lineedit, diagnostics, script_runner
                    must not: import from core, editor, prompt, python_layer
 
@@ -308,6 +311,7 @@ subprocess calls) that should be deferred to first use.
 | Issue #6 | Signal-handling architecture: deterministic SIGINT/SIGTERM exit-code behavior, explicit SIGTSTP/job-control non-support, `returncode_to_exit_status()`, terminal restoration guarantees. Does not resolve the `pysh.security → pysh.prompt` violation (deferred to Issue #19). |
 | Issue #7 | Security and trust model: execution surfaces, static import policy, sensitive input boundary, trust levels, diagnostics non-mutation. See [security-trust-model.md](security-trust-model.md). |
 | Issue #8 | Parser/expansion/multiline foundation: decomposes parser modules, defines unsupported syntax ownership, and classifies `pysh.parsing` as a shared leaf consumed by editor, diagnostics and script runner. |
+| Issue #9 | Native path and glob expansion: `tokenize_and_glob_expand`, tilde expansion, dotfile policy, no-match policy. See [path-expansion-contract.md](path-expansion-contract.md). |
 | Issue #14 | Script/config mode cleanup: resolves `pysh.config → pysh.python_layer` and finalizes native script-mode contracts. |
 | Issue #12 | Editor/completion contract cleanup: resolves `pysh.python_layer → pysh.editor`. |
 | Issue #19 | Shim removal: removes `pysh.shell` compatibility shim after all callers are updated. |

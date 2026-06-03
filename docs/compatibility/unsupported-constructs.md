@@ -20,6 +20,8 @@ action.
 
 Constructs marked **Planned** have an owner issue and will be implemented.
 Constructs marked **Unsupported** are not on the current roadmap.
+Entries that were historically unsupported may remain listed with their
+implemented status when a roadmap issue closes the gap.
 
 Issue #8 added parser foundation and deterministic diagnostics for selected
 unsupported constructs. It did not implement arithmetic expansion, advanced
@@ -38,7 +40,7 @@ ANSI C quoting, or full script loop semantics.
 | Advanced parameter expansion | Unsupported | — |
 | `fd` duplication `2>&1` | Unsupported | — |
 | Nested command substitution | Unsupported | — |
-| Native glob expansion | Planned | #9 |
+| Native glob expansion | Supported (Issue #9) | #9 |
 | Heredocs `<< DELIM` | Planned | #10 |
 | Here-strings `<<<` | Planned | #10 |
 | Job control | Planned | #11 |
@@ -116,12 +118,13 @@ ANSI C quoting, or full script loop semantics.
 
 ### Native glob expansion
 
+Implemented in Issue #9.
+
 | Field | Value |
 | ----- | ----- |
 | Construct | `*.py`, `file?.txt`, `dir/[abc]*`, `**/*.md` |
-| Current behavior | Glob patterns are passed as literal arguments to external commands. The external command may perform its own expansion (e.g., `ls *.py` works because `ls` receives the literal `*.py` and many versions handle it). However, PySH itself does not expand globs before passing arguments. |
-| Required user action | Use `find` or `ls` for glob-like operations, or wait for Issue #9. |
-| Owner issue | Issue #9 |
+| Current behavior | Supported. PySH expands unquoted glob patterns before passing arguments to commands. Quoted patterns (`"*.py"`, `'*.py'`) remain literal. No-match returns the literal pattern. |
+| Owner issue | Issue #9 (implemented) |
 
 ### Heredocs
 

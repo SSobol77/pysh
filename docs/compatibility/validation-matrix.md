@@ -133,7 +133,12 @@ are gaps that must be resolved before the claim can be published.
 | ----- | ----------------- | ---------------- | --- | ----------- |
 | PySH is not intended for `/bin/sh` provider use | Documentation, no symlink test | `docs/compatibility/posix-sh-scope.md` | CI check for symlink absence | #17 |
 | PySH does not provide zsh grammar compatibility | Documentation, no zsh grammar test | `docs/compatibility/zsh-scope.md` | Shell comparison tests | #16 |
-| Glob patterns pass literally | Unit test confirming no expansion | `tests/test_expansion_foundation.py` | None | #9 |
+| Native glob expansion (`*`, `?`, `[...]`, `**`) | Unit test, filesystem | `tests/test_path_expansion.py` | None | #9 |
+| Tilde expansion (`~`, `~/path`) | Unit test | `tests/test_path_expansion.py` | None | #9 |
+| `*` does not match dotfiles by default | Unit test | `tests/test_path_expansion.py` | None | #9 |
+| No-match returns literal pattern | Unit test | `tests/test_path_expansion.py` | None | #9 |
+| Quoted glob patterns remain literal | Unit test | `tests/test_path_expansion.py` | None | #9 |
+| Brace expansion stays literal (unsupported) | Unit test | `tests/test_path_expansion.py` | None | #9 |
 | Heredocs produce parser diagnostics | Negative unit test | `tests/test_parser_foundation.py` | None | #10 |
 | Job control is absent (no `&` background) | Negative unit test | Gap | Negative test needed | #11 |
 | Shell functions are absent | Negative unit test | Gap | Negative test needed | — |
@@ -152,7 +157,7 @@ are gaps that must be resolved before the claim can be published.
 | Compatibility docs existence check | Active (Issue #4) | None |
 | Feature matrix broad-claim audit | Active (Issue #4) | None |
 | Shell comparison tests | Not yet | Issue #16 |
-| Negative construct tests (glob, heredoc, job) | Partial | Issues #9, #10, #11 |
+| Negative construct tests (heredoc, job) | Partial | Issues #10, #11 |
 | FreeBSD validation | Not yet | Issue #18 |
 
 ---

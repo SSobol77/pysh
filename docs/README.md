@@ -73,6 +73,7 @@ docs/
 │   ├── parser-expansion-contract.md
 │   ├── signal-handling.md
 │   ├── security-trust-model.md
+│   ├── path-expansion-contract.md
 │   ├── source-tree.md
 │   ├── roadmap.md
 │   ├── pysh-issue-backlog.md
@@ -168,6 +169,7 @@ Internal architecture decisions, issue tracking, and roadmap.
 | [parser-expansion-contract.md](architecture/parser-expansion-contract.md) | Parser, expansion and multiline grammar contract (Issue #8): modules, expansion order, unsupported syntax ownership |
 | [signal-handling.md](architecture/signal-handling.md) | Signal-handling architecture (Issue #6): SIGINT/SIGTERM/SIGTSTP contract, exit-code mapping, terminal restoration |
 | [security-trust-model.md](architecture/security-trust-model.md) | Security and trust model (Issue #7): trust boundaries, execution surfaces, static import policy, sensitive input boundary |
+| [path-expansion-contract.md](architecture/path-expansion-contract.md) | Path and glob expansion contract (Issue #9): glob syntax, tilde, dotfile policy, quoting, no-match policy |
 | [source-tree.md](architecture/source-tree.md) | Post-Issue #2 source tree: packages, modules, dependency direction |
 | [roadmap.md](architecture/roadmap.md) | Feature roadmap and milestone planning |
 | [pysh-issue-backlog.md](architecture/pysh-issue-backlog.md) | Issue backlog and linear architecture plan |

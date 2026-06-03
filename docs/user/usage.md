@@ -402,6 +402,6 @@ paths for any word. Inaccessible directories are silently skipped.
   delegates to real zsh only when explicitly requested or fallback is enabled.
 - No full POSIX script compatibility. `run_script` delegates legacy scripts
   to their real interpreter when a supported shebang is present.
-- No glob expansion is performed by PySH itself.
+- Native glob expansion (`*`, `?`, `[...]`, `**`) is supported for unquoted arguments. Brace expansion (`{a,b}`) is not supported.
 - `svc start` / `svc restart` require a PyInit control interface to fully
   relaunch processes.

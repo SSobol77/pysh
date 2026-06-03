@@ -92,11 +92,18 @@ features. Full job control is planned for Issue #11.
 
 ## Glob expansion
 
-PySH does not perform native glob expansion for plain command execution.
-Arguments such as `*.py` are passed as literal arguments unless a delegated
-interpreter or external command performs its own expansion.
+PySH performs native glob expansion for unquoted arguments (Issue #9):
 
-Brace patterns such as `{a,b}` are also passed literally; PySH does not perform
+- `*.py` expands to matching `.py` files in the current directory.
+- `?` matches a single character; `[abc]` matches a character class.
+- `**/*.py` expands recursively across subdirectories.
+- `~` and `~/path` are expanded via tilde expansion.
+- No-match default: if a pattern matches nothing, the literal pattern is passed.
+- `*` does NOT match names beginning with `.`; use `.*` to match dotfiles.
+- Single-quoted and double-quoted patterns remain literal.
+- Backslash-escaped metacharacters (`\*`, `\?`) remain literal.
+
+Brace patterns such as `{a,b}` are passed literally; PySH does not perform
 brace expansion.
 
 ## Shell grammar

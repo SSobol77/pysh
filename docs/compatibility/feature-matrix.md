@@ -244,12 +244,16 @@ shell feature area in PySH 0.5.x. Category definitions are in
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| Globbing | `*` path expansion | Unsupported | Planned | `tests/test_expansion_foundation.py` | #9 |
-| Globbing | `?` single-char expansion | Unsupported | Planned | `tests/test_expansion_foundation.py` | #9 |
-| Globbing | `[...]` character class | Unsupported | Planned | `tests/test_expansion_foundation.py` | #9 |
-| Globbing | `**` recursive glob | Unsupported | Planned | `tests/test_expansion_foundation.py` | #9 |
+| Globbing | `*` path expansion | Supported | Native | `tests/test_path_expansion.py` | #9 |
+| Globbing | `?` single-char expansion | Supported | Native | `tests/test_path_expansion.py` | #9 |
+| Globbing | `[...]` character class | Supported | Native | `tests/test_path_expansion.py` | #9 |
+| Globbing | `**` recursive glob | Supported | Native | `tests/test_path_expansion.py` | #9 |
+| Globbing | Tilde expansion (`~`, `~/path`, `~user`) | Supported | Native | `tests/test_path_expansion.py` | #9 |
+| Globbing | No-match returns literal pattern | Supported | Native | `tests/test_path_expansion.py` | #9 |
+| Globbing | `*` does not match dotfiles by default | Supported | Native | `tests/test_path_expansion.py` | #9 |
+| Globbing | Quoted glob patterns remain literal | Supported | Native | `tests/test_path_expansion.py` | #9 |
+| Globbing | Brace expansion (`{a,b}`) | Unsupported | Unsupported | — | — |
 | Globbing | zsh extended glob | Unsupported | Unsupported | — | — |
-| Globbing | Glob literals pass through to external commands | Supported | Native | `tests/test_expansion_foundation.py` | #8 |
 
 ## Heredocs
 
