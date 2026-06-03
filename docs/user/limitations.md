@@ -41,15 +41,37 @@ features remain the responsibility of real zsh when delegated.
 See [docs/compatibility/zsh-scope.md](../compatibility/zsh-scope.md) for the
 complete zsh scope table.
 
+## Signal handling
+
+PySH implements deterministic signal handling for three execution contexts:
+
+- **Line editor**: Ctrl+C cancels the current input line, restores terminal
+  state, and sets `$?` to 130. The shell does not exit.
+- **External command**: Ctrl+C interrupts the foreground child. PySH sets
+  `$?` to 130. Signal-killed children (SIGTERM etc.) map to `128 + signum`.
+- **Python (`py` builtin)**: `KeyboardInterrupt` maps to exit status 130
+  without printing a traceback.
+
+SIGTERM received by PySH outside a child command causes clean process
+termination via OS default disposition. Terminal state is restored by
+`atexit` handlers where possible.
+
+See [docs/architecture/signal-handling.md](../architecture/signal-handling.md)
+for the full signal contract.
+
 ## Job control
 
-PySH does not implement job control in 0.2.2:
+PySH does not implement job control:
 
 - no background execution with `&`,
 - no `jobs`,
 - no `bg`,
 - no `fg`,
-- no `Ctrl+Z` job suspension management.
+- no `Ctrl+Z` (SIGTSTP) job suspension.
+
+Ctrl+Z at an interactive prompt may suspend the PySH process using the OS
+default `SIGTSTP` disposition. This is safe but provides no job-control
+features. Full job control is planned for Issue #11.
 
 ## Glob expansion
 
@@ -81,12 +103,12 @@ engine where possible. That native path is not full POSIX script semantics.
 
 `zsh_fallback on` may delegate commands PySH cannot parse or execute
 natively. It is a migration aid and is off by default. It should not be used
-as a claim that PySH is zsh-compatible.
+as a broad zsh compatibility claim.
 
 ## Python runtime
 
 `py <code>` supports one-line Python execution in a persistent session
-context. PySH 0.3.0 adds multiline `py { ... }` blocks that share the same
+context. PySH includes multiline `py { ... }` blocks that share the same
 persistent context. Limitations:
 
 - Nested `py { ... }` blocks are not supported.

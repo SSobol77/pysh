@@ -14,7 +14,7 @@ See the LICENSE file in the project root for full license text.
 
 # System profile
 
-PySH 0.3.0 ships a non-mutating Debian/system profile layer. Every helper:
+PySH ships a non-mutating Debian/system profile layer. Every helper:
 
 - uses only the Python standard library,
 - never calls `sudo`,

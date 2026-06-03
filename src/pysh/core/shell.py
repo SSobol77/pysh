@@ -57,6 +57,7 @@ from pysh.config.api import (
 from pysh.config.plugins import PLUGIN_DIR, load_plugins
 from pysh.config.rc import RC_PATH, execute_rc, load_default_rc
 from pysh.core.errors import ExitCode
+from pysh.core.signals import returncode_to_exit_status
 from pysh.diagnostics.command_plan import plan as run_plan
 from pysh.editor.completion import Completer
 from pysh.editor.highlight import colors_enabled, diagnostic
@@ -271,6 +272,7 @@ class PyShell:
                     return 0
                 except KeyboardInterrupt:
                     print()
+                    self.last_status = ExitCode.SIGINT
                     continue
                 if not line.strip():
                     continue
@@ -514,7 +516,7 @@ class PyShell:
                     p.terminate()
                 results = [p.wait() for p in procs]
                 return ExitCode.SIGINT
-            return results[-1] if results else ExitCode.SUCCESS
+            return returncode_to_exit_status(results[-1]) if results else ExitCode.SUCCESS
         finally:
             for f in opened:
                 try:
@@ -572,7 +574,7 @@ class PyShell:
                 print(f"pysh: {argv[0]}: {exc}", file=sys.stderr)
                 return ExitCode.CANNOT_EXECUTE
             try:
-                return proc.wait()
+                return returncode_to_exit_status(proc.wait())
             except KeyboardInterrupt:
                 proc.terminate()
                 proc.wait()

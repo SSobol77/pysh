@@ -18,7 +18,7 @@ See the LICENSE file in the project root for full license text.
 > the authoritative compatibility scope and feature matrix, see
 > [docs/compatibility/README.md](../compatibility/README.md).
 
-PySH 0.2.2 includes the professional migration layer for users moving from
+PySH includes the migration layer for users moving from
 zsh/bash/sh profiles and scripts. The layer is intentionally conservative:
 PySH remains Python-first and does not claim full zsh or POSIX shell
 compatibility.
@@ -143,5 +143,5 @@ maintainability:
 py import platform; print(platform.platform())
 ```
 
-`py <code>` remains one-line persistent Python execution in 0.2.2. Multiline
+`py <code>` remains one-line persistent Python execution. Multiline
 Python blocks are planned for a future release.

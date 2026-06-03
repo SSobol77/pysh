@@ -41,7 +41,7 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | Process substitution `<(cmd)` | Unsupported | — |
 | Brace expansion `{a,b,c}` | Unsupported | — |
 | `case` / `select` statements | Unsupported | — |
-| Traps | Planned | #6 |
+| Traps | Unsupported | — |
 | `test` / `[` / `[[` builtins | Unsupported | — |
 | `read` builtin | Unsupported | — |
 | `printf` builtin | Unsupported | — |
@@ -189,7 +189,7 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | Construct | `trap 'cmd' SIGNAL`, `trap '' SIGNAL`, `trap 'cmd' EXIT` |
 | Current behavior | Not supported. |
 | Required user action | Handle signals in Python via `py { import signal; signal.signal(...) }` |
-| Owner issue | Issue #6 |
+| Owner issue | Not on current roadmap |
 
 ### `test` / `[` / `[[` builtins
 

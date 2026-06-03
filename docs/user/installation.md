@@ -38,7 +38,7 @@ pysh --version
 python -m pysh --version
 ```
 
-Both commands must print `pysh 0.4.0` (or the current released version).
+Both commands must print the installed `pysh` version.
 
 ## Install from a GitHub Release `.deb` (Debian / Ubuntu)
 

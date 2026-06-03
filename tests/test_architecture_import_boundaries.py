@@ -98,7 +98,6 @@ HEAVY_INIT_FORBIDDEN: frozenset[str] = frozenset({
 # architectural review (a new entry requires a corresponding Issue reference).
 #
 # Cleanup issue references:
-#   Issue #6   – signal and PTY cleanup
 #   Issue #8   – parser / expansion / editor boundary cleanup
 #   Issue #14  – script-mode cleanup
 
@@ -185,7 +184,7 @@ KNOWN_VIOLATION_DETAILS: list[_Violation] = [
     _Violation(
         "pysh.security", "pysh.prompt",
         "security.secure_runner uses colorize, parse_color from prompt.colors",
-        "Issue #6",
+        "Issue #8",
     ),
 ]
 

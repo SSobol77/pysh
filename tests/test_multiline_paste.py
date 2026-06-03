@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import os
 import pty
+import select
 import threading
+import time
 from types import SimpleNamespace
 
 from pysh.editor.lineedit.autosuggest import AutoSuggester
@@ -31,6 +33,24 @@ from pysh.editor.lineedit.reader import QueuedCommand, RawLineReader
 from pysh.parsing.parser import ChainOp, split_chain, split_paste_commands
 
 # ---------------------------------------------------------------- split_paste_commands
+
+
+def _read_until(master_fd: int, marker: bytes, timeout: float = 1.0) -> bytes:
+    """Drain PTY output until *marker* appears or the deadline expires."""
+    deadline = time.monotonic() + timeout
+    chunks = bytearray()
+    while time.monotonic() < deadline:
+        remaining = max(0.0, deadline - time.monotonic())
+        ready, _, _ = select.select([master_fd], [], [], min(0.05, remaining))
+        if not ready:
+            continue
+        chunk = os.read(master_fd, 4096)
+        if not chunk:
+            break
+        chunks.extend(chunk)
+        if marker in chunks:
+            break
+    return bytes(chunks)
 
 
 def test_split_two_lines() -> None:
@@ -316,12 +336,12 @@ def test_read_line_enables_and_disables_bracketed_paste() -> None:
     thread = threading.Thread(target=target)
     try:
         thread.start()
-        output = os.read(master, 1024)
+        output = _read_until(master, b"\x1b[?2004h")
         assert b"\x1b[?2004h" in output
         os.write(master, b"echo OK\n")
         thread.join(timeout=3)
         assert not thread.is_alive()
-        output += os.read(master, 1024)
+        output += _read_until(master, b"\x1b[?2004l")
         assert b"\x1b[?2004l" in output
         assert result["line"] == "echo OK"
     finally:

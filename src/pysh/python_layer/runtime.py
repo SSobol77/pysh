@@ -116,6 +116,9 @@ class PythonRuntime:
     def _execute_compiled(self, compiled: CodeType) -> int:
         try:
             exec(compiled, self.globals, self.globals)
+        except KeyboardInterrupt:
+            # SIGINT (128 + 2 = 130) — no traceback for normal Ctrl+C.
+            return 130
         except Exception as exc:  # noqa: BLE001 - shell builtin must contain user exceptions
             _print_exc_to(exc, self._err, self._error_renderer)
             return 1

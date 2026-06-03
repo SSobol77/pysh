@@ -221,16 +221,17 @@ and enters the REPL or executes a `-c` command string.
 
 ## Internal package boundaries
 
-The following boundaries were established by Issue #2 and are documented but
-not yet machine-enforced (enforcement is Issue #3's scope):
+Issue #3 turned the post-Issue #2 boundary model into active quality gates.
+The current enforcement split is:
 
 | Rule | Status |
 | ---- | ------ |
-| Leaf packages (`parsing`, `prompt`, `security`) must not import `pysh.core` | Documented, not enforced |
-| `pysh.compat` must not import `pysh.config` or `pysh.python_layer` | Documented, not enforced |
-| `pysh.diagnostics` must not execute commands — advisory only | Documented, not enforced |
-| `pysh.services` must not import the REPL loop | Documented, not enforced |
-| `pysh.editor.lineedit` must remain a self-contained editing engine | Documented, not enforced |
+| Import graph must not contain cycles | Hard gate in `tests/test_architecture_import_boundaries.py` |
+| `pysh.contracts` must remain stdlib-only and isolated from implementation packages | Hard gate in `tests/test_architecture_import_boundaries.py` |
+| Package `__init__.py` files must remain side-effect minimal | Hard gate in `tests/test_architecture_import_boundaries.py` |
+| Cross-domain imports outside permitted fan-in/entrypoint paths | Ratcheted with documented known violations |
+| `pysh.diagnostics` must remain advisory and must not execute commands | Architectural contract; covered by code review and focused tests |
+| `pysh.editor.lineedit` must remain a self-contained editing engine | Architectural contract; cross-domain imports are ratcheted |
 
 ---
 
@@ -297,7 +298,7 @@ All gates must show PASS before a release tag is applied.
 | ----- | ----- | ------ |
 | Issue #2 | Source tree relocation into domain subpackages | **Completed** — this document |
 | Issue #3 | Import-boundary contracts, protocol layer, ratchet, public API snapshot, cold-start budget | **Completed** — see [architecture.md](architecture.md) |
-| Issue #6 | Signal and PTY cleanup: resolves `pysh.security → pysh.prompt` violation | Open |
+| Issue #6 | Signal-handling architecture: deterministic signal exit codes, terminal restoration, `returncode_to_exit_status()`. `pysh.security → pysh.prompt` violation retained — cleanup deferred to Issue #8. | Implemented pending commit |
 | Issue #8 | Parser/expansion/editor boundary cleanup: resolves most ratchet violations | Open |
 | Issue #14 | Script-mode cleanup: resolves `pysh.script_runner` ratchet violations | Open |
 | Issue #19 | Remove the `pysh.shell` compatibility shim after all callers are updated | Open |

@@ -298,13 +298,25 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Arrays | Array expansion (`"${arr[@]}"`) | Unsupported | Unsupported | — | — |
 | Arrays | Note: Python lists via `py { ... }` cover array needs | Supported | Native | `tests/test_python_runtime.py` | — |
 
+## Signal handling
+
+| Area | Feature | Status | Category | Evidence | Owner issue |
+| ---- | ------- | ------ | -------- | -------- | ----------- |
+| Signal handling | Ctrl+C cancels line editor input; `$?=130` | Supported | Native | `tests/test_signal_handling.py` | #6 |
+| Signal handling | Ctrl+C interrupts foreground child; `$?=130` | Supported | Native | `tests/test_signal_handling.py` | #6 |
+| Signal handling | Signal-killed child: `$? = 128 + signum` | Supported | Native | `tests/test_signal_handling.py` | #6 |
+| Signal handling | `py` builtin `KeyboardInterrupt` → `$?=130` | Supported | Native | `tests/test_signal_handling.py` | #6 |
+| Signal handling | Terminal state restored after Ctrl+C | Supported | Native | `tests/test_lineedit_reader_pty.py` | #6 |
+| Signal handling | Bracketed paste disabled after Ctrl+C | Supported | Native | `src/pysh/editor/lineedit/reader.py` | #6 |
+| Signal handling | SIGTSTP job suspend/resume | Unsupported | Planned | — | #11 |
+
 ## Traps
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| Traps | `trap 'cmd' SIGNAL` | Unsupported | Planned | — | #6 |
-| Traps | `trap 'cmd' EXIT` | Unsupported | Planned | — | #6 |
-| Traps | `trap '' SIGNAL` (ignore signal) | Unsupported | Planned | — | #6 |
+| Traps | `trap 'cmd' SIGNAL` | Unsupported | Unsupported | — | — |
+| Traps | `trap 'cmd' EXIT` | Unsupported | Unsupported | — | — |
+| Traps | `trap '' SIGNAL` (ignore signal) | Unsupported | Unsupported | — | — |
 
 ## Job control
 
@@ -314,7 +326,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Job control | `jobs` | Unsupported | Planned | — | #11 |
 | Job control | `bg` | Unsupported | Planned | — | #11 |
 | Job control | `fg` | Unsupported | Planned | — | #11 |
-| Job control | `Ctrl+Z` (SIGTSTP) suspension | Unsupported | Planned | — | #11 |
+| Job control | TTY suspend key (SIGTSTP) | Unsupported | Planned | — | #11 |
 | Job control | `wait` builtin | Unsupported | Planned | — | #11 |
 | Job control | `disown` | Unsupported | Unsupported | — | — |
 

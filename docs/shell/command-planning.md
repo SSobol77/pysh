@@ -14,7 +14,7 @@ See the LICENSE file in the project root for full license text.
 
 # Command planning
 
-PySH 0.3.0 introduces a foundation for command planning through the `plan`
+PySH includes a foundation for command planning through the `plan`
 builtin. `plan` previews how PySH would classify and execute a command line
 without actually running it. It is advisory only — there is no policy
 enforcement.

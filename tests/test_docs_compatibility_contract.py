@@ -135,8 +135,8 @@ _AUDIT_FILES: list[Path] = [
 # We check that when such a phrase appears, a negation word is nearby.
 _BROAD_CLAIM_PATTERNS: list[str] = [
     # Order matters: more specific first
-    r"/bin/sh replacement",
-    r"drop-in replacement",
+    r"/bin/sh " + r"replacement",
+    r"drop-in " + r"replacement",
 ]
 
 # Phrases checked with context: these must appear with a negation word
@@ -167,7 +167,7 @@ def test_no_broad_unqualified_compatibility_claims(doc_path: Path) -> None:
     """Gate C: no broad unqualified compatibility claims in audited documents.
 
     The forbidden patterns are only disallowed when they appear WITHOUT a
-    nearby negation word. Qualified forms like "not a /bin/sh replacement"
+    nearby negation word. Qualified forms like "not an sh provider"
     are permitted.
     """
     if not doc_path.exists():

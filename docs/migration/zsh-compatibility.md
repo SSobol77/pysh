@@ -20,7 +20,7 @@ See the LICENSE file in the project root for full license text.
 > complete feature matrix, see
 > [docs/compatibility/feature-matrix.md](../compatibility/feature-matrix.md).
 
-PySH 0.2.2 continues the **Zsh Transition Layer** and includes a safe profile
+PySH includes the **Zsh Transition Layer** and a safe profile
 import path. The design goal is migration, not full zsh emulation:
 
 - PySH remains a Python-first shell with its own native execution engine.

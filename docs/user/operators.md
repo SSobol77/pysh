@@ -112,7 +112,7 @@ double quotes.
 
 ## Known limitations
 
-PySH does not implement the full POSIX, bash or zsh grammar. Known
-non-goals for 0.2.2 include job control operators, here-documents,
+PySH does not implement the full POSIX, bash or zsh grammar. Current
+non-goals include job control operators, here-documents,
 process substitution, brace expansion, native glob expansion, shell arrays
 and multiline shell functions.

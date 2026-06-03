@@ -55,7 +55,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current development version: **0.5.0**. PySH targets **Python 3.13+** and is
+Current development baseline: **PySH 0.5.x**. PySH targets **Python 3.13+** and is
 validated primarily on **Debian 13** and Unix-like systems.
 
 ---
@@ -297,7 +297,7 @@ documented.
 Operators inside single or double quotes are treated as literal text.
 
 ```sh
-echo "🐍 PySH v0.5.0 | Python 3.13.5"
+echo "PySH current release | Python current runtime"
 echo "Test | pipe & semicolon; && ok"
 python3.13 -c "import subprocess; print('ok')"
 ```
@@ -390,7 +390,7 @@ such as `alias ll='ls -lah'`, ignores comments and unsupported constructs,
 and never executes the file as code. It prints `imported=N skipped=M
 file=<path>` and reports malformed alias lines deterministically on stderr.
 
-`source_zsh_profile <file>` and `source_sh_aliases <file>` use the 0.3.0
+`source_zsh_profile <file>` and `source_sh_aliases <file>` use the current
 static profile importer. They read files such as `~/.zshrc`, `.profile` and
 `.bash_aliases` without executing them, import supported simple aliases,
 exports and local assignments, and print `aliases=N exports=N vars=N
@@ -465,7 +465,7 @@ Unterminated blocks return non-zero in script/source mode; nested
 
 ## System profile helpers
 
-PySH 0.3.0 adds a small, non-mutating Debian/system profile layer. None of
+PySH includes a small, non-mutating Debian/system profile layer. None of
 these helpers call `sudo` or modify system state.
 
 ```sh
@@ -541,7 +541,7 @@ for dir in ~/bin ~/.local/bin; do
     fi
 done
 
-echo "🐍 PySH 0.5.0 | Python 3.13+"
+echo "PySH current release | Python 3.13+"
 echo "💡 Operators: && || ; | > >> < 2> 2>> &> &>>  + \$() and backticks"
 ```
 
@@ -667,9 +667,9 @@ paths for any word. Inaccessible directories are silently skipped.
 
 - No job control (`&`, `bg`, `fg`, `jobs`, `Ctrl+Z` job suspension).
 - No full POSIX shell grammar — only the constructs documented above.
-- No glob expansion is performed by PySH itself; external commands still
-  receive globs through their own expansion logic when run via a system
-  shell, but plain pipelines do not expand `*` / `?` in arguments.
+- No glob expansion is performed by PySH itself; `*`, `?`, and character-class
+  patterns are passed as literal argv text unless an explicitly delegated
+  external shell performs expansion.
 - No full zsh compatibility. The zsh compatibility bridge is a transition
   layer with safe static alias import and explicit delegation to real zsh.
 - `svc start` and `svc restart` to actually re-launch a process require a
@@ -679,7 +679,7 @@ paths for any word. Inaccessible directories are silently skipped.
 - Debian helpers (`apt_check`, `apt_search`) require `apt` to exist; they
   return 127 deterministically when it does not.
 - `plan` is advisory only. Policy enforcement is intentionally out of scope
-  in 0.5.0.
+  for the current release.
 
 ---
 

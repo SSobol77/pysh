@@ -78,7 +78,7 @@ but PySH is not bash and does not claim bash compatibility.
 | bash heredocs (`<< DELIM`) | Not supported | Planned | #10 |
 | bash `set -e`, `set -x`, `set -u` | Not supported | Planned for script mode | #14 |
 | bash job control (`&`, `jobs`, `bg`, `fg`) | Not supported | Planned | #11 |
-| bash traps (`trap`) | Not supported | Planned | #6 |
+| bash traps (`trap`) | Not supported | Not on current roadmap | — |
 | bash `source` / `.` with bash semantics | Not supported | `source` runs PySH rc-interpreter only | — |
 | bash readline integration | Partial | Native — Ctrl+R with readline if available | — |
 | bash-compatible `PS1`, `PS2` prompt vars | Not supported | PySH has its own prompt configuration | — |

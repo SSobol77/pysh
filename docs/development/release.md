@@ -12,7 +12,7 @@ Licensed under the GNU General Public License v3.0 or later.
 See the LICENSE file in the project root for full license text.
 -->
 
-# Release process (v0.5.0)
+# Release Process (`vX.Y.Z`)
 
 > Each release ships **three** artifact families: PyPI (wheel + sdist),
 > Debian `.deb`, and Red Hat/Fedora `.rpm`. See
@@ -37,8 +37,8 @@ the `pypi` GitHub environment.
    git pull --ff-only origin main
    ```
 2. Bump the version everywhere it appears:
-   - [`pyproject.toml`](../../pyproject.toml) → `version = "0.5.0"`
-   - [`src/pysh/__init__.py`](../../src/pysh/__init__.py) → `__version__ = "0.5.0"`
+   - [`pyproject.toml`](../../pyproject.toml) → `version = "X.Y.Z"`
+   - [`src/pysh/__init__.py`](../../src/pysh/__init__.py) → `__version__ = "X.Y.Z"`
    - Any user-facing version strings in [`README.md`](../../README.md).
 3. Run the full quality gate locally:
    ```bash
@@ -72,18 +72,18 @@ the `pypi` GitHub environment.
    ```
 2. Create the version tag manually:
    ```bash
-   git tag v0.5.0
+   git tag vX.Y.Z
    ```
 3. Push the branch and the tag:
    ```bash
    git push origin main
-   git push origin v0.5.0
+   git push origin vX.Y.Z
    ```
 4. The `publish.yml` workflow runs on tag push, builds artifacts in an
    isolated CI environment, and uploads to PyPI using Trusted Publishing.
 5. Verify the release on
    [PyPI](https://pypi.org/project/pysh-shell/) and that the GitHub
-   release page lists `v0.5.0` under
+   release page lists `vX.Y.Z` under
    [Releases](https://github.com/SSobol77/pysh/releases).
 
 ## Post-release
@@ -94,7 +94,7 @@ the `pypi` GitHub environment.
   python3.13 -m venv /tmp/pysh-smoke
   . /tmp/pysh-smoke/bin/activate
   python -m pip install --upgrade pip
-  python -m pip install pysh-shell==0.5.0
+  python -m pip install pysh-shell==X.Y.Z
   pysh --version
   python -m pysh --version
   ```

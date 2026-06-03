@@ -58,7 +58,12 @@ are gaps that must be resolved before the claim can be published.
 | Command-not-found → 127 | Unit test | `tests/test_error_exit_code_contract.py` | None | #5 |
 | Cannot-execute → 126 | Unit test | `tests/test_error_exit_code_contract.py` | None | #5 |
 | Builtin misuse → 2 | Unit test | `tests/test_error_exit_code_contract.py` | None | #5 |
-| SIGINT → 130 | Unit test (`signal_exit_code`) | `tests/test_error_exit_code_contract.py` | Process-level flaky test deferred | #6 |
+| SIGINT → 130 (signal formula) | Unit test (`signal_exit_code`) | `tests/test_error_exit_code_contract.py` | None | #5 |
+| SIGINT → 130 (line editor Ctrl+C) | Unit test + manual acceptance | `tests/test_signal_handling.py` | PTY manual test documented | #6 |
+| SIGINT → 130 (external command) | Unit test | `tests/test_signal_handling.py` | None | #6 |
+| SIGTERM → 143 (signal mapping) | Unit test | `tests/test_signal_handling.py` | None | #6 |
+| `py` KeyboardInterrupt → 130 | Unit test | `tests/test_signal_handling.py` | None | #6 |
+| `128 + signum` for any signal | Unit test (`returncode_to_exit_status`) | `tests/test_signal_handling.py` | None | #6 |
 | Comments (`#`) work correctly | Unit test | `tests/test_comments.py` | None | — |
 | Aliases are expanded correctly | Unit test | `tests/test_shell.py` | None | — |
 | `unalias` works | Unit test | `tests/test_unalias.py` | None | — |
@@ -160,6 +165,10 @@ acceptance gates, not automated tests.
 | Autosuggestion rendering | Type partial command; verify suggestion appears in correct color; press → to accept | Per release |
 | Syntax highlighting | Type valid and invalid syntax; verify colors change correctly | Per release |
 | Cursor color (OSC 12) | Configure cursor color in `~/.pyshrc.py`; verify terminal cursor changes | Per release |
+| Ctrl+C at empty prompt | Press Ctrl+C at empty prompt; verify shell continues; `echo $?` returns 130 | Per release |
+| Ctrl+C during external command | Run `sleep 60` then Ctrl+C; verify shell returns to prompt; `echo $?` returns 130 | Per release |
+| Ctrl+C during `py` execution | Run `py import time; time.sleep(60)` then Ctrl+C; verify no traceback; `echo $?` returns 130 | Per release |
+| Terminal state after Ctrl+C | Type text, press Ctrl+C, type `echo hello`, press Enter; verify clean output | Per release |
 | `secure sudo -v` PTY ring | Run `secure sudo -v` and type password; verify ring indicator appears without revealing length | Per release |
 | `zsh_fallback on` delegation | Enable fallback; type a zsh-specific construct; verify it runs in zsh | Per release |
 | `mc` integration | Launch `mc`; verify PySH resumes correctly on exit | Per release |

@@ -9,7 +9,7 @@
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See the LICENSE file in the project root for full license text.
-"""Tests for the POSIX-compatible ``command`` builtin."""
+"""Tests for the POSIX-style ``command`` builtin."""
 from __future__ import annotations
 
 import os

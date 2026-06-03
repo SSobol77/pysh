@@ -74,7 +74,7 @@ This document defines PySH's relationship to the POSIX shell standard
 | Native glob expansion (`*`, `?`, `[...]`) | **Not supported** | Arguments pass literally | #9 |
 | Parameter expansion (advanced forms) | **Not supported** | Planned (simple forms only) | #8 |
 | `set -e`, `set -x`, `set -u` | **Not supported** | Planned for script mode | #14 |
-| Traps (`trap`) | **Not supported** | Planned | #6 |
+| Traps (`trap`) | **Not supported** | Not on current roadmap | — |
 | Job control (`&`, `jobs`, `bg`, `fg`) | **Not supported** | Planned | #11 |
 | Process substitution (`<(cmd)`) | **Not supported** | Not planned | — |
 | `/bin/sh` provider status | **Not supported** | Hard prohibition | #17 |

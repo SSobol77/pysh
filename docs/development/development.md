@@ -67,7 +67,7 @@ message.
 `bash scripts/check_headers.sh` should print no output. `uv run pytest -q`
 should report **all tests passing**. `uv run ruff check` should report
 **All checks passed!**. `python -m build` should produce
-`dist/pysh_shell-0.5.0.tar.gz` and `dist/pysh_shell-0.5.0-py3-none-any.whl`.
+`dist/pysh_shell-X.Y.Z.tar.gz` and `dist/pysh_shell-X.Y.Z-py3-none-any.whl`.
 `twine check` should report `PASSED` for both artifacts.
 
 ## Smoke tests
@@ -171,5 +171,5 @@ pytest -q tests/test_shell.py::test_cd_changes_directory
 
 # Build and inspect the wheel contents:
 python -m build
-unzip -l dist/pysh_shell-0.5.0-py3-none-any.whl
+unzip -l dist/pysh_shell-X.Y.Z-py3-none-any.whl
 ```

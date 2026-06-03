@@ -144,17 +144,12 @@ not publish to PyPI.
 
 ## Naming contract enforcement
 
-The canonical naming contract is documented in:
+The public canonical naming contract is the table in this document. Private
+agent instruction files may repeat the same contract for local automation, but
+public packaging documentation must not depend on ignored or untracked agent
+files being present in a source distribution or release archive.
 
-- [`AGENTS.md`](../../AGENTS.md)
-- [`CLAUDE.md`](../../CLAUDE.md)
-- [`CODEX.md`](../../CODEX.md)
-- [`CURSOR.md`](../../CURSOR.md)
-- [`.codex/rules/packaging-naming.md`](../../.codex/rules/packaging-naming.md)
-- [`.claude/rules/packaging-naming.md`](../../.claude/rules/packaging-naming.md)
-- [`.cursor/rules/packaging-naming.mdc`](../../.cursor/rules/packaging-naming.mdc)
-
-Any future agent that produces release artifacts must follow that
+Any future automation that produces release artifacts must follow this
 contract. The contract is enforced by:
 
 - `scripts/build_deb.sh` — fails on `.deb` filename drift.

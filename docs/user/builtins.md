@@ -140,7 +140,7 @@ command -V NAME
 command NAME [ARGS ...]
 ```
 
-Purpose: provide POSIX-compatible command lookup and execution with alias
+Purpose: provide POSIX-style command lookup and execution with alias
 expansion suppressed for `NAME`.
 
 Resolution order for `-v` and `-V` is:

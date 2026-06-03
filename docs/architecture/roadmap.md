@@ -259,7 +259,7 @@ Required matrix coverage:
 Non-goals:
 
 - no code,
-- no "PySH is zsh-compatible" prose until the matrix exists and a construct is
+- no broad zsh compatibility prose until the matrix exists and a construct is
   marked supported with a backing test.
 
 Definition of done:

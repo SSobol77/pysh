@@ -89,13 +89,19 @@ diagnostic_to_exit_code(d)    # extracts int from Diagnostic
 ## External command exit propagation
 
 Rules:
-- The external process exit code is propagated exactly via `proc.wait()`.
-- Exit code 0 means success; all other values are returned as-is.
+- Positive process exit codes are propagated exactly: exit code N → status N.
+- Exit code 0 means success.
 - Signal termination: when a child process terminates due to a signal,
-  `subprocess.Popen.wait()` returns a negative value on some platforms.
-  PySH does not currently convert negative return values to 128+signum;
-  the raw value from `proc.wait()` is returned. Canonical signal-exit
-  mapping via `signal_exit_code` is available for future use.
+  `subprocess.Popen.wait()` returns a negative value (`-signum`).
+  PySH maps negative return codes through
+  `pysh.core.signals.returncode_to_exit_status()` per the formula
+  `128 + signum`.  Examples: `-SIGINT` (−2) → 130; `-SIGTERM` (−15) → 143.
+  This mapping was implemented in Issue #6.
+- `KeyboardInterrupt` raised during `proc.wait()` (Ctrl+C in parent):
+  child is terminated, wait is collected, and PySH returns `ExitCode.SIGINT`
+  (130) directly without passing through `returncode_to_exit_status`.
+- `signal_exit_code(signum)` in `pysh.core.errors` is the canonical formula
+  helper for constructing signal exit codes from a signal number.
 - Command substitution timeout: if a `$()` substitution times out, it
   expands to an empty string and the shell continues. The timeout exit
   code is not propagated to `last_status` in the current implementation.
@@ -106,8 +112,11 @@ Specific cases:
 | ----- | ------------ | --------- |
 | Command not in PATH | Print `pysh: CMD: command not found` to stderr | 127 |
 | Command found, not executable | Print `pysh: CMD: <detail>` to stderr | 126 |
-| Command completes with exit code N | Propagate N | N |
-| Process interrupted by SIGINT during `wait()` | Terminate child, return | 130 |
+| Command completes with exit code N | Propagate N exactly | N |
+| Child killed by signal (signum) | `returncode_to_exit_status(-signum)` → `128 + signum` | 128 + signum |
+| Child killed by SIGINT (−2) | `returncode_to_exit_status(-2)` → 130 | 130 |
+| Child killed by SIGTERM (−15) | `returncode_to_exit_status(-15)` → 143 | 143 |
+| Process interrupted by SIGINT during `wait()` | Terminate child, return `ExitCode.SIGINT` | 130 |
 | OS-level error before `Popen` | Print `pysh: <detail>` to stderr | 1 |
 
 ---
@@ -269,6 +278,6 @@ consistent exit-code propagation for complex pipelines or multi-command scripts.
 | ----- | ---- |
 | Issue #3 | Import-boundary enforcement: `pysh.core.errors` stays within `pysh.core` |
 | Issue #5 | This document |
-| Issue #6 | Signal handling: extends SIGINT → 130 to PTY/job-control contexts |
+| Issue #6 | Signal handling: extends SIGINT → 130 to all execution contexts; see [signal-handling.md](signal-handling.md) |
 | Issue #8 | Parser hardening: may tighten parse-error return codes |
 | Issue #14 | Script-mode full error contract |

@@ -296,7 +296,7 @@ Type `#py` at the normal PySH prompt to enter an interactive Python session:
 ```text
 > #py
 PySH Python Command Execution Layer | GPL-3.0
-Python 3.13.5
+Python <current runtime>
 Type #help for commands. Ctrl+D or #exit to return to PySH.
 
 >>> x = 10

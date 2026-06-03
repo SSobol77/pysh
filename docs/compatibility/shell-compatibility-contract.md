@@ -177,18 +177,18 @@ immediately precede a clear negation or qualification:
 
 | Forbidden pattern | Prohibited because |
 | ----------------- | ------------------ |
-| "PySH is zsh-compatible" | False without qualification; PySH has a zsh transition layer, not compatibility |
-| "PySH is POSIX-compatible" | False; PySH does not implement the POSIX grammar or expansion model |
-| "PySH is a /bin/sh replacement" | False; PySH must not be symlinked as `/bin/sh` |
-| "PySH is a drop-in replacement for zsh/bash" | False; PySH has a different grammar and different feature set |
-| "PySH is bash-compatible" | False; bash features are largely unsupported natively |
-| "fully compatible" (unqualified) | Vague and likely false; always qualify with the specific construct |
+| zsh compatibility claim | False without qualification; PySH has a zsh transition layer, not broad compatibility |
+| POSIX compatibility claim | False; PySH does not implement the POSIX grammar or expansion model |
+| `/bin/sh` replacement claim | False; PySH must not be symlinked as `/bin/sh` |
+| interchangeable replacement claim for zsh/bash | False; PySH has a different grammar and different feature set |
+| bash compatibility claim | False; bash features are largely unsupported natively |
+| unqualified full-compatibility claim | Vague and likely false; always qualify with the specific construct |
 
 Allowed forms (negated or qualified):
 
 - "PySH is not a full zsh clone."
 - "PySH does not claim POSIX `/bin/sh` replacement status."
-- "PySH is not a drop-in replacement for bash."
+- "PySH is not interchangeable with bash."
 - "zsh-compatible alias file" (refers to file format, not PySH behavior).
 
 ---

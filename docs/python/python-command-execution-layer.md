@@ -14,7 +14,7 @@ See the LICENSE file in the project root for full license text.
 
 # Python Command Execution Layer
 
-PySH v0.5.0 introduces an interactive Python command mode that can be entered
+PySH provides an interactive Python command mode that can be entered
 from the normal PySH prompt.
 
 ## Entering Python command mode
@@ -29,7 +29,7 @@ You will see the Python mode banner:
 
 ```text
 PySH Python Command Execution Layer | GPL-3.0
-Python 3.13.5
+Python <current runtime>
 Type #help for commands. Ctrl+D or #exit to return to PySH.
 
 >>>
@@ -196,7 +196,7 @@ paths instead.
 ## Syntax highlighting
 
 Python command mode uses Pygments for terminal syntax highlighting.
-Pygments is a normal runtime dependency for PySH v0.5.0.
+Pygments is a normal runtime dependency for the current PySH release.
 
 - Live input is highlighted as you type (real terminal mode).
 - `#show` and `#show <file>` render highlighted source.
@@ -466,7 +466,7 @@ will produce a directive error:
 These do not create, overwrite, or load any file. Use Python's built-in
 `open()` for arbitrary file I/O inside Python command mode.
 
-## v0.5.0 limitations
+## Current limitations
 
 - TAB does not trigger Python symbol completion (inserts four spaces only).
 - `sys.exit()` from user code exits Python command mode but does not

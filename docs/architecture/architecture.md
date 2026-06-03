@@ -22,6 +22,7 @@ lifecycle policy.
 **Relation to other documents:**
 - [source-tree.md](source-tree.md) — post-Issue #2 source tree: packages, modules, dependency diagram.
 - [error-exit-code-contract.md](error-exit-code-contract.md) — Issue #5: canonical exit codes, PyShError taxonomy, $? propagation, boundary function.
+- [signal-handling.md](signal-handling.md) — Issue #6: signal-handling architecture, terminal restoration guarantees, exit-code mapping.
 - [ISSUE-2-refactor-source-tree.md](ISSUE-2-refactor-source-tree.md) — Issue #2 scope (relocation only).
 - [ISSUE-3-architecture-contracts.md](ISSUE-3-architecture-contracts.md) — Issue #3 spec (this implementation).
 - GitHub Issue #19 — shim lifecycle and removal.
@@ -52,7 +53,7 @@ It is not a full layer-boundary enforcement; that belongs to Issue #3's successo
 | `pysh` | Package identity and version metadata | `__version__`, `__author__`, `LICENSE_NAME` | Runtime logic |
 | `pysh.__main__` | `python -m pysh` execution shim | Module-level `main()` dispatch | Argument parsing, shell logic |
 | `pysh.cli` | Console script entry point | Argument parsing, `--version`, `-c`, interactive start | Shell execution, builtin dispatch |
-| `pysh.core` | Main shell runtime (fan-in hub) | `PyShell`: REPL loop, all builtin implementations, pipeline and redirection execution | Parser primitives, editor rendering, config loading (delegates to leaves) |
+| `pysh.core` | Main shell runtime (fan-in hub) | `PyShell`: REPL loop, all builtin implementations, pipeline and redirection execution; `errors.py`: canonical exit codes; `signals.py`: signal helpers | Parser primitives, editor rendering, config loading (delegates to leaves) |
 | `pysh.parsing` | Quote-aware text parsing | Chain/pipeline/paste splitting, `RedirectionSpec`, redirection application | Shell state, execution, variable expansion |
 | `pysh.editor` | Interactive line editor (coordinator) | `Completer`, `HistoryManager`, `colors_enabled`, `paint` | Shell state, prompt rendering |
 | `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder` | Higher-level shell concepts, history persistence |
@@ -255,7 +256,7 @@ New violations fail the ratchet test automatically.
 | `pysh.diagnostics` | `pysh.python_layer` | `diagnostics.command_plan` uses `PY_BLOCK_OPENER`, `is_block_opener` from `python_layer.runtime` | Issue #8 |
 | `pysh.script_runner` | `pysh.parsing` | `script_runner` uses `ChainOp`, `split_chain` from `parsing.parser` | Issue #14 |
 | `pysh.script_runner` | `pysh.python_layer` | `script_runner` uses `is_block_opener`, `iter_logical_lines` from `python_layer.runtime` | Issue #14 |
-| `pysh.security` | `pysh.prompt` | `security.secure_runner` uses `colorize`, `parse_color` from `prompt.colors` for indicator rendering | Issue #6 |
+| `pysh.security` | `pysh.prompt` | `security.secure_runner` uses `colorize`, `parse_color` from `prompt.colors` for indicator rendering | Issue #8 |
 
 **Total known violations: 10.**
 
@@ -306,7 +307,7 @@ subprocess calls) that should be deferred to first use.
 | ----- | ---- |
 | Issue #2 | Source tree relocation (pure move, no behavior changes). Created the subpackage layout that contracts enforce. |
 | Issue #3 | This document. Contract layer, boundary tests, ratchet, public API snapshot, cold-start budget. |
-| Issue #6 | Signal and PTY cleanup: resolves `pysh.security → pysh.prompt` violation. |
+| Issue #6 | Signal-handling architecture: deterministic SIGINT/SIGTERM exit-code behavior, explicit SIGTSTP/job-control non-support, `returncode_to_exit_status()`, terminal restoration guarantees. Does not resolve the `pysh.security → pysh.prompt` violation (deferred to Issue #8). |
 | Issue #8 | Parser/expansion/editor boundary cleanup: resolves most ratchet violations. |
 | Issue #14 | Script-mode cleanup: resolves `pysh.script_runner → pysh.parsing/python_layer` violations. |
 | Issue #19 | Shim removal: removes `pysh.shell` compatibility shim after all callers are updated. |

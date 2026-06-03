@@ -16,7 +16,7 @@ See the LICENSE file in the project root for full license text.
 
 PySH provides a Python-native runtime bridge through the `py` builtin. This
 is a first-class PySH feature: it runs Python code in the shell process using
-the current Python 3.13+ runtime and keeps state for the duration of one PySH
+the installed Python runtime and keeps state for the duration of one PySH
 session.
 
 ## One-line use
@@ -31,7 +31,7 @@ The one-line form accepts any Python statement that fits on a single line.
 
 ## Multiline Python automation blocks
 
-PySH 0.3.0 introduces multiline Python automation blocks:
+PySH supports multiline Python automation blocks:
 
 ```sh
 py {
@@ -77,9 +77,10 @@ py print("shell still alive")
 ```
 
 Exceptions are printed cleanly to stderr. The builtin returns non-zero and
-the shell stays usable. A `SyntaxError` inside a block is reported and
-returns non-zero. An unterminated block in script mode returns non-zero and
-does **not** execute any partial body.
+the shell stays usable. `KeyboardInterrupt` is handled as normal Ctrl+C
+behavior: it returns 130 and does not print a traceback. A `SyntaxError`
+inside a block is reported and returns non-zero. An unterminated block in
+script mode returns non-zero and does **not** execute any partial body.
 
 ## Scope and limitations
 
