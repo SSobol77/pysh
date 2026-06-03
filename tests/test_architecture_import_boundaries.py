@@ -98,8 +98,9 @@ HEAVY_INIT_FORBIDDEN: frozenset[str] = frozenset({
 # architectural review (a new entry requires a corresponding Issue reference).
 #
 # Cleanup issue references:
-#   Issue #8   – parser / expansion / editor boundary cleanup
-#   Issue #14  – script-mode cleanup
+#   Issue #12  – editor/completion contract cleanup
+#   Issue #14  – script/config mode cleanup
+#   Issue #19  – remaining package-boundary cleanup
 
 
 class _Violation(NamedTuple):
@@ -117,18 +118,8 @@ KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset({
     # config.rc (deferred import) uses is_block_opener / iter_logical_lines
     # from python_layer.runtime for py { ... } block handling in rc files
     ("pysh.config", "pysh.python_layer"),
-    # editor.lineedit.reader uses split_paste_commands from parsing.parser
-    ("pysh.editor", "pysh.parsing"),
     # python_layer.mode / .highlighting use editor.lineedit and editor.highlight
     ("pysh.python_layer", "pysh.editor"),
-    # diagnostics.command_plan uses split_chain / split_pipeline from parsing.parser
-    ("pysh.diagnostics", "pysh.parsing"),
-    # diagnostics.command_plan uses is_block_opener from python_layer.runtime
-    ("pysh.diagnostics", "pysh.python_layer"),
-    # script_runner uses split_chain from parsing.parser
-    ("pysh.script_runner", "pysh.parsing"),
-    # script_runner uses is_block_opener / iter_logical_lines from python_layer.runtime
-    ("pysh.script_runner", "pysh.python_layer"),
     # security.secure_runner uses colorize / parse_color from prompt.colors
     ("pysh.security", "pysh.prompt"),
 })
@@ -137,54 +128,29 @@ KNOWN_VIOLATION_DETAILS: list[_Violation] = [
     _Violation(
         "pysh.config", "pysh.editor",
         "config.api uses _display_width from editor.lineedit.buffer (prompt width)",
-        "Issue #8",
+        "Issue #19",
     ),
     _Violation(
         "pysh.config", "pysh.prompt",
         "config.api uses color_to_hex, parse_color from prompt.colors",
-        "Issue #8",
+        "Issue #19",
     ),
     _Violation(
         "pysh.config", "pysh.python_layer",
         "config.rc uses is_block_opener, iter_logical_lines from python_layer.runtime "
         "(deferred local import) for py { ... } block coalescing in rc files",
-        "Issue #8",
-    ),
-    _Violation(
-        "pysh.editor", "pysh.parsing",
-        "editor.lineedit.reader uses split_paste_commands from parsing.parser",
-        "Issue #8",
+        "Issue #14",
     ),
     _Violation(
         "pysh.python_layer", "pysh.editor",
         "python_layer.mode uses editor.lineedit (reader/buffer/highlight/autosuggest) for #py REPL;"
         " python_layer.highlighting uses editor.highlight for ANSI colors",
-        "Issue #8",
-    ),
-    _Violation(
-        "pysh.diagnostics", "pysh.parsing",
-        "diagnostics.command_plan uses ChainOp, split_chain, split_pipeline from parsing.parser",
-        "Issue #8",
-    ),
-    _Violation(
-        "pysh.diagnostics", "pysh.python_layer",
-        "diagnostics.command_plan uses PY_BLOCK_OPENER, is_block_opener from python_layer.runtime",
-        "Issue #8",
-    ),
-    _Violation(
-        "pysh.script_runner", "pysh.parsing",
-        "script_runner uses ChainOp, split_chain from parsing.parser",
-        "Issue #14",
-    ),
-    _Violation(
-        "pysh.script_runner", "pysh.python_layer",
-        "script_runner uses is_block_opener, iter_logical_lines from python_layer.runtime",
-        "Issue #14",
+        "Issue #12",
     ),
     _Violation(
         "pysh.security", "pysh.prompt",
         "security.secure_runner uses colorize, parse_color from prompt.colors",
-        "Issue #8",
+        "Issue #19",
     ),
 ]
 
@@ -382,6 +348,17 @@ _PERMITTED_SOURCES: frozenset[str] = frozenset({
     "pysh",           # root package
 })
 
+_PARSING_SHARED_LEAF = "pysh.parsing"
+
+_PERMITTED_EDGES: frozenset[tuple[str, str]] = frozenset({
+    # pysh.parsing is a shared leaf after Issue #8. These packages may consume
+    # parser grammar, AST and multiline helpers; parsing itself must not import
+    # back into them.
+    ("pysh.editor", _PARSING_SHARED_LEAF),
+    ("pysh.diagnostics", _PARSING_SHARED_LEAF),
+    ("pysh.script_runner", _PARSING_SHARED_LEAF),
+})
+
 
 def test_cross_domain_ratchet() -> None:
     """Gate D (ratchet): no new cross-domain violations beyond KNOWN_VIOLATIONS.
@@ -403,6 +380,8 @@ def test_cross_domain_ratchet() -> None:
             if importee in _PERMITTED_SOURCES:
                 continue
             if importer == importee:
+                continue
+            if (importer, importee) in _PERMITTED_EDGES:
                 continue
             actual.add((importer, importee))
 

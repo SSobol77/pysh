@@ -22,6 +22,7 @@ lifecycle policy.
 **Relation to other documents:**
 - [source-tree.md](source-tree.md) — post-Issue #2 source tree: packages, modules, dependency diagram.
 - [error-exit-code-contract.md](error-exit-code-contract.md) — Issue #5: canonical exit codes, PyShError taxonomy, $? propagation, boundary function.
+- [parser-expansion-contract.md](parser-expansion-contract.md) — Issue #8: parser modules, expansion order, multiline grammar, unsupported syntax ownership.
 - [signal-handling.md](signal-handling.md) — Issue #6: signal-handling architecture, terminal restoration guarantees, exit-code mapping.
 - [security-trust-model.md](security-trust-model.md) — Issue #7: security and trust model, execution surfaces table, static import policy, sensitive input boundary.
 - [ISSUE-2-refactor-source-tree.md](ISSUE-2-refactor-source-tree.md) — Issue #2 scope (relocation only).
@@ -55,7 +56,7 @@ It is not a full layer-boundary enforcement; that belongs to Issue #3's successo
 | `pysh.__main__` | `python -m pysh` execution shim | Module-level `main()` dispatch | Argument parsing, shell logic |
 | `pysh.cli` | Console script entry point | Argument parsing, `--version`, `-c`, interactive start | Shell execution, builtin dispatch |
 | `pysh.core` | Main shell runtime (fan-in hub) | `PyShell`: REPL loop, all builtin implementations, pipeline and redirection execution; `errors.py`: canonical exit codes; `signals.py`: signal helpers | Parser primitives, editor rendering, config loading (delegates to leaves) |
-| `pysh.parsing` | Quote-aware text parsing | Chain/pipeline/paste splitting, `RedirectionSpec`, redirection application | Shell state, execution, variable expansion |
+| `pysh.parsing` | Quote-aware text parsing and expansion helpers | Parser AST values, parse errors, lexical scanning, chain/pipeline/paste splitting, multiline continuation, variable/command substitution helpers, redirection parsing | Shell state, command dispatch, editor rendering |
 | `pysh.editor` | Interactive line editor (coordinator) | `Completer`, `HistoryManager`, `colors_enabled`, `paint` | Shell state, prompt rendering |
 | `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder` | Higher-level shell concepts, history persistence |
 | `pysh.prompt` | Prompt segment rendering | `colorize`, `color_to_hex`, `parse_color`, Debian profile helpers | Shell state, RC parsing |
@@ -171,7 +172,8 @@ checks.
 ## Parser / execution / editor boundaries
 
 ```text
-pysh.parsing  ──►  provides: split_chain, split_pipeline, split_paste_commands,
+pysh.parsing  ──►  provides: ast, errors, lexer, grammar, expansion, multiline,
+                             split_chain, split_pipeline, split_paste_commands,
                              RedirectionSpec, parse_redirections
                    consumed by: core, editor.lineedit, diagnostics, script_runner
                    must not: import from core, editor, prompt, python_layer
@@ -179,7 +181,7 @@ pysh.parsing  ──►  provides: split_chain, split_pipeline, split_paste_comm
 pysh.editor   ──►  provides: Completer, HistoryManager, ANSI helpers, RawLineReader
                    consumed by: core, python_layer
                    must not: import from core, config, prompt, python_layer
-                   current violation: editor.lineedit.reader → pysh.parsing (Issue #8)
+                   may consume: pysh.parsing shared-leaf helpers for paste splitting
 
 pysh.core     ──►  imports from: all leaf packages (fan-in)
                    must not: be imported by any leaf package
@@ -206,16 +208,16 @@ transparent wrappers. No new broad compatibility layers are permitted.
 
 ```text
 pysh.python_layer  ──►  provides: PythonRuntime, #py mode, syntax highlighting
-                         consumed by: core (py builtin, #py REPL), script_runner
+                         consumed by: core (py builtin, #py REPL)
                          current violations:
-                           python_layer → pysh.editor (Issue #8)
+                           python_layer → pysh.editor (Issue #12)
                          must not: import from core, config, compat, services
 ```
 
 The Python layer intentionally reaches into `pysh.editor.lineedit` to drive
 the `#py` interactive REPL (reader, buffer, highlighting, autosuggestion).
 This cross-boundary import is documented in the ratchet table and is the
-primary candidate for cleanup in Issue #8.
+primary candidate for editor/completion contract cleanup in Issue #12.
 
 ---
 
@@ -248,18 +250,13 @@ New violations fail the ratchet test automatically.
 
 | Importing package | Imported package | Reason retained | Cleanup issue |
 | ----------------- | ---------------- | --------------- | ------------- |
-| `pysh.config` | `pysh.editor` | `config.api` uses `_display_width` from `editor.lineedit.buffer` for prompt width calculation | Issue #8 |
-| `pysh.config` | `pysh.prompt` | `config.api` uses `color_to_hex`, `parse_color` from `prompt.colors` | Issue #8 |
-| `pysh.config` | `pysh.python_layer` | `config.rc` uses `is_block_opener`, `iter_logical_lines` (deferred local import) for `py { ... }` block coalescing | Issue #8 |
-| `pysh.editor` | `pysh.parsing` | `editor.lineedit.reader` uses `split_paste_commands` from `parsing.parser` for paste handling | Issue #8 |
-| `pysh.python_layer` | `pysh.editor` | `python_layer.mode` uses `editor.lineedit` (reader, buffer, highlight, autosuggest) for `#py` REPL; `python_layer.highlighting` uses `editor.highlight` | Issue #8 |
-| `pysh.diagnostics` | `pysh.parsing` | `diagnostics.command_plan` uses `ChainOp`, `split_chain`, `split_pipeline` from `parsing.parser` | Issue #8 |
-| `pysh.diagnostics` | `pysh.python_layer` | `diagnostics.command_plan` uses `PY_BLOCK_OPENER`, `is_block_opener` from `python_layer.runtime` | Issue #8 |
-| `pysh.script_runner` | `pysh.parsing` | `script_runner` uses `ChainOp`, `split_chain` from `parsing.parser` | Issue #14 |
-| `pysh.script_runner` | `pysh.python_layer` | `script_runner` uses `is_block_opener`, `iter_logical_lines` from `python_layer.runtime` | Issue #14 |
-| `pysh.security` | `pysh.prompt` | `security.secure_runner` uses `colorize`, `parse_color` from `prompt.colors` for indicator rendering | Issue #8 |
+| `pysh.config` | `pysh.editor` | `config.api` uses `_display_width` from `editor.lineedit.buffer` for prompt width calculation | Issue #19 |
+| `pysh.config` | `pysh.prompt` | `config.api` uses `color_to_hex`, `parse_color` from `prompt.colors` | Issue #19 |
+| `pysh.config` | `pysh.python_layer` | `config.rc` uses `is_block_opener`, `iter_logical_lines` (deferred local import) for `py { ... }` block coalescing | Issue #14 |
+| `pysh.python_layer` | `pysh.editor` | `python_layer.mode` uses `editor.lineedit` (reader, buffer, highlight, autosuggest) for `#py` REPL; `python_layer.highlighting` uses `editor.highlight` | Issue #12 |
+| `pysh.security` | `pysh.prompt` | `security.secure_runner` uses `colorize`, `parse_color` from `prompt.colors` for indicator rendering | Issue #19 |
 
-**Total known violations: 10.**
+**Total known violations: 5.**
 
 To resolve a violation: remove the cross-package import (refactor or extract
 to contracts), remove the entry from `KNOWN_VIOLATIONS` in the test file,
@@ -308,8 +305,9 @@ subprocess calls) that should be deferred to first use.
 | ----- | ---- |
 | Issue #2 | Source tree relocation (pure move, no behavior changes). Created the subpackage layout that contracts enforce. |
 | Issue #3 | This document. Contract layer, boundary tests, ratchet, public API snapshot, cold-start budget. |
-| Issue #6 | Signal-handling architecture: deterministic SIGINT/SIGTERM exit-code behavior, explicit SIGTSTP/job-control non-support, `returncode_to_exit_status()`, terminal restoration guarantees. Does not resolve the `pysh.security → pysh.prompt` violation (deferred to Issue #8). |
+| Issue #6 | Signal-handling architecture: deterministic SIGINT/SIGTERM exit-code behavior, explicit SIGTSTP/job-control non-support, `returncode_to_exit_status()`, terminal restoration guarantees. Does not resolve the `pysh.security → pysh.prompt` violation (deferred to Issue #19). |
 | Issue #7 | Security and trust model: execution surfaces, static import policy, sensitive input boundary, trust levels, diagnostics non-mutation. See [security-trust-model.md](security-trust-model.md). |
-| Issue #8 | Parser/expansion/editor boundary cleanup: resolves most ratchet violations. |
-| Issue #14 | Script-mode cleanup: resolves `pysh.script_runner → pysh.parsing/python_layer` violations. |
+| Issue #8 | Parser/expansion/multiline foundation: decomposes parser modules, defines unsupported syntax ownership, and classifies `pysh.parsing` as a shared leaf consumed by editor, diagnostics and script runner. |
+| Issue #14 | Script/config mode cleanup: resolves `pysh.config → pysh.python_layer` and finalizes native script-mode contracts. |
+| Issue #12 | Editor/completion contract cleanup: resolves `pysh.python_layer → pysh.editor`. |
 | Issue #19 | Shim removal: removes `pysh.shell` compatibility shim after all callers are updated. |

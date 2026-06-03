@@ -49,6 +49,12 @@ printf 'a\nb\nc\n' | head -2
 The pipeline return status is the final stage's status. PySH closes parent
 pipe handles after spawning children to avoid EOF deadlocks.
 
+A trailing pipe is a parse error and returns status 2:
+
+```sh
+echo hello |
+```
+
 ## Redirection
 
 | Syntax     | Behavior                              |
@@ -109,6 +115,18 @@ echo 'literal $(date)'
 
 Variable expansion is suppressed inside single quotes and active inside
 double quotes.
+
+## Line continuation
+
+A backslash immediately before a newline joins the physical lines into one
+logical command:
+
+```sh
+echo hello \
+world
+```
+
+The command above is parsed as `echo hello world`.
 
 ## Known limitations
 

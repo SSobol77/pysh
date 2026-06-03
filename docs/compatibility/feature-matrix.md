@@ -24,7 +24,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | ------ | ------- |
 | Area | Feature domain |
 | Feature | Specific construct or capability |
-| Status | Supported / Partial / Unsupported / Delegated |
+| Status | Supported / Partial / Unsupported / Delegated / Planned |
 | Category | Native / Transition / Delegated / Planned / Unsupported / Forbidden by default |
 | Evidence | Test file(s) or documentation reference |
 | Owner issue | GitHub issue responsible for implementation or cleanup |
@@ -87,9 +87,9 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Variables | Simple expansion: `$NAME` | Supported | Native | `tests/test_parser.py` | — |
 | Variables | Braced expansion: `${NAME}` | Supported | Native | `tests/test_parser.py` | — |
 | Variables | `$?` last exit status (special parameter) | Supported | Native | `tests/test_error_exit_code_contract.py` | #5 |
-| Variables | Default value: `${NAME:-default}` | Unsupported | Planned | — | #8 |
-| Variables | Length: `${#NAME}` | Unsupported | Planned | — | #8 |
-| Variables | Substring/pattern expansion | Unsupported | Planned | — | #8 |
+| Variables | Default value: `${NAME:-default}` | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
+| Variables | Length: `${#NAME}` | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
+| Variables | Substring/pattern expansion | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
 | Variables | Other POSIX special params (`$0`, `$$`, `$!`, `$#`, `$@`) | Unsupported | Unsupported | — | — |
 
 ## Environment exports
@@ -107,7 +107,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | ---- | ------- | ------ | -------- | -------- | ----------- |
 | Quoting | Single quotes: literal `'...'` | Supported | Native | `tests/test_parser.py` | — |
 | Quoting | Double quotes: partial expansion `"..."` | Supported | Native | `tests/test_parser.py` | — |
-| Quoting | ANSI C quoting: `$'...'` | Unsupported | Planned | — | #8 |
+| Quoting | ANSI C quoting: `$'...'` | Unsupported | Unsupported | — | — |
 | Quoting | Locale quoting: `$"..."` | Unsupported | Unsupported | — | — |
 
 ## Escapes
@@ -116,7 +116,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | ---- | ------- | ------ | -------- | -------- | ----------- |
 | Escapes | Backslash outside quotes | Supported | Native | `tests/test_parser.py` | — |
 | Escapes | Backslash inside double quotes (`\"`, `\\`, `\$`, `` \` ``) | Supported | Native | `tests/test_parser.py` | — |
-| Escapes | Line continuation (`\<newline>`) | Unsupported | Planned | — | #8 |
+| Escapes | Line continuation (`\<newline>`) | Supported | Native | `tests/test_multiline_grammar.py` | #8 |
 
 ## Operators
 
@@ -126,6 +126,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Operators | `&&` (conditional AND) | Supported | Native | `tests/test_parser.py` | — |
 | Operators | `\|\|` (conditional OR) | Supported | Native | `tests/test_parser.py` | — |
 | Operators | `\|` (pipe) | Supported | Native | `tests/test_parser.py` | — |
+| Operators | Trailing pipe parse error | Supported | Native | `tests/test_parser_foundation.py` | #8 |
 
 ## Pipelines
 
@@ -135,7 +136,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Pipelines | Multi-stage pipeline | Supported | Native | `tests/test_shell.py` | — |
 | Pipelines | Correct fd handover (no deadlock) | Supported | Native | `tests/test_shell.py` | — |
 | Pipelines | Pipeline exit status (last stage) | Supported | Native | `tests/test_shell.py` | — |
-| Pipelines | `pipefail` semantics | Unsupported | Planned | — | #8 |
+| Pipelines | `pipefail` semantics | Unsupported | Unsupported | — | — |
 
 ## Redirection
 
@@ -148,8 +149,8 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Redirection | `2>> file` (stderr append) | Supported | Native | `tests/test_redirection.py` | — |
 | Redirection | `&> file` (stdout+stderr truncate) | Supported | Native | `tests/test_redirection.py` | — |
 | Redirection | `&>> file` (stdout+stderr append) | Supported | Native | `tests/test_redirection.py` | — |
-| Redirection | Fd duplication: `2>&1` | Unsupported | Planned | — | #8 |
-| Redirection | `/dev/null` shorthand | Works via native redirection | Native | — | — |
+| Redirection | Fd duplication: `2>&1` | Unsupported | Unsupported | — | — |
+| Redirection | `/dev/null` shorthand | Supported | Native | — | — |
 
 ## Command substitution
 
@@ -160,7 +161,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Command substitution | Inside double quotes | Supported | Native | `tests/test_substitution.py` | — |
 | Command substitution | Suppressed inside single quotes | Supported | Native | `tests/test_substitution.py` | — |
 | Command substitution | 5-second timeout | Supported | Native | `tests/test_substitution.py` | — |
-| Command substitution | Nested `$(...)` | Unsupported | Planned | — | #8 |
+| Command substitution | Nested `$(...)` | Unsupported | Unsupported | — | — |
 
 ## Comments
 
@@ -228,7 +229,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Completion | Alias completion (first word) | Supported | Native | `tests/test_completion.py` | — |
 | Completion | Builtin completion (first word) | Supported | Native | `tests/test_completion.py` | — |
 | Completion | Filesystem path completion | Supported | Native | `tests/test_completion.py` | — |
-| Completion | Programmable/context-aware completion | Partial / Planned | Planned | — | #12 |
+| Completion | Programmable/context-aware completion | Partial | Planned | — | #12 |
 
 ## History
 
@@ -243,20 +244,20 @@ shell feature area in PySH 0.5.x. Category definitions are in
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| Globbing | `*` path expansion | Unsupported | Planned | — | #9 |
-| Globbing | `?` single-char expansion | Unsupported | Planned | — | #9 |
-| Globbing | `[...]` character class | Unsupported | Planned | — | #9 |
-| Globbing | `**` recursive glob | Unsupported | Planned | — | #9 |
+| Globbing | `*` path expansion | Unsupported | Planned | `tests/test_expansion_foundation.py` | #9 |
+| Globbing | `?` single-char expansion | Unsupported | Planned | `tests/test_expansion_foundation.py` | #9 |
+| Globbing | `[...]` character class | Unsupported | Planned | `tests/test_expansion_foundation.py` | #9 |
+| Globbing | `**` recursive glob | Unsupported | Planned | `tests/test_expansion_foundation.py` | #9 |
 | Globbing | zsh extended glob | Unsupported | Unsupported | — | — |
-| Globbing | Glob literals pass through to external commands | Partial | Native | — | — |
+| Globbing | Glob literals pass through to external commands | Supported | Native | `tests/test_expansion_foundation.py` | #8 |
 
 ## Heredocs
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| Heredocs | `<< DELIM` heredoc syntax | Unsupported | Planned | — | #10 |
-| Heredocs | `<<- DELIM` (strip leading tabs) | Unsupported | Planned | — | #10 |
-| Heredocs | `<<< word` herestring | Unsupported | Planned | — | #10 |
+| Heredocs | `<< DELIM` heredoc syntax | Unsupported | Planned | `tests/test_parser_foundation.py` | #10 |
+| Heredocs | `<<- DELIM` (strip leading tabs) | Unsupported | Planned | `tests/test_parser_foundation.py` | #10 |
+| Heredocs | `<<< word` herestring | Unsupported | Planned | `tests/test_parser_foundation.py` | #10 |
 
 ## Functions
 
@@ -271,9 +272,9 @@ shell feature area in PySH 0.5.x. Category definitions are in
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| Arithmetic | `$((expr))` arithmetic substitution | Unsupported | Planned | — | #8 |
-| Arithmetic | `(( expr ))` arithmetic command | Unsupported | Planned | — | #8 |
-| Arithmetic | `let NAME=expr` | Unsupported | Planned | — | #8 |
+| Arithmetic | `$((expr))` arithmetic substitution | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
+| Arithmetic | `(( expr ))` arithmetic command | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
+| Arithmetic | `let NAME=expr` | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
 | Arithmetic | Note: Python blocks (`py { ... }`) cover arithmetic needs via Python | Supported | Native | `tests/test_python_runtime.py` | — |
 
 ## Parameter expansion
@@ -281,13 +282,13 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
 | Parameter expansion | `$NAME`, `${NAME}` | Supported | Native | `tests/test_parser.py` | — |
-| Parameter expansion | `${NAME:-default}` (default value) | Unsupported | Planned | — | #8 |
-| Parameter expansion | `${NAME:=default}` (assign default) | Unsupported | Planned | — | #8 |
-| Parameter expansion | `${NAME:?error}` (error if unset) | Unsupported | Planned | — | #8 |
-| Parameter expansion | `${#NAME}` (string length) | Unsupported | Planned | — | #8 |
-| Parameter expansion | `${NAME#pattern}` (prefix strip) | Unsupported | Planned | — | #8 |
-| Parameter expansion | `${NAME%pattern}` (suffix strip) | Unsupported | Planned | — | #8 |
-| Parameter expansion | `${NAME/old/new}` (substitution) | Unsupported | Planned | — | #8 |
+| Parameter expansion | `${NAME:-default}` (default value) | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
+| Parameter expansion | `${NAME:=default}` (assign default) | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
+| Parameter expansion | `${NAME:?error}` (error if unset) | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
+| Parameter expansion | `${#NAME}` (string length) | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
+| Parameter expansion | `${NAME#pattern}` (prefix strip) | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
+| Parameter expansion | `${NAME%pattern}` (suffix strip) | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
+| Parameter expansion | `${NAME/old/new}` (substitution) | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
 
 ## Arrays
 
@@ -405,7 +406,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Script mode | Run shebang scripts via `run_script` | Supported | Delegated | `tests/test_script_runner.py` | #14 |
 | Script mode | Run no-shebang scripts line-by-line | Partial | Native | `tests/test_script_runner.py` | #14 |
 | Script mode | Full `.pysh` script contract | Planned | Planned | — | #14 |
-| Script mode | `pysh script.pysh` invocation | Unsupported | Planned | — | #14 |
+| Script mode | `pysh script.pysh` invocation | Planned | Planned | — | #14 |
 | Script mode | Error propagation in scripts | Partial | Native | — | #5 |
 | Script mode | `set -e` / `set -x` / similar | Unsupported | Planned | — | #14 |
 
@@ -413,7 +414,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| `/bin/sh` | PySH as `/bin/sh` symlink target | **Not supported** | Unsupported | — | #17 |
-| `/bin/sh` | System script compatibility | **Not supported** | Unsupported | — | #17 |
-| `/bin/sh` | POSIX sh grammar compliance | **Not supported** | Unsupported | — | — |
+| `/bin/sh` | PySH as `/bin/sh` symlink target | Unsupported | Unsupported | — | #17 |
+| `/bin/sh` | System script compatibility | Unsupported | Unsupported | — | #17 |
+| `/bin/sh` | POSIX sh grammar compliance | Unsupported | Unsupported | — | — |
 | `/bin/sh` | System shell integration policy | Planned | Planned | — | #17 |

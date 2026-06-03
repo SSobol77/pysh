@@ -67,6 +67,18 @@ world"
 
 This is executed as a single command.
 
+Backslash-newline continuation also forms one logical command:
+
+```sh
+echo hello \
+world
+```
+
+Paste splitting is implemented by `pysh.parsing.multiline.split_paste_commands`.
+It is quote-aware and shares the parser's multiline contract. Heredoc body
+collection is not implemented by the paste splitter; heredoc syntax is reported
+as unsupported parser syntax owned by Issue #10.
+
 ## Bracketed paste mode
 
 Most modern terminal emulators support [bracketed paste mode](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h3-Bracketed-Paste-Mode).  When active, the terminal wraps pasted text with:

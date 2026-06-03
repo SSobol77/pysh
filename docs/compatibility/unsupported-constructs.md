@@ -21,6 +21,11 @@ action.
 Constructs marked **Planned** have an owner issue and will be implemented.
 Constructs marked **Unsupported** are not on the current roadmap.
 
+Issue #8 added parser foundation and deterministic diagnostics for selected
+unsupported constructs. It did not implement arithmetic expansion, advanced
+parameter expansion, fd duplication, nested command substitution, pipefail,
+ANSI C quoting, or full script loop semantics.
+
 ---
 
 ## Summary
@@ -29,11 +34,10 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | --------- | -------- | ----------- |
 | Shell functions | Unsupported | — |
 | Shell arrays | Unsupported | — |
-| Arithmetic expansion `$((expr))` | Planned | #8 |
-| Advanced parameter expansion | Planned | #8 |
-| Line continuation `\<newline>` | Planned | #8 |
-| `fd` duplication `2>&1` | Planned | #8 |
-| Nested command substitution | Planned | #8 |
+| Arithmetic expansion `$((expr))` | Unsupported | — |
+| Advanced parameter expansion | Unsupported | — |
+| `fd` duplication `2>&1` | Unsupported | — |
+| Nested command substitution | Unsupported | — |
 | Native glob expansion | Planned | #9 |
 | Heredocs `<< DELIM` | Planned | #10 |
 | Here-strings `<<<` | Planned | #10 |
@@ -46,9 +50,9 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | `read` builtin | Unsupported | — |
 | `printf` builtin | Unsupported | — |
 | `declare` / `typeset` / `local` | Unsupported | — |
-| `pipefail` semantics | Planned | #8 |
-| ANSI C quoting `$'...'` | Planned | #8 |
-| Full for/while/until in scripts | Planned | #8 |
+| `pipefail` semantics | Unsupported | — |
+| ANSI C quoting `$'...'` | Unsupported | — |
+| Full for/while/until in scripts | Unsupported | — |
 | `set -e`, `set -x`, `set -u` | Planned | #14 |
 | `/bin/sh` provider | Unsupported | #17 |
 
@@ -79,27 +83,18 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | Field | Value |
 | ----- | ----- |
 | Construct | `$((expr))`, `(( expr ))`, `let NAME=expr` |
-| Current behavior | Not supported. `$(( ... ))` is not expanded natively. |
+| Current behavior | Not supported. Parser-owned diagnostic; returns exit status 2. |
 | Required user action | Use Python arithmetic via `py`: `py result = 2 + 3` |
-| Owner issue | Issue #8 |
+| Owner issue | — |
 
 ### Advanced parameter expansion
 
 | Field | Value |
 | ----- | ----- |
 | Construct | `${VAR:-default}`, `${VAR:=default}`, `${VAR:?err}`, `${#VAR}`, `${VAR#pat}`, `${VAR%pat}`, `${VAR/old/new}` |
-| Current behavior | Only `$VAR` and `${VAR}` simple forms are supported. Advanced expansion forms are not expanded and will appear literally or produce errors. |
+| Current behavior | Only `$VAR`, `${VAR}` and `$?` simple forms are supported. Advanced expansion forms are not expanded and remain literal. |
 | Required user action | Use Python string operations via `py { ... }` |
-| Owner issue | Issue #8 |
-
-### Line continuation
-
-| Field | Value |
-| ----- | ----- |
-| Construct | `\<newline>` (backslash at end of line continues to next) |
-| Current behavior | Not supported in the interactive shell or scripts. |
-| Required user action | Write the full command on one line, or use multiline paste. |
-| Owner issue | Issue #8 |
+| Owner issue | — |
 
 ### File descriptor duplication
 
@@ -108,7 +103,7 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | Construct | `2>&1`, `1>&2`, `N>&M` |
 | Current behavior | Not supported. `2>&1` is not recognized as fd duplication. |
 | Required user action | Use `&>` or `&>>` for combined stdout+stderr, or delegate to a real shell. |
-| Owner issue | Issue #8 |
+| Owner issue | — |
 
 ### Nested command substitution
 
@@ -117,7 +112,7 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | Construct | `$(cmd1 $(cmd2))` |
 | Current behavior | Not fully supported. Outer substitution is recognized; inner may not parse correctly. |
 | Required user action | Use sequential `py` invocations or intermediate variables. |
-| Owner issue | Issue #8 |
+| Owner issue | — |
 
 ### Native glob expansion
 
@@ -133,7 +128,7 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | Field | Value |
 | ----- | ----- |
 | Construct | `cmd << DELIM ... DELIM` |
-| Current behavior | Not supported. `<<` is not recognized as a heredoc initiator. |
+| Current behavior | Not supported. Parser-owned diagnostic; returns exit status 2. |
 | Required user action | Use `echo` or Python string passing via `py` for multiline input. |
 | Owner issue | Issue #10 |
 
@@ -142,7 +137,7 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | Field | Value |
 | ----- | ----- |
 | Construct | `cmd <<< "string"` |
-| Current behavior | Not supported. |
+| Current behavior | Not supported. Parser-owned diagnostic; returns exit status 2. |
 | Required user action | Pipe from `echo`: `echo "string" \| cmd` |
 | Owner issue | Issue #10 |
 
@@ -233,8 +228,8 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | ----- | ----- |
 | Construct | `set -o pipefail` (exit on any pipeline failure) |
 | Current behavior | PySH returns the exit status of the last pipeline stage. |
-| Required user action | Check intermediate exit status manually, or wait for Issue #8. |
-| Owner issue | Issue #8 |
+| Required user action | Check intermediate exit status manually. |
+| Owner issue | — |
 
 ### ANSI C quoting
 
@@ -243,7 +238,7 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | Construct | `$'string with \n \t \x41'` |
 | Current behavior | Not supported. `$'...'` is not parsed as ANSI C quoting. |
 | Required user action | Use Python string escapes via `py`. |
-| Owner issue | Issue #8 |
+| Owner issue | — |
 
 ### Full `for`/`while`/`until` in scripts
 
@@ -252,7 +247,7 @@ Constructs marked **Unsupported** are not on the current roadmap.
 | Construct | Shell loop constructs in scripts (beyond the mini rc-interpreter) |
 | Current behavior | The mini rc-interpreter supports `for`/`while`/`if` in `~/.pyshrc` and `.pysh` plugins. Full loop semantics in arbitrary scripts are not implemented. |
 | Required user action | Use Python loops via `py { ... }` or `run_script` to delegate to a real shell. |
-| Owner issue | Issue #8 |
+| Owner issue | — |
 
 ### `set` options (`-e`, `-x`, `-u`)
 

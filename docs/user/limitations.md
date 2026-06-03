@@ -96,12 +96,19 @@ PySH does not perform native glob expansion for plain command execution.
 Arguments such as `*.py` are passed as literal arguments unless a delegated
 interpreter or external command performs its own expansion.
 
+Brace patterns such as `{a,b}` are also passed literally; PySH does not perform
+brace expansion.
+
 ## Shell grammar
 
 The native parser supports documented chains, pipelines, redirection,
-command substitution, variable expansion and quote handling. It does not
-support here-documents, process substitution, shell arrays, shell functions,
-case statements, arithmetic expansion or brace expansion.
+command substitution, `$NAME`, `${NAME}`, `$?`, quote handling and
+backslash-newline continuation. It does not support here-documents, process
+substitution, shell arrays, shell functions, case statements, arithmetic
+expansion or advanced parameter expansion.
+
+Parser-owned unsupported constructs such as `$((expr))`, `(( expr ))`, `let`,
+`<<`, `<<-` and `<<<` return a parse diagnostic with status 2.
 
 ## Static zsh/sh import
 

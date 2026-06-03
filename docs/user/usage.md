@@ -42,6 +42,8 @@ opens Bash-like reverse incremental search.
 | `cmd1 \| cmd2`   | Pipe `cmd1`'s stdout into `cmd2`'s stdin.                |
 
 Operators inside single or double quotes are treated as literal text.
+An incomplete pipeline such as `echo hello |` is rejected as a parse error
+with exit status 2.
 
 ```sh
 echo "Test | pipe & semicolon; && ok"
@@ -103,6 +105,27 @@ echo "$GREETING, $NAME"
 
 Local variables shadow environment variables when expanded. Single quotes
 suppress expansion; double quotes do not.
+
+`$?` expands to the last PySH command status:
+
+```sh
+false
+echo "$?"
+```
+
+Advanced parameter forms such as `${NAME:-default}` are not expanded natively.
+They remain literal until a future parameter-expansion contract is implemented.
+
+## Line continuation
+
+Backslash-newline joins physical input into one logical command:
+
+```sh
+echo hello \
+world
+```
+
+The same continuation rule applies to `pysh -c` input.
 
 ## Aliases
 

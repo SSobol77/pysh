@@ -62,8 +62,8 @@ but PySH is not bash and does not claim bash compatibility.
 | `#!/bin/bash` script delegation | Supported | Delegated — `run_script` | #14 |
 | bash arrays (`arr=(a b c)`, `${arr[@]}`) | Not supported | Unsupported | — |
 | bash associative arrays (`declare -A`) | Not supported | Unsupported | — |
-| bash arithmetic (`$(( expr ))`, `(( expr ))`, `let`) | Not supported | Planned | #8 |
-| bash parameter expansion flags | Not supported | Partially planned | #8 |
+| bash arithmetic (`$(( expr ))`, `(( expr ))`, `let`) | Not supported | Unsupported; Issue #8 adds deterministic diagnostics only | — |
+| bash parameter expansion flags | Not supported | Unsupported; simple `$NAME`, `${NAME}` and `$?` only | — |
 | bash functions | Not supported | Unsupported | — |
 | `declare`, `typeset`, `local` builtins | Not supported | Unsupported | — |
 | `read` builtin | Not supported | Unsupported | — |

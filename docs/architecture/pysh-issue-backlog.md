@@ -3,10 +3,10 @@
 This backlog is the final linear GitHub issue sequence for the architecture
 roadmap. GitHub issues are linear; split sub-issue numbering is not used.
 
-PySH is not yet a `/bin/sh` replacement and is not yet zsh-compatible. The
-target is a Python-first interactive shell and script interpreter with explicit,
-test-backed compatibility claims. Interactive shell replacement and script
-interpreter replacement are separate product contracts.
+PySH is not intended to act as `/bin/sh` and does not provide zsh grammar
+compatibility. The target is a Python-first interactive shell and script
+interpreter with explicit, test-backed compatibility claims. Interactive shell
+replacement and script interpreter replacement are separate product contracts.
 
 ## Ordering Rationale
 
@@ -25,9 +25,10 @@ ISSUE #5 through ISSUE #7 define error semantics, signal ownership, and trust
 boundaries before parser hardening, job control, scripting, or system-shell
 integration consume those decisions.
 
-Parser decomposition belongs to ISSUE #8, not ISSUE #2. That includes any future
-`parsing/expansion.py`, `parsing/command_chain.py`, or
-`parsing/assignments.py` split.
+Parser decomposition belongs to ISSUE #8, not ISSUE #2. The Issue #8 foundation
+uses `parsing/ast.py`, `parsing/errors.py`, `parsing/lexer.py`,
+`parsing/grammar.py`, `parsing/expansion.py`, and `parsing/multiline.py`, with
+`parsing/parser.py` retained as a compatibility facade.
 
 Job control owns Linux and FreeBSD process-group validation in ISSUE #11.
 ISSUE #18 remains full FreeBSD validation across the completed product surface.
@@ -239,7 +240,7 @@ continuation and future heredoc terminators.
 - Temporary environment assignments.
 - Comments.
 - Multiline continuation grammar.
-- Structured parse errors with line/column metadata.
+- Deterministic parser-local errors mapped to exit status 2.
 - Parser decomposition deferred from ISSUE #2.
 
 **Non-goals.** No native glob expansion; no heredoc body handling; no shell

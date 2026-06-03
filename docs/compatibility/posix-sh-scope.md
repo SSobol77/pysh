@@ -67,12 +67,12 @@ This document defines PySH's relationship to the POSIX shell standard
 | `exit` builtin | Supported (native) | — | — |
 | Shell functions | **Not supported** | Not in PySH grammar | — |
 | `case` statement | **Not supported** | — | — |
-| `for` / `while` / `until` loops (in scripts) | **Not supported** (native) | Mini-interpreter in rc files only | #8 |
+| `for` / `while` / `until` loops (in scripts) | **Not supported** (native) | Mini-interpreter in rc files only | — |
 | `test` / `[` builtin | **Not supported** | Use Python in `py { ... }` | — |
-| Arithmetic expansion (`$((expr))`) | **Not supported** | Planned | #8 |
+| Arithmetic expansion (`$((expr))`) | **Not supported** | Deterministic parser diagnostic | — |
 | Here-documents (`<< DELIM`) | **Not supported** | Planned | #10 |
 | Native glob expansion (`*`, `?`, `[...]`) | **Not supported** | Arguments pass literally | #9 |
-| Parameter expansion (advanced forms) | **Not supported** | Planned (simple forms only) | #8 |
+| Parameter expansion (advanced forms) | **Not supported** | Simple forms only; advanced forms remain literal | — |
 | `set -e`, `set -x`, `set -u` | **Not supported** | Planned for script mode | #14 |
 | Traps (`trap`) | **Not supported** | Not on current roadmap | — |
 | Job control (`&`, `jobs`, `bg`, `fg`) | **Not supported** | Planned | #11 |

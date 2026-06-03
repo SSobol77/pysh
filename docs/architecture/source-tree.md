@@ -42,10 +42,18 @@ src/pysh/
 ├── script_runner.py         ← script transition runner (shebang dispatch)
 │
 ├── core/
-│   └── shell.py             ← PyShell: REPL loop, command dispatch, builtins
+│   ├── errors.py            ← canonical ExitCode / PyShError / Diagnostic contract
+│   ├── shell.py             ← PyShell: REPL loop, command dispatch, builtins
+│   └── signals.py           ← signal return-code and status helpers
 │
 ├── parsing/
-│   ├── parser.py            ← quote-aware chain/pipeline/paste splitter
+│   ├── ast.py               ← parser value objects: ChainOp, ChainElement
+│   ├── errors.py            ← parser-local ParseError taxonomy
+│   ├── expansion.py         ← variable and command-substitution helpers
+│   ├── grammar.py           ← chain/pipeline/assignment grammar helpers
+│   ├── lexer.py             ← quote, escape and comment scanner
+│   ├── multiline.py         ← continuation, Python block and paste splitting
+│   ├── parser.py            ← compatibility facade for parser helpers
 │   └── redirection.py       ← RedirectionSpec parser and applier
 │
 ├── editor/
@@ -86,6 +94,7 @@ src/pysh/
 │   └── service.py           ← svc client: PID-file-based service control
 │
 ├── security/
+│   ├── policy.py            ← Issue #7 trust constants and predicates
 │   └── secure_runner.py     ← SecureRunner: PTY bridge for sensitive commands
 │
 ├── diagnostics/
@@ -97,6 +106,9 @@ src/pysh/
     └── protocols.py         ← typing.Protocol definitions; stdlib only
 ```
 
+Current tree anchors for Issue #5/#6/#7 modules:
+`core/errors.py`, `core/signals.py`, `security/policy.py`.
+
 ---
 
 ## Package responsibility table
@@ -106,8 +118,8 @@ src/pysh/
 | `pysh` | Package identity and version metadata | `__version__`, `__author__`, `LICENSE_NAME` | Runtime logic, imports |
 | `pysh.__main__` | `python -m pysh` execution shim | Module-level `main()` call | Argument parsing, shell logic |
 | `pysh.cli` | Console script entry point | Argument parsing, `--version`, `-c` flag, interactive REPL start | Shell execution, builtin dispatch |
-| `pysh.core` | Main shell runtime | `PyShell` class: REPL loop, command dispatch, all builtin implementations, pipeline execution, signal handling | Parser primitives, editor rendering, config loading |
-| `pysh.parsing` | Quote-aware text parsing | Chain splitting, pipeline splitting, paste command splitting, `RedirectionSpec`, redirection parsing and application | Shell state, execution, expansion |
+| `pysh.core` | Main shell runtime | `PyShell` class, canonical exit/error contract, signal status helpers, builtin dispatch, pipeline execution | Parser primitives, editor rendering, config loading |
+| `pysh.parsing` | Quote-aware text parsing and expansion helpers | Parser AST values, parse errors, lexical scanning, chain splitting, pipeline splitting, paste command splitting, multiline continuation, variable/command substitution helpers, `RedirectionSpec`, redirection parsing and application | Shell state, command dispatch, editor rendering |
 | `pysh.editor` | Interactive line editor (coordinator) | `Completer`, `HistoryManager`, `colors_enabled`, `diagnostic`, ANSI `paint` helper | Shell state, prompt rendering |
 | `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder`, raw-mode completion | Higher-level shell concepts, history persistence |
 | `pysh.prompt` | Prompt segment rendering | `colorize`, `color_to_hex`, `parse_color`, two-line prompt assembly, `system_profile` Debian helpers | Shell state, RC parsing |
@@ -115,7 +127,7 @@ src/pysh/
 | `pysh.config` | Configuration and startup | RC file execution, mini rc-interpreter, plugin directory loader, `ConfigAPI` (prompt/cursor/color settings) | Runtime command dispatch, builtin logic |
 | `pysh.compat` | Transition and compatibility helpers | Zsh bridge (`ZshBridge`), zsh/sh alias file parser, static profile importer, MC environment detection | Core shell execution, prompt rendering |
 | `pysh.services` | Service management | `svc` builtin client, PID-file-based service control, PyInit metadata parser | Shell REPL, command dispatch |
-| `pysh.security` | Security-sensitive command execution | `SecureRunner` PTY bridge, fixed-size ring indicator, `indicator_config_from_mapping` | General command dispatch, shell state |
+| `pysh.security` | Security-sensitive command execution | Trust constants/predicates, `SecureRunner` PTY bridge, fixed-size ring indicator, `indicator_config_from_mapping` | General command dispatch, shell state |
 | `pysh.diagnostics` | Advisory diagnostics | `plan` builtin command classifier, `sys_info`/`env_audit` display helpers | Policy enforcement, runtime execution |
 | `pysh.shell` | Compatibility shim (scheduled removal) | Re-export of `PyShell` from `pysh.core.shell` | Any new logic — shim only |
 | `pysh.script_runner` | Script transition runner | `ScriptRunner`, shebang detection, interpreter delegation, native PySH line-by-line execution | Interactive REPL state |
@@ -126,8 +138,16 @@ src/pysh/
 
 | Module | Primary responsibility |
 | ------ | ---------------------- |
+| `pysh.core.errors` | Canonical `ExitCode`, `PyShError`, and `Diagnostic` contract |
 | `pysh.core.shell` | `PyShell` class: all builtin methods, REPL loop, pipeline and redirection execution, signal handling, Ctrl+C/Ctrl+D |
-| `pysh.parsing.parser` | `split_chain`, `split_pipeline`, `split_paste_commands`; quote-aware tokenization; operator recognition |
+| `pysh.core.signals` | Signal return-code helpers and signal status helpers |
+| `pysh.parsing.ast` | `ChainOp`, `ChainElement`: parser value objects |
+| `pysh.parsing.errors` | `ParseError`, `UnsupportedSyntaxError`: parser-local diagnostics |
+| `pysh.parsing.lexer` | Quote state, escape handling, comments, unquoted-marker detection |
+| `pysh.parsing.grammar` | `split_chain`, `split_pipeline`, assignment parsing, unsupported syntax validation |
+| `pysh.parsing.expansion` | `$NAME`, `${NAME}`, `$?`, command substitution, unsupported parameter-expansion classification |
+| `pysh.parsing.multiline` | Quote continuation, backslash-newline joining, Python block coalescing, paste command splitting |
+| `pysh.parsing.parser` | Compatibility facade that re-exports the parser helper surface |
 | `pysh.parsing.redirection` | `RedirectionSpec` dataclass; `parse_redirections`; file descriptor open/close |
 | `pysh.editor.completion` | `Completer`: alias + builtin + filesystem tab completion |
 | `pysh.editor.highlight` | `colors_enabled`, `diagnostic`, ANSI `paint`; terminal capability detection |
@@ -153,6 +173,7 @@ src/pysh/
 | `pysh.compat.mc` | `is_mc_environment`: Midnight Commander integration detection |
 | `pysh.services.service` | `svc` client: `list`, `status`, `start`, `stop`, `restart` via PID files |
 | `pysh.services.pyinit` | `ServiceMetadata`, `ServiceMetadataError`: PyInit `.service` file parser |
+| `pysh.security.policy` | Trust constants and predicates for the Issue #7 security model |
 | `pysh.security.secure_runner` | `SecureRunner`: PTY bridge; `indicator_config_from_mapping` |
 | `pysh.diagnostics.command_plan` | `plan` function: advisory classifier for `plan <cmd>` builtin |
 | `pysh.diagnostics.system_info` | System information helpers used by `sys_info` and `env_audit` |
@@ -187,11 +208,9 @@ pysh.core.shell
     ├── pysh.security         (secure_runner)
     │   └── pysh.prompt.colors
     ├── pysh.diagnostics      (command_plan, system_info)
-    │   ├── pysh.parsing
-    │   └── pysh.python_layer.runtime
+    │   └── pysh.parsing
     └── pysh.script_runner
-        ├── pysh.parsing
-        └── pysh.python_layer.runtime
+        └── pysh.parsing
 ```
 
 **Key observations**:
@@ -298,9 +317,10 @@ All gates must show PASS before a release tag is applied.
 | ----- | ----- | ------ |
 | Issue #2 | Source tree relocation into domain subpackages | **Completed** — this document |
 | Issue #3 | Import-boundary contracts, protocol layer, ratchet, public API snapshot, cold-start budget | **Completed** — see [architecture.md](architecture.md) |
-| Issue #6 | Signal-handling architecture: deterministic signal exit codes, terminal restoration, `returncode_to_exit_status()`. `pysh.security → pysh.prompt` violation retained — cleanup deferred to Issue #8. | Implemented pending commit |
-| Issue #8 | Parser/expansion/editor boundary cleanup: resolves most ratchet violations | Open |
-| Issue #14 | Script-mode cleanup: resolves `pysh.script_runner` ratchet violations | Open |
+| Issue #6 | Signal-handling architecture: deterministic signal exit codes, terminal restoration, `returncode_to_exit_status()`. `pysh.security → pysh.prompt` violation retained — cleanup deferred to Issue #19. | Completed |
+| Issue #7 | Security and trust model: execution surfaces, static import policy, sensitive input boundary, trust predicates | Completed |
+| Issue #8 | Parser/expansion/multiline foundation; classifies `pysh.parsing` as a shared leaf for editor, diagnostics and script runner consumers | Implemented pending commit |
+| Issue #14 | Script/config mode cleanup: resolves `pysh.config → pysh.python_layer` and finalizes script semantics | Open |
 | Issue #19 | Remove the `pysh.shell` compatibility shim after all callers are updated | Open |
 
 The import-boundary ratchet and cycle tests run in CI as of Issue #3.

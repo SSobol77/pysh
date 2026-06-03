@@ -439,12 +439,8 @@ class TestParseErrorMapping:
 
     def test_pipe_with_empty_trailing_stage(self) -> None:
         shell = PyShell()
-        # A trailing pipe with no command after it: the parser filters the
-        # empty stage and runs the preceding command.  This is current
-        # behavior; a stricter syntax error here is deferred to Issue #8.
         status = shell.execute("echo hello | ")
-        # Currently succeeds (empty trailing stage ignored by split_pipeline)
-        assert status == ExitCode.SUCCESS
+        assert status == ExitCode.BUILTIN_MISUSE
 
 
 # ---------------------------------------------------------------------------

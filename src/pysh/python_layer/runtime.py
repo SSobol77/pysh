@@ -48,6 +48,18 @@ class UnterminatedBlockError(ValueError):
 class NestedBlockError(ValueError):
     """Raised when a nested ``py { ... }`` block opener is encountered."""
 
+__all__ = [
+    "NestedBlockError",
+    "PY_BLOCK_CLOSER",
+    "PY_BLOCK_OPENER",
+    "PythonRuntime",
+    "UnterminatedBlockError",
+    "extract_block_body",
+    "is_block_closer",
+    "is_block_opener",
+    "iter_logical_lines",
+]
+
 
 class PythonRuntime:
     """A persistent one-session Python execution context.
@@ -231,17 +243,7 @@ def is_block_closer(line: str) -> bool:
 
 
 def iter_logical_lines(lines: Iterable[str]) -> Iterator[str]:
-    """Yield logical command strings from a stream of physical lines.
-
-    Each yielded string is either a single physical line, or, when a
-    ``py { ... }`` block is encountered, the joined contents of the block
-    (opener ``py {``, the body lines, and the closing ``}``) preserved
-    verbatim and separated by ``\\n``.
-
-    Raises :class:`UnterminatedBlockError` if a block opener is never
-    matched by a closer, and :class:`NestedBlockError` if a second opener
-    appears inside an open block.
-    """
+    """Yield logical command strings from a stream of physical lines."""
     state: list[str] | None = None
     for raw in lines:
         line = raw.rstrip("\n").rstrip("\r")
@@ -252,26 +254,17 @@ def iter_logical_lines(lines: Iterable[str]) -> Iterator[str]:
                 yield line
             continue
         if is_block_opener(line):
-            raise NestedBlockError(
-                "nested py { ... } block is not supported"
-            )
+            raise NestedBlockError("nested py { ... } block is not supported")
         state.append(line)
         if is_block_closer(line):
             yield "\n".join(state)
             state = None
     if state is not None:
-        raise UnterminatedBlockError(
-            "unterminated py { ... } block (missing '}')"
-        )
+        raise UnterminatedBlockError("unterminated py { ... } block (missing '}')")
 
 
 def extract_block_body(text: str) -> str:
-    """Return the inner body of a multi-line ``py { ... }`` block text.
-
-    ``text`` must consist of a ``py {`` opener line, zero or more body
-    lines, and a closing ``}`` line. The leading and trailing markers are
-    stripped and the body is returned with original indentation preserved.
-    """
+    """Return the inner body of a multi-line ``py { ... }`` block text."""
     physical = text.split("\n")
     if len(physical) < 2 or not is_block_opener(physical[0]):
         raise ValueError("text does not start with a py { opener")

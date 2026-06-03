@@ -279,5 +279,5 @@ consistent exit-code propagation for complex pipelines or multi-command scripts.
 | Issue #3 | Import-boundary enforcement: `pysh.core.errors` stays within `pysh.core` |
 | Issue #5 | This document |
 | Issue #6 | Signal handling: extends SIGINT → 130 to all execution contexts; see [signal-handling.md](signal-handling.md) |
-| Issue #8 | Parser hardening: may tighten parse-error return codes |
+| Issue #8 | Parser hardening: deterministic parser-local diagnostics map to exit status 2 |
 | Issue #14 | Script-mode full error contract |

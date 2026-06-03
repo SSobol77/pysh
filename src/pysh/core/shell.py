@@ -67,13 +67,16 @@ from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
 from pysh.editor.lineedit.reader import RawLineReader
 from pysh.parsing.parser import (
     ChainOp,
+    ParseError,
     expand_command_substitution,
     expand_variables,
+    join_backslash_continuations,
     parse_assignment,
     parse_leading_env_assignments,
     split_chain,
     split_pipeline,
     strip_comments,
+    validate_unsupported_syntax,
 )
 from pysh.parsing.redirection import RedirectionSpec, parse_redirections
 from pysh.prompt.colors import color_to_hex, colorize, parse_color
@@ -325,6 +328,7 @@ class PyShell:
     def execute(self, line: str) -> int:
         """Execute one shell line. Returns the exit status of the last command."""
         line = line.rstrip("\n").rstrip("\r")
+        line = join_backslash_continuations(line)
         # ``#py`` must be checked *before* strip_comments() because a bare ``#``
         # at the start of a token-boundary is otherwise treated as a comment.
         if line.strip() == "#py":
@@ -332,6 +336,11 @@ class PyShell:
         line = strip_comments(line)
         if not line.strip():
             return 0
+        try:
+            validate_unsupported_syntax(line)
+        except ParseError as exc:
+            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
 
         # Multi-line ``py { ... }`` block: execute its body in the persistent
         # Python runtime context. We accept either a fully collected block
@@ -358,7 +367,11 @@ class PyShell:
         if self._is_bare_assignment(line):
             return self._assign_local(line)
 
-        chain = split_chain(line)
+        try:
+            chain = split_chain(line)
+        except ParseError as exc:
+            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
         status = 0
         run_next = True
         for elem in chain:
@@ -375,7 +388,11 @@ class PyShell:
 
     # ------------------------------------------------------------- internals
     def _run_chain_element(self, command: str) -> int:
-        stages = split_pipeline(command)
+        try:
+            stages = split_pipeline(command)
+        except ParseError as exc:
+            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
         if not stages:
             return 0
         # Alias expansion is applied per simple command (i.e. per pipe stage).

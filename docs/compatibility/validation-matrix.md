@@ -50,7 +50,11 @@ are gaps that must be resolved before the claim can be published.
 | Command substitution `$(...)` and backtick works | Unit test | `tests/test_substitution.py` | None | — |
 | Single/double quoting semantics are correct | Parser golden, unit test | `tests/test_parser.py` | None | — |
 | Backslash escapes are correct | Parser golden | `tests/test_parser.py` | None | — |
+| Backslash-newline continuation works | Parser golden, unit test | `tests/test_multiline_grammar.py` | None | #8 |
 | `$VAR` and `${VAR}` expansion works | Parser golden | `tests/test_parser.py` | None | — |
+| Advanced parameter expansion remains literal | Negative unit test | `tests/test_expansion_foundation.py` | None | #8 |
+| Arithmetic expansion is rejected deterministically | Negative unit test | `tests/test_expansion_foundation.py` | None | #8 |
+| Trailing pipeline operator returns parse status 2 | Negative unit test | `tests/test_parser_foundation.py` | None | #8 |
 | Temporary env assignment works | Unit test | `tests/test_env_assignment.py` | None | — |
 | Canonical exit codes (0/1/2/126/127/130) are defined and enforced | Unit test | `tests/test_error_exit_code_contract.py` | None | #5 |
 | `$?` expands to last command exit status | Unit test | `tests/test_error_exit_code_contract.py` | None | #5 |
@@ -127,10 +131,10 @@ are gaps that must be resolved before the claim can be published.
 
 | Claim | Required evidence | Current evidence | Gap | Owner issue |
 | ----- | ----------------- | ---------------- | --- | ----------- |
-| PySH is not a `/bin/sh` replacement | Documentation, no symlink test | `docs/compatibility/posix-sh-scope.md` | CI check for symlink absence | #17 |
-| PySH is not zsh-compatible | Documentation, no zsh grammar test | `docs/compatibility/zsh-scope.md` | Shell comparison tests | #16 |
-| Glob patterns pass literally | Unit test confirming no expansion | `docs/compatibility/feature-matrix.md` | Explicit negative unit test | #9 |
-| Heredocs produce error/not-silently-broken | Negative unit test | Gap | Negative test needed | #10 |
+| PySH is not intended for `/bin/sh` provider use | Documentation, no symlink test | `docs/compatibility/posix-sh-scope.md` | CI check for symlink absence | #17 |
+| PySH does not provide zsh grammar compatibility | Documentation, no zsh grammar test | `docs/compatibility/zsh-scope.md` | Shell comparison tests | #16 |
+| Glob patterns pass literally | Unit test confirming no expansion | `tests/test_expansion_foundation.py` | None | #9 |
+| Heredocs produce parser diagnostics | Negative unit test | `tests/test_parser_foundation.py` | None | #10 |
 | Job control is absent (no `&` background) | Negative unit test | Gap | Negative test needed | #11 |
 | Shell functions are absent | Negative unit test | Gap | Negative test needed | — |
 

@@ -328,7 +328,7 @@ These are enforced by `tests/test_docs_consistency.py::test_no_forbidden_securit
 | Issue #5 | Error/exit-code contract: exit codes for delegation failure (127, 126) |
 | Issue #6 | Signal handling: SIGINT boundary for subprocess and PTY contexts |
 | Issue #7 | This document |
-| Issue #8 | Parser boundary cleanup: will clean up cross-domain imports |
+| Issue #8 | Parser boundary cleanup: parser foundation and shared-leaf classification |
 | Issue #11 | Job control: will introduce process-group ownership (security-relevant) |
 | Issue #14 | Script-mode: will formalize script delegation trust model |
 | Issue #16 | Shell comparison tests: will validate delegation behavior |

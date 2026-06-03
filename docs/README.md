@@ -70,6 +70,7 @@ docs/
 ├── architecture/                      ← architecture decisions and roadmap
 │   ├── architecture.md
 │   ├── error-exit-code-contract.md
+│   ├── parser-expansion-contract.md
 │   ├── signal-handling.md
 │   ├── security-trust-model.md
 │   ├── source-tree.md
@@ -164,6 +165,7 @@ Internal architecture decisions, issue tracking, and roadmap.
 | -------- | ----------- |
 | [architecture.md](architecture/architecture.md) | Architecture contracts (Issue #3): boundaries, protocols, ratchet, shim policy |
 | [error-exit-code-contract.md](architecture/error-exit-code-contract.md) | Error and exit-code contract (Issue #5): ExitCode enum, PyShError taxonomy, $? propagation |
+| [parser-expansion-contract.md](architecture/parser-expansion-contract.md) | Parser, expansion and multiline grammar contract (Issue #8): modules, expansion order, unsupported syntax ownership |
 | [signal-handling.md](architecture/signal-handling.md) | Signal-handling architecture (Issue #6): SIGINT/SIGTERM/SIGTSTP contract, exit-code mapping, terminal restoration |
 | [security-trust-model.md](architecture/security-trust-model.md) | Security and trust model (Issue #7): trust boundaries, execution surfaces, static import policy, sensitive input boundary |
 | [source-tree.md](architecture/source-tree.md) | Post-Issue #2 source tree: packages, modules, dependency direction |
