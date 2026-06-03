@@ -96,6 +96,13 @@ PySH implements a minimal job-control model (Issue #11):
 See [job-control-contract.md](../architecture/job-control-contract.md) for
 the complete contract, process-group model, and exit-status mapping.
 
+## Completion
+
+Completion Engine v1 is native to PySH and non-executing. It does not source
+foreign completion scripts and does not implement programmable bash, zsh or
+fish completion frameworks. External-command and path candidates depend on
+the current local `PATH` and filesystem state.
+
 ## Glob expansion
 
 PySH performs native glob expansion for unquoted arguments (Issue #9):

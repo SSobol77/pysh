@@ -226,10 +226,14 @@ shell feature area in PySH 0.5.x. Category definitions are in
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| Completion | Alias completion (first word) | Supported | Native | `tests/test_completion.py` | — |
-| Completion | Builtin completion (first word) | Supported | Native | `tests/test_completion.py` | — |
-| Completion | Filesystem path completion | Supported | Native | `tests/test_completion.py` | — |
-| Completion | Programmable/context-aware completion | Partial | Planned | — | #12 |
+| Completion | Alias completion at command position | Supported | Native | `tests/test_completion.py`, `tests/test_completion_engine.py` | #12 |
+| Completion | Builtin completion at command position | Supported | Native | `tests/test_completion.py`, `tests/test_completion_engine.py` | #12 |
+| Completion | External executable completion from PATH | Supported | Native | `tests/test_completion_engine.py` | #12 |
+| Completion | Filesystem path completion | Supported | Native | `tests/test_completion_engine.py` | #12 |
+| Completion | Directory-only completion after `cd`/`pushd` | Supported | Native | `tests/test_completion_engine.py` | #12 |
+| Completion | Variable-name completion after `$` / `${` | Supported | Native | `tests/test_completion_engine.py` | #12 |
+| Completion | Job-ID completion after `fg` / `bg` | Supported | Native | `tests/test_completion_engine.py` | #12 |
+| Completion | Programmable bash/zsh/fish completion scripts | Unsupported | Unsupported | `docs/architecture/completion-engine-contract.md` | — |
 
 ## History
 

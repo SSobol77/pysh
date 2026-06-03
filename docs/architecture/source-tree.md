@@ -57,13 +57,13 @@ src/pysh/
 │   └── redirection.py       ← RedirectionSpec parser and applier
 │
 ├── editor/
-│   ├── completion.py        ← tab-completion coordinator
+│   ├── completion.py        ← tab-completion adapter/coordinator
 │   ├── highlight.py         ← ANSI color helpers; colors_enabled, paint
 │   ├── history.py           ← readline/history manager
 │   └── lineedit/
 │       ├── autosuggest.py   ← fish-style autosuggestion engine
 │       ├── buffer.py        ← LineBuffer: display-width-aware character buffer
-│       ├── completion.py    ← raw-mode completion rendering
+│       ├── completion.py    ← Completion Engine v1 and raw-mode helpers
 │       ├── highlight.py     ← live syntax highlighting (LineHighlighter)
 │       ├── keys.py          ← KeyDecoder: terminal escape sequence parser
 │       └── reader.py        ← RawLineReader: raw-mode line editing driver
@@ -121,7 +121,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.core` | Main shell runtime | `PyShell` class, canonical exit/error contract, signal status helpers, builtin dispatch, pipeline execution | Parser primitives, editor rendering, config loading |
 | `pysh.parsing` | Quote-aware text parsing and expansion helpers | Parser AST values, parse errors, lexical scanning, chain splitting, pipeline splitting, paste command splitting, multiline continuation, heredoc collection, variable/command substitution helpers, `RedirectionSpec`, redirection parsing and application | Shell state, command dispatch, editor rendering |
 | `pysh.editor` | Interactive line editor (coordinator) | `Completer`, `HistoryManager`, `colors_enabled`, `diagnostic`, ANSI `paint` helper | Shell state, prompt rendering |
-| `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder`, raw-mode completion | Higher-level shell concepts, history persistence |
+| `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder`, Completion Engine v1 | Higher-level shell concepts, history persistence |
 | `pysh.prompt` | Prompt segment rendering | `colorize`, `color_to_hex`, `parse_color`, two-line prompt assembly, `system_profile` Debian helpers | Shell state, RC parsing |
 | `pysh.python_layer` | Python command execution layer | `PythonRuntime` (persistent namespace), `py` builtin logic, `#py` interactive mode, Python syntax highlighting, `iter_logical_lines`, block detection | Shell builtins outside the Python layer, config loading |
 | `pysh.config` | Configuration and startup | RC file execution, mini rc-interpreter, plugin directory loader, `ConfigAPI` (prompt/cursor/color settings) | Runtime command dispatch, builtin logic |
@@ -150,7 +150,8 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.parsing.multiline` | Quote continuation, backslash-newline joining, Python block coalescing, paste command splitting |
 | `pysh.parsing.parser` | Compatibility facade that re-exports the parser helper surface |
 | `pysh.parsing.redirection` | `RedirectionSpec` dataclass; `parse_redirections`; file descriptor open/close |
-| `pysh.editor.completion` | `Completer`: alias + builtin + filesystem tab completion |
+| `pysh.contracts.builtins` | Canonical builtin-name data consumed by shell and completion |
+| `pysh.editor.completion` | `Completer`: readline/raw-mode adapter over Completion Engine v1 |
 | `pysh.editor.highlight` | `colors_enabled`, `diagnostic`, ANSI `paint`; terminal capability detection |
 | `pysh.editor.history` | `HistoryManager`: `~/.pysh_history` persistence; readline integration |
 | `pysh.editor.lineedit.reader` | `RawLineReader`: raw terminal mode, character loop, paste detection |
@@ -158,7 +159,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.editor.lineedit.highlight` | `LineHighlighter`: live token coloring; `ColorScheme` |
 | `pysh.editor.lineedit.autosuggest` | `AutoSuggester`: history-backed ghost-text suggestions |
 | `pysh.editor.lineedit.keys` | `KeyDecoder`: ANSI escape sequence decoding; `Key`, `KeyEvent` |
-| `pysh.editor.lineedit.completion` | `CompletionResult`, `apply_single_completion`: raw-mode completion display |
+| `pysh.editor.lineedit.completion` | `CompletionEngine`, `CompletionContext`, `CompletionCandidate`, `CompletionResult`, `apply_single_completion`: PySH-native completion |
 | `pysh.prompt.colors` | `colorize`, `color_to_hex`, `parse_color`: VGA + truecolor; `NO_COLOR` awareness |
 | `pysh.prompt.system_profile` | `sys_info`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search` |
 | `pysh.python_layer.runtime` | `PythonRuntime`: `exec`/`eval` in persistent namespace; `py` builtin, multiline block logic |

@@ -123,7 +123,8 @@ validated primarily on **Debian 13** and Unix-like systems.
   constant slot count never reveals password length.
 - **Shell-style comments**: unquoted `#` after whitespace begins a comment;
   quoted and mid-token `#` remain literal.
-- Basic tab completion for aliases, builtins, files and directories.
+- PySH-native tab completion for builtins, aliases, PATH commands, paths,
+  variables and jobs.
 - Clean Ctrl+C (cancels current line, keeps the shell alive) and Ctrl+D
   (exits the shell).
 
@@ -656,18 +657,24 @@ a complete replacement for systemd.
 
 ## Tab completion
 
-`Tab` completes aliases and builtins for the first word, and filesystem
-paths for any word. Inaccessible directories are silently skipped.
+`Tab` uses PySH-native Completion Engine v1. It completes builtins, aliases
+and executable command names at command position; filesystem paths in argument
+and redirection positions; directories after `cd` and `pushd`; variable names
+after `$` and `${`; and job IDs after `fg` and `bg` when jobs exist.
+
+Completion is non-executing and non-mutating. It does not source bash, zsh or
+fish completion scripts and does not implement programmable shell completion.
+
+Architecture contract:
+[Completion Engine Contract](https://github.com/SSobol77/pysh/blob/main/docs/architecture/completion-engine-contract.md).
 
 ---
 
 ## Limitations
 
-- No job control (`&`, `bg`, `fg`, `jobs`, `Ctrl+Z` job suspension).
 - No full POSIX shell grammar — only the constructs documented above.
-- No glob expansion is performed by PySH itself; `*`, `?`, and character-class
-  patterns are passed as literal argv text unless an explicitly delegated
-  external shell performs expansion.
+- Native glob expansion is supported for unquoted `*`, `?`, character classes
+  and `**`; brace expansion remains unsupported.
 - No full zsh compatibility. The zsh compatibility bridge is a transition
   layer with safe static alias import and explicit delegation to real zsh.
 - `svc start` and `svc restart` to actually re-launch a process require a

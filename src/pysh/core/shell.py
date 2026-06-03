@@ -51,6 +51,7 @@ from pysh.config.api import (
 )
 from pysh.config.plugins import PLUGIN_DIR, load_plugins
 from pysh.config.rc import RC_PATH, execute_rc, load_default_rc
+from pysh.contracts.builtins import BUILTIN_NAMES
 from pysh.core.errors import ExitCode
 from pysh.core.jobs import (
     Job,
@@ -196,44 +197,7 @@ class PyShell:
         "free": "free -h",
     }
 
-    BUILTINS: frozenset[str] = frozenset(
-        {
-            "cd",
-            "pwd",
-            "alias",
-            "unalias",
-            "export",
-            "source",
-            ".",
-            "exit",
-            "quit",
-            "pushd",
-            "popd",
-            "dirs",
-            "jobs",
-            "fg",
-            "bg",
-            "svc",
-            "source_zsh",
-            "source_zsh_profile",
-            "source_sh_aliases",
-            "run_script",
-            "compat_check",
-            "zsh",
-            "zsh_fallback",
-            "py",
-            "sys_info",
-            "env_audit",
-            "path_audit",
-            "which_all",
-            "apt_check",
-            "apt_search",
-            "plan",
-            "secure",
-            "mc",
-            "command",
-        }
-    )
+    BUILTINS: frozenset[str] = BUILTIN_NAMES
 
     HISTORY_PATH: Path = DEFAULT_HISTORY_PATH
 
@@ -264,7 +228,11 @@ class PyShell:
         self.sensitive_input: dict[str, object] = dict(DEFAULT_SENSITIVE_INPUT)
         for spec in TOOL_VERSION_SPECS:
             setattr(self, spec.cache_attr, _UNSET)
-        self.completer = Completer(lambda: list(self.aliases.keys()))
+        self.completer = Completer(
+            lambda: list(self.aliases.keys()),
+            get_locals=lambda: dict(self.local_vars),
+            get_job_ids=lambda: [job.job_id for job in self.job_table.all_jobs() if job.is_alive()],
+        )
         self.history = HistoryManager(self.HISTORY_PATH)
         self.autosuggester = AutoSuggester()
         self.line_highlighter = LineHighlighter(self.BUILTINS)

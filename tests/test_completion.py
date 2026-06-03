@@ -5,12 +5,14 @@
 """Tests for interactive completion metadata."""
 from __future__ import annotations
 
+from pysh.contracts.builtins import BUILTIN_NAMES
 from pysh.core.shell import PyShell
 from pysh.editor.completion import Completer
 
 
 def test_completer_builtin_list_matches_shell_builtins() -> None:
-    assert set(PyShell.BUILTINS).issubset(set(Completer.BUILTINS))
+    assert PyShell.BUILTINS == BUILTIN_NAMES
+    assert set(Completer.BUILTINS) == BUILTIN_NAMES
 
 
 def test_completion_exposes_migration_builtins() -> None:

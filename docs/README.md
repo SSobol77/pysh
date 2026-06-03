@@ -68,6 +68,7 @@ docs/
 ├── architecture/                      ← architecture decisions and roadmap
 │   ├── architecture.md
 │   ├── error-exit-code-contract.md
+│   ├── completion-engine-contract.md
 │   ├── heredoc-contract.md
 │   ├── parser-expansion-contract.md
 │   ├── signal-handling.md

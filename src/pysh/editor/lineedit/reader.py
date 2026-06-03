@@ -480,7 +480,10 @@ class RawLineReader:
             text, cursor = completer.apply_raw_completion(buffer.text, result)
             buffer.set(text, cursor)
         elif result.candidates:
-            self._write("\r\n" + "  ".join(result.candidates) + "\r\n", self.output_fd)
+            self._write(
+                "\r\n" + "  ".join(result.display_candidates) + "\r\n",
+                self.output_fd,
+            )
             self._start_rows = 0
 
     def _redraw(

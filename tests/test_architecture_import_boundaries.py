@@ -348,6 +348,7 @@ _PERMITTED_EDGES: frozenset[tuple[str, str]] = frozenset({
     # parser grammar, AST and multiline helpers; parsing itself must not import
     # back into them.
     ("pysh.editor", _PARSING_SHARED_LEAF),
+    ("pysh.editor", "pysh.contracts"),
     ("pysh.diagnostics", _PARSING_SHARED_LEAF),
     ("pysh.script_runner", _PARSING_SHARED_LEAF),
 })

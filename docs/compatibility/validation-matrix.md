@@ -100,7 +100,10 @@ are gaps that must be resolved before the claim can be published.
 | `&&` operator unchanged | Unit test | `tests/test_job_control.py` | None | #11 |
 | SIGTSTP → 148 for foreground job | Manual acceptance (TTY required) | `docs/architecture/job-control-contract.md` | Manual test | #11 |
 | History persists across sessions | Unit test | `tests/test_history.py` | None | — |
-| Tab completion (alias/builtin/filesystem) | Unit test | `tests/test_completion.py` | Programmatic completion | #12 |
+| Completion Engine v1 context parsing | Unit test | `tests/test_completion_engine.py` | None | #12 |
+| Tab completion (alias/builtin/filesystem) | Unit test | `tests/test_completion.py`, `tests/test_lineedit_completion.py` | Programmatic completion | #12 |
+| External command completion from PATH | Unit test | `tests/test_completion_engine.py` | None | #12 |
+| Variable/job completion | Unit test | `tests/test_completion_engine.py` | None | #12 |
 | Python `py` one-line execution | Unit test | `tests/test_python_runtime.py` | None | — |
 | Python `py { ... }` blocks | Unit test | `tests/test_python_runtime.py` | None | — |
 | `#py` interactive Python mode | Unit test | `tests/test_python_mode.py` | None | — |

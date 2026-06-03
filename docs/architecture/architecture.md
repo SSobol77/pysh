@@ -58,7 +58,7 @@ It is not a full layer-boundary enforcement; that belongs to Issue #3's successo
 | `pysh.core` | Main shell runtime (fan-in hub) | `PyShell`: REPL loop, all builtin implementations, pipeline and redirection execution; `errors.py`: canonical exit codes; `signals.py`: signal helpers; `jobs.py`: job table, POSIX job-control helpers, process-group model | Parser primitives, editor rendering, config loading (delegates to leaves) |
 | `pysh.parsing` | Quote-aware text parsing, expansion, and path glob helpers | Parser AST values, parse errors, lexical scanning, chain/pipeline/paste splitting, multiline continuation, heredoc collection, variable/command substitution helpers, redirection parsing, tilde expansion, glob/path expansion (`tokenize_and_glob_expand`, `expand_tilde`, `expand_path_word`), no-match policy, dotfile policy | Shell state, command dispatch, editor rendering |
 | `pysh.editor` | Interactive line editor (coordinator) | `Completer`, `HistoryManager`, `colors_enabled`, `paint` | Shell state, prompt rendering |
-| `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder` | Higher-level shell concepts, history persistence |
+| `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder`, Completion Engine v1 | Higher-level shell concepts, history persistence |
 | `pysh.prompt` | Prompt segment rendering | `colorize`, `color_to_hex`, `parse_color`, Debian profile helpers | Shell state, RC parsing |
 | `pysh.python_layer` | Python command execution layer | `PythonRuntime`, `py` builtin, `#py` interactive mode, Python syntax highlighting | Shell builtins outside the Python layer, config loading |
 | `pysh.config` | Configuration and startup | RC file execution, mini rc-interpreter, plugin loader, `ConfigAPI` | Runtime command dispatch, builtin logic |
@@ -155,6 +155,7 @@ read-only or action surfaces that cross package boundaries.
 - Performs no runtime initialisation, terminal I/O, config loading,
   git probing, or subprocess calls.
 - `__init__.py` re-exports the protocol names; no logic beyond re-export.
+- `builtins.py` contains canonical builtin-name data only.
 
 **Why protocols, not abstract base classes:**
 Protocol (structural subtyping) allows existing classes to satisfy the
@@ -213,14 +214,14 @@ transparent wrappers. No new broad compatibility layers are permitted.
 pysh.python_layer  ──►  provides: PythonRuntime, #py mode, syntax highlighting
                          consumed by: core (py builtin, #py REPL)
                          current violations:
-                           python_layer → pysh.editor (Issue #12)
+                           python_layer → pysh.editor (Issue #12 cleanup remains)
                          must not: import from core, config, compat, services
 ```
 
 The Python layer intentionally reaches into `pysh.editor.lineedit` to drive
 the `#py` interactive REPL (reader, buffer, highlighting, autosuggestion).
-This cross-boundary import is documented in the ratchet table and is the
-primary candidate for editor/completion contract cleanup in Issue #12.
+Completion Engine v1 is isolated, but the broader Python-mode editor import
+cleanup remains tracked separately.
 
 ---
 
@@ -313,6 +314,6 @@ subprocess calls) that should be deferred to first use.
 | Issue #8 | Parser/expansion/multiline foundation: decomposes parser modules, defines unsupported syntax ownership, and classifies `pysh.parsing` as a shared leaf consumed by editor, diagnostics and script runner. |
 | Issue #9 | Native path and glob expansion: `tokenize_and_glob_expand`, tilde expansion, dotfile policy, no-match policy. See [path-expansion-contract.md](path-expansion-contract.md). |
 | Issue #10 | Here-documents and here-strings: stdin inline-data parser model, body collection, delimiter expansion policy, and redirection precedence. See [heredoc-contract.md](heredoc-contract.md). |
+| Issue #12 | Completion Engine v1. See [completion-engine-contract.md](completion-engine-contract.md). |
 | Issue #14 | Script/config mode cleanup: resolves `pysh.config → pysh.python_layer` and finalizes native script-mode contracts. |
-| Issue #12 | Editor/completion contract cleanup: resolves `pysh.python_layer → pysh.editor`. |
 | Issue #19 | Shim removal: removes `pysh.shell` compatibility shim after all callers are updated. |

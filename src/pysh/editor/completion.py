@@ -2,24 +2,15 @@
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
-"""Tab completion for the interactive shell.
-
-The completer is intentionally simple:
-
-* If the user is completing the first word of the line, it matches against
-  aliases and shell builtins, plus filesystem entries.
-* If the user is completing a later word, only filesystem entries are
-  considered.
-* All filesystem access is wrapped in try/except so that permission errors
-  on individual directories do not break completion.
-"""
+"""Tab completion adapter for the interactive shell."""
 from __future__ import annotations
 
 import os
 from collections.abc import Callable, Iterable
-from pathlib import Path
 
+from pysh.contracts.builtins import BUILTIN_NAME_LIST
 from pysh.editor.lineedit.completion import (
+    CompletionOptions,
     CompletionResult,
     apply_single_completion,
     complete_line,
@@ -27,47 +18,20 @@ from pysh.editor.lineedit.completion import (
 
 
 class Completer:
-    """Readline completion driver."""
+    """Readline and raw-mode completion driver."""
 
-    BUILTINS: tuple[str, ...] = (
-        "cd",
-        "pwd",
-        "alias",
-        "unalias",
-        "export",
-        "source",
-        ".",
-        "source_zsh",
-        "source_zsh_profile",
-        "source_sh_aliases",
-        "run_script",
-        "compat_check",
-        "zsh",
-        "zsh_fallback",
-        "py",
-        "pushd",
-        "popd",
-        "dirs",
-        "jobs",
-        "fg",
-        "bg",
-        "svc",
-        "exit",
-        "quit",
-        "sys_info",
-        "env_audit",
-        "path_audit",
-        "which_all",
-        "apt_check",
-        "apt_search",
-        "plan",
-        "secure",
-        "mc",
-        "command",
-    )
+    BUILTINS: tuple[str, ...] = BUILTIN_NAME_LIST
 
-    def __init__(self, get_aliases: Callable[[], Iterable[str]]) -> None:
+    def __init__(
+        self,
+        get_aliases: Callable[[], Iterable[str]],
+        *,
+        get_locals: Callable[[], dict[str, str]] | None = None,
+        get_job_ids: Callable[[], Iterable[int]] | None = None,
+    ) -> None:
         self._get_aliases = get_aliases
+        self._get_locals = get_locals if get_locals is not None else dict
+        self._get_job_ids = get_job_ids if get_job_ids is not None else tuple
         self._matches: list[str] = []
 
     def install(self) -> None:
@@ -102,6 +66,9 @@ class Completer:
             cursor,
             builtins=self.BUILTINS,
             aliases=self._get_aliases(),
+            env=os.environ,
+            locals=self._get_locals(),
+            job_ids=self._get_job_ids(),
         )
 
     def apply_raw_completion(self, line: str, result: CompletionResult) -> tuple[str, int]:
@@ -111,48 +78,33 @@ class Completer:
     def _build_matches(self, text: str) -> list[str]:
         try:
             import readline
-
-            line = readline.get_line_buffer()
-            begin = readline.get_begidx()
-            is_first_word = line[:begin].strip() == ""
         except ImportError:
-            is_first_word = True
-
-        matches: list[str] = []
-        if is_first_word:
-            for name in (*self.BUILTINS, *self._get_aliases()):
-                if name.startswith(text):
-                    matches.append(name)
-        matches.extend(self.filesystem_matches(text))
-
-        seen: set[str] = set()
-        unique: list[str] = []
-        for m in matches:
-            if m not in seen:
-                seen.add(m)
-                unique.append(m)
-        return unique
+            result = self.raw_completion(text, len(text))
+        else:
+            line = readline.get_line_buffer()
+            result = self.raw_completion(line, readline.get_endidx())
+        return list(result.candidates)
 
     def filesystem_matches(self, text: str) -> list[str]:
         """Return filesystem entries matching ``text``. Safe on permission errors."""
-        expanded = os.path.expanduser(text) if text.startswith("~") else text
-        directory, prefix = os.path.split(expanded)
-        search_dir = Path(directory) if directory else Path.cwd()
-        try:
-            entries = list(search_dir.iterdir())
-        except (OSError, PermissionError):
-            return []
-        results: list[str] = []
-        for entry in entries:
-            name = entry.name
-            if not name.startswith(prefix):
-                continue
-            display = os.path.join(directory, name) if directory else name
-            try:
-                if entry.is_dir():
-                    display += os.sep
-            except OSError:
-                pass
-            results.append(display)
-        results.sort()
-        return results
+        result = complete_line(
+            text,
+            len(text),
+            builtins=(),
+            aliases=(),
+            env={},
+            locals={},
+            job_ids=(),
+        )
+        return list(result.candidates)
+
+
+def options_from_completer(completer: Completer) -> CompletionOptions:
+    """Return the current pure completion options for tests and diagnostics."""
+    return CompletionOptions(
+        builtins=completer.BUILTINS,
+        aliases=tuple(completer._get_aliases()),
+        env=os.environ,
+        locals=completer._get_locals(),
+        job_ids=tuple(completer._get_job_ids()),
+    )

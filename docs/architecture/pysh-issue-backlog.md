@@ -326,6 +326,8 @@ terminal-control architecture.
 
 ## ISSUE #12 - Completion Engine v1
 
+**Status.** Implemented by Completion Engine v1.
+
 **Goal.** Provide completion through contracts rather than runtime internals.
 
 **Depends on.** #3, #4, #8, #9.

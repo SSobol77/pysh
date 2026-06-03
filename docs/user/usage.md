@@ -402,12 +402,19 @@ echo foo#bar     # prints: foo#bar  (mid-token hash is literal)
 
 ## Tab completion
 
-`Tab` completes builtins and aliases for the first word, and filesystem
-paths for any word. Inaccessible directories are silently skipped.
+`Tab` uses PySH-native Completion Engine v1. It completes builtins, aliases
+and executable command names at command position; filesystem paths in argument
+and redirection positions; directories after `cd` and `pushd`; variable names
+after `$` and `${`; and job IDs after `fg` and `bg` when jobs exist.
+
+Completion is quote-aware. Unquoted paths with spaces are inserted with
+backslash escapes; inside quotes the quote is preserved. Hidden files are
+offered only when the prefix starts with `.`. Completion reads local
+filesystem and `PATH` state but never executes commands, sources foreign shell
+completion scripts, or mutates shell state.
 
 ## Limitations
 
-- No job control (`&`, `bg`, `fg`, `jobs`, `Ctrl+Z`).
 - No full POSIX shell grammar — only the constructs documented here.
 - No full zsh compatibility. The zsh bridge is a transition layer and
   delegates to real zsh only when explicitly requested or fallback is enabled.

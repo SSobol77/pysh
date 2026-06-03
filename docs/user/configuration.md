@@ -103,6 +103,15 @@ source_zsh_profile ~/.zshrc
 source_sh_aliases ~/.bash_aliases
 ```
 
+## Completion
+
+Completion Engine v1 is configured by current PySH state rather than foreign
+shell startup files. It uses PySH aliases, builtins, local variables,
+environment variable names, job IDs and local filesystem/PATH state.
+
+PySH does not source bash, zsh or fish completion scripts and does not support
+programmable shell completion hooks.
+
 `source_zsh` supports simple `alias NAME=VALUE` lines, ignores comments and
 blank lines, skips unsupported zsh constructs, and reports malformed alias
 lines deterministically.

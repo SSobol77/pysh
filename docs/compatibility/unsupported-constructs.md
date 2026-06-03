@@ -43,6 +43,7 @@ ANSI C quoting, or full script loop semantics.
 | Process substitution `<(cmd)` | Unsupported | — |
 | Brace expansion `{a,b,c}` | Unsupported | — |
 | `case` / `select` statements | Unsupported | — |
+| Programmable shell completion scripts | Unsupported | — |
 | Traps | Unsupported | — |
 | `test` / `[` / `[[` builtins | Unsupported | — |
 | `read` builtin | Unsupported | — |
