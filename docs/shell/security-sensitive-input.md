@@ -117,3 +117,10 @@ is active only inside an explicit `secure <cmd>` invocation. If `enabled` is
 
 `mode="ring"` is the default indicator mode and accepts `slots` in the inclusive
 range `3..9`. `mode="single-blink"` remains available for compatibility.
+
+## Security trust model
+
+This document describes the sensitive-input boundary in isolation.  For the
+full security and trust model — including trust levels, execution surfaces,
+static import policy, and diagnostics non-mutation policy — see
+[Security and Trust Model](../architecture/security-trust-model.md).

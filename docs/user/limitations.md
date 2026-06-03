@@ -18,8 +18,8 @@ PySH is a Python-first shell with a deliberately bounded compatibility
 surface. The goal is reliable interactive use and safe migration, not full
 emulation of POSIX sh, bash or zsh.
 
-> **Full compatibility contract**: see
-> [docs/compatibility/README.md](../compatibility/README.md) for the complete
+> **Full compatibility contract**: see the
+> [compatibility documentation](../compatibility/README.md) for the complete
 > per-feature matrix, scope tables, unsupported-construct list, and validation
 > plan. This page summarizes the most important non-goals.
 
@@ -29,7 +29,7 @@ PySH is not a full POSIX shell. It implements the operators and builtins
 documented in this repository, but it does not implement the complete POSIX
 grammar, expansion model or script execution semantics.
 
-See [docs/compatibility/posix-sh-scope.md](../compatibility/posix-sh-scope.md)
+See the [POSIX sh scope document](../compatibility/posix-sh-scope.md)
 for the complete POSIX sh scope table and prohibition on `/bin/sh` use.
 
 ## zsh compatibility
@@ -38,8 +38,25 @@ PySH is not a full zsh clone. The Zsh Transition Layer provides static alias
 and profile import plus explicit delegation to real zsh. zsh-specific
 features remain the responsibility of real zsh when delegated.
 
-See [docs/compatibility/zsh-scope.md](../compatibility/zsh-scope.md) for the
+See the [zsh scope document](../compatibility/zsh-scope.md) for the
 complete zsh scope table.
+
+## Security model
+
+PySH is not sandboxed and does not provide privilege separation or capability
+confinement.  Key security properties:
+
+- Foreign shell profiles (`.zshrc`, `.bashrc`) are **not** executed automatically.
+  `source_zsh`, `source_zsh_profile`, and `source_sh_aliases` parse files as plain
+  text and import only safe static constructs.
+- `zsh_fallback` is **off by default**. Delegation to zsh requires explicit opt-in.
+- Normal external commands inherit the terminal. PySH does not observe password
+  bytes for `sudo`, `ssh`, `su`, or `gpg`.
+- The `secure <cmd>` PTY bridge is opt-in and non-default.
+- `py`, `py { ... }`, and `#py` execute Python in-process with full OS access.
+  They are not sandboxed.
+
+Full documentation: [Security and Trust Model](../architecture/security-trust-model.md).
 
 ## Signal handling
 
@@ -56,8 +73,8 @@ SIGTERM received by PySH outside a child command causes clean process
 termination via OS default disposition. Terminal state is restored by
 `atexit` handlers where possible.
 
-See [docs/architecture/signal-handling.md](../architecture/signal-handling.md)
-for the full signal contract.
+See the [Signal-Handling Architecture](../architecture/signal-handling.md)
+document for the full signal contract.
 
 ## Job control
 

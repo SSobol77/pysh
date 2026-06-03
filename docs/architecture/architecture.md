@@ -23,6 +23,7 @@ lifecycle policy.
 - [source-tree.md](source-tree.md) — post-Issue #2 source tree: packages, modules, dependency diagram.
 - [error-exit-code-contract.md](error-exit-code-contract.md) — Issue #5: canonical exit codes, PyShError taxonomy, $? propagation, boundary function.
 - [signal-handling.md](signal-handling.md) — Issue #6: signal-handling architecture, terminal restoration guarantees, exit-code mapping.
+- [security-trust-model.md](security-trust-model.md) — Issue #7: security and trust model, execution surfaces table, static import policy, sensitive input boundary.
 - [ISSUE-2-refactor-source-tree.md](ISSUE-2-refactor-source-tree.md) — Issue #2 scope (relocation only).
 - [ISSUE-3-architecture-contracts.md](ISSUE-3-architecture-contracts.md) — Issue #3 spec (this implementation).
 - GitHub Issue #19 — shim lifecycle and removal.
@@ -308,6 +309,7 @@ subprocess calls) that should be deferred to first use.
 | Issue #2 | Source tree relocation (pure move, no behavior changes). Created the subpackage layout that contracts enforce. |
 | Issue #3 | This document. Contract layer, boundary tests, ratchet, public API snapshot, cold-start budget. |
 | Issue #6 | Signal-handling architecture: deterministic SIGINT/SIGTERM exit-code behavior, explicit SIGTSTP/job-control non-support, `returncode_to_exit_status()`, terminal restoration guarantees. Does not resolve the `pysh.security → pysh.prompt` violation (deferred to Issue #8). |
+| Issue #7 | Security and trust model: execution surfaces, static import policy, sensitive input boundary, trust levels, diagnostics non-mutation. See [security-trust-model.md](security-trust-model.md). |
 | Issue #8 | Parser/expansion/editor boundary cleanup: resolves most ratchet violations. |
 | Issue #14 | Script-mode cleanup: resolves `pysh.script_runner → pysh.parsing/python_layer` violations. |
 | Issue #19 | Shim removal: removes `pysh.shell` compatibility shim after all callers are updated. |

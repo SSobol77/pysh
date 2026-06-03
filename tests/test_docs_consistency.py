@@ -119,6 +119,72 @@ def test_no_stale_issue_6_signal_or_boundary_claims() -> None:
     assert not violations, "Stale Issue #6 documentation claims:\n" + "\n".join(violations)
 
 
+def _find_list_header(lines: list[str], item_idx: int) -> str:
+    """Return the nearest non-bullet, non-blank ancestor of a bullet item.
+
+    Walks backward from ``item_idx - 1`` through blank lines and sibling
+    bullet items to find the closest list header (a prose line, typically
+    ending with ``:``) that governs the current bullet.
+    """
+    for i in range(item_idx - 1, -1, -1):
+        stripped = lines[i].rstrip()
+        if not stripped:
+            continue  # blank line — keep walking
+        if stripped.lstrip().startswith(("- ", "* ", "+ ")):
+            continue  # sibling bullet — keep walking
+        return stripped  # first non-blank, non-bullet ancestor
+    return ""
+
+
+def test_no_forbidden_security_claims() -> None:
+    """No affirmative forbidden security claims may appear in public docs.
+
+    Allowed when negated in context:
+    - same line (e.g., "is not sandboxed", "does not auto-wrap sudo"), OR
+    - governing list header, found by walking backward through blank lines
+      and sibling bullets (e.g., "It does not provide:\\n- Privilege separation.").
+    """
+    negation_re = re.compile(
+        r"\b(not|no|never|does\s+not|do\s+not|cannot|is\s+not|are\s+not|"
+        r"without|forbidden|prohibited|avoids?|rejects?|provide|unsupported)\b",
+        re.IGNORECASE,
+    )
+
+    forbidden: tuple[str, ...] = (
+        "safe to run untrusted code",
+        "privilege separation",
+        "capability confinement",
+        "sandboxed execution",
+        "PySH is sandboxed",
+        "PySH sandboxes",
+        "executes .zshrc by default",
+        "executes .bashrc by default",
+        "auto-wraps sudo",
+        "knows password correctness",
+    )
+    violations: list[str] = []
+    for md_path in MARKDOWN_FILES:
+        lines = md_path.read_text(encoding="utf-8").splitlines()
+        for lineno, line in enumerate(lines, start=1):
+            if phrase_lower := next(
+                (p for p in forbidden if p.lower() in line.lower()), None
+            ):
+                # Build context: current line + governing list header (if any).
+                header = _find_list_header(lines, lineno - 1)
+                context = header + "\n" + line
+                if negation_re.search(context):
+                    continue
+                violations.append(
+                    f"{md_path.relative_to(REPO_ROOT)}:{lineno}: {phrase_lower!r} "
+                    f"(no negation in line or list header)"
+                )
+
+    assert not violations, (
+        "Affirmative forbidden security claims found in public docs:\n"
+        + "\n".join(f"  - {item}" for item in violations)
+    )
+
+
 def test_no_affirmative_broad_compatibility_claims_in_public_docs() -> None:
     """Broad shell-compatibility claims must be negated or avoided."""
     forbidden = (

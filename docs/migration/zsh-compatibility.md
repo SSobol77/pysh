@@ -15,10 +15,10 @@ See the LICENSE file in the project root for full license text.
 # Zsh compatibility and migration
 
 > **Compatibility scope**: this document describes the zsh transition layer
-> workflow. For the authoritative zsh compatibility scope table, see
-> [docs/compatibility/zsh-scope.md](../compatibility/zsh-scope.md). For the
-> complete feature matrix, see
-> [docs/compatibility/feature-matrix.md](../compatibility/feature-matrix.md).
+> workflow. For the authoritative zsh compatibility scope table, see the
+> [zsh scope document](../compatibility/zsh-scope.md). For the
+> complete feature matrix, see the
+> [feature matrix](../compatibility/feature-matrix.md).
 
 PySH includes the **Zsh Transition Layer** and a safe profile
 import path. The design goal is migration, not full zsh emulation:

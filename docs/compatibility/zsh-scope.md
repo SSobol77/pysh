@@ -15,7 +15,7 @@ See the LICENSE file in the project root for full license text.
 # zsh Scope
 
 This document defines PySH's relationship to zsh. For the full transition-layer
-workflow, see [docs/migration/zsh-compatibility.md](../migration/zsh-compatibility.md).
+workflow, see [Zsh compatibility guide](../migration/zsh-compatibility.md).
 
 ---
 
@@ -114,7 +114,7 @@ The recommended migration path for zsh users:
 5. **Enable fallback only during active migration**: `zsh_fallback on` is a
    temporary crutch, not a goal state.
 
-See [docs/migration/zsh-compatibility.md](../migration/zsh-compatibility.md)
+See [Zsh compatibility guide](../migration/zsh-compatibility.md)
 for the full workflow.
 
 ---

@@ -16,7 +16,7 @@ See the LICENSE file in the project root for full license text.
 
 > **Compatibility contract**: this document covers migration workflows. For
 > the authoritative compatibility scope and feature matrix, see
-> [docs/compatibility/README.md](../compatibility/README.md).
+> [compatibility documentation](../compatibility/README.md).
 
 PySH includes the migration layer for users moving from
 zsh/bash/sh profiles and scripts. The layer is intentionally conservative:
@@ -143,5 +143,6 @@ maintainability:
 py import platform; print(platform.platform())
 ```
 
-`py <code>` remains one-line persistent Python execution. Multiline
-Python blocks are planned for a future release.
+`py <code>` provides one-line persistent Python execution. For multi-line
+Python automation, use `py { ... }` blocks; they share the same persistent
+Python runtime context as one-line `py` execution.

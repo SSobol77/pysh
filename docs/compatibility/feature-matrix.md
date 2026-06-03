@@ -25,7 +25,7 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Area | Feature domain |
 | Feature | Specific construct or capability |
 | Status | Supported / Partial / Unsupported / Delegated |
-| Category | Native / Transition / Delegated / Planned / Unsupported |
+| Category | Native / Transition / Delegated / Planned / Unsupported / Forbidden by default |
 | Evidence | Test file(s) or documentation reference |
 | Owner issue | GitHub issue responsible for implementation or cleanup |
 
@@ -297,6 +297,22 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Arrays | Associative array (`declare -A`) | Unsupported | Unsupported | — | — |
 | Arrays | Array expansion (`"${arr[@]}"`) | Unsupported | Unsupported | — | — |
 | Arrays | Note: Python lists via `py { ... }` cover array needs | Supported | Native | `tests/test_python_runtime.py` | — |
+
+## Security and trust model
+
+| Area | Feature | Status | Category | Evidence | Owner issue |
+| ---- | ------- | ------ | -------- | -------- | ----------- |
+| Security | Foreign profile execution by default | Unsupported | Forbidden by default | `tests/test_security_trust_model.py` | #7 |
+| Security | Static profile import (no execution) | Supported | Transition | `tests/test_security_trust_model.py` | #7 |
+| Security | Explicit delegation (`zsh`, `run_script`, `zsh_fallback on`) | Supported | Delegated | `tests/test_security_trust_model.py` | #7 |
+| Security | `zsh_fallback` off by default | Supported | Delegated | `tests/test_security_trust_model.py` | #7 |
+| Security | Normal command does not use PTY bridge | Supported | Native | `tests/test_security_trust_model.py` | #7 |
+| Security | `secure <cmd>` explicit PTY bridge opt-in | Supported | Native | `tests/test_secure_runner.py` | #7 |
+| Security | `env_audit` redacts sensitive variable names | Supported | Native | `tests/test_security_trust_model.py` | #7 |
+| Security | `apt_check` / `apt_search` use no sudo | Supported | Native | `tests/test_security_trust_model.py` | #7 |
+| Security | `plan` does not execute target command | Supported | Native | `tests/test_security_trust_model.py` | #7 |
+| Security | Python runtime sandboxing | Unsupported | Unsupported | `tests/test_security_trust_model.py` | #7 |
+| Security | Privilege separation / capability confinement | Unsupported | Unsupported | `docs/architecture/security-trust-model.md` | #7 |
 
 ## Signal handling
 

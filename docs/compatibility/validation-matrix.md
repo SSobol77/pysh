@@ -64,6 +64,18 @@ are gaps that must be resolved before the claim can be published.
 | SIGTERM → 143 (signal mapping) | Unit test | `tests/test_signal_handling.py` | None | #6 |
 | `py` KeyboardInterrupt → 130 | Unit test | `tests/test_signal_handling.py` | None | #6 |
 | `128 + signum` for any signal | Unit test (`returncode_to_exit_status`) | `tests/test_signal_handling.py` | None | #6 |
+| Foreign profile execution by default is forbidden | Unit test | `tests/test_security_trust_model.py` | None | #7 |
+| Static profile import does not execute code | Unit test | `tests/test_security_trust_model.py` | None | #7 |
+| Static importer does not spawn subprocess | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
+| `eval` lines classified RISKY (not executed) | Unit test | `tests/test_security_trust_model.py` | None | #7 |
+| `zsh_fallback` off by default | Unit test | `tests/test_security_trust_model.py` | None | #7 |
+| `zsh <cmd>` uses `zsh -lc` | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
+| Normal command does not use PTY bridge | Unit test (spy) | `tests/test_security_trust_model.py` | None | #7 |
+| `env_audit` redacts sensitive variable names | Unit test | `tests/test_security_trust_model.py` | None | #7 |
+| `apt_check` / `apt_search` do not use sudo | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
+| `plan` does not execute target command | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
+| Python runtime is not sandboxed (predicate) | Unit test | `tests/test_security_trust_model.py` | None | #7 |
+| No forbidden security claims in docs | Doc consistency test | `tests/test_docs_consistency.py` | None | #7 |
 | Comments (`#`) work correctly | Unit test | `tests/test_comments.py` | None | — |
 | Aliases are expanded correctly | Unit test | `tests/test_shell.py` | None | — |
 | `unalias` works | Unit test | `tests/test_unalias.py` | None | — |
