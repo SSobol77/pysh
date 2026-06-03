@@ -1,15 +1,13 @@
 <!--
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: GPL-2.0-only
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
 File: docs/development/development.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 
-Copyright (c) 2026 Siergej Sobolewski
+Copyright (C) 2026 Siergej Sobolewski
 
-Licensed under the GNU General Public License v3.0 or later.
-See the LICENSE file in the project root for full license text.
 -->
 
 # Development
@@ -150,7 +148,7 @@ pysh/
   and limitations must be documented in the same change. See
   [`docs/architecture/documentation-policy.md`](../architecture/documentation-policy.md).
 - Builtin and completion lists must stay aligned with the implementation.
-- Public modules carry an SPDX `GPL-3.0-or-later` header.
+- Public modules carry an SPDX `GPL-2.0-only` header.
 - All documentation is written in **English**.
 
 ## CI expectations

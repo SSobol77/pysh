@@ -1,23 +1,7 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-2.0-only
 #
-# Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-# File: scripts/build_pysh_package.sh
-# Repository: https://github.com/SSobol77/pysh
-# PyPI: https://pypi.org/project/pysh-shell
-#
-# Copyright (c) 2026 Siergej Sobolewski
-#
-# Licensed under the GNU General Public License v3.0 or later.
-# See the LICENSE file in the project root for full license text.
-#
-# Build the PyPI artifacts for pysh-shell (sdist + wheel).
-#
-# Output:
-#   dist/pysh_shell-X.Y.Z.tar.gz
-#   dist/pysh_shell-X.Y.Z-py3-none-any.whl
-#
-# Does not publish anything. Does not call sudo. Local-only.
+# Copyright (C) 2026 Siergej Sobolewski
 
 set -euo pipefail
 

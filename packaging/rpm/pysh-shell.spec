@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
-# RPM spec for PySH. Mirrors the Debian package layout: pure-Python
-# install under /opt/pysh-shell with a wrapper at /usr/bin/pysh.
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Copyright (C) 2026 Siergej Sobolewski
 
 %global pysh_app_prefix /opt/pysh-shell
 
@@ -9,7 +9,7 @@ Version:        %{?pysh_version:%{pysh_version}}%{!?pysh_version:0.0.0}
 Release:        1%{?dist}
 Summary:        Fast, Python-first universal interactive shell
 
-License:        GPL-3.0-or-later
+License:        GPL-2.0-only
 URL:            https://github.com/SSobol77/pysh
 Source0:        %{name}-%{version}.tar.gz
 

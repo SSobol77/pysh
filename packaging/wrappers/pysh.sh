@@ -1,8 +1,8 @@
 #!/bin/sh
-# SPDX-License-Identifier: GPL-3.0-or-later
-# /usr/bin/pysh wrapper used by the pysh-shell .deb and .rpm packages.
-# It runs PySH from the system's python3 against the bundled package
-# tree under /opt/pysh-shell/lib.
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Copyright (C) 2026 Siergej Sobolewski
+
 set -eu
 
 PYSH_APP_PREFIX="${PYSH_APP_PREFIX:-/opt/pysh-shell}"

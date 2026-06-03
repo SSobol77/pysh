@@ -1,8 +1,6 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
-# Builds the Debian .deb and RPM .rpm artifacts for a GitHub Release
-# and attaches them (plus SHA256SUMS) to that release using the GitHub
-# CLI. PyPI publishing is intentionally NOT performed here; it stays in
-# publish.yml under PyPI Trusted Publishing.
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Copyright (C) 2026 Siergej Sobolewski
 
 name: Release artifacts (deb + rpm)
 

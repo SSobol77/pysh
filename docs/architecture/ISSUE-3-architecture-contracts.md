@@ -1,3 +1,15 @@
+<!--
+SPDX-License-Identifier: GPL-2.0-only
+
+Project: PySH - Python-first interactive shell for Debian and Unix-like systems
+File: docs/architecture/ISSUE-3-architecture-contracts.md
+Repository: https://github.com/SSobol77/pysh
+PyPI: https://pypi.org/project/pysh-shell
+
+Copyright (C) 2026 Siergej Sobolewski
+
+-->
+
 # ISSUE #3 - Add Architecture Contracts and Import-Boundary Enforcement
 
 ## Summary

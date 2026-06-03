@@ -1,6 +1,6 @@
 <!--
-SPDX-License-Identifier: GPL-3.0-or-later
-Copyright (c) 2026 Siergej Sobolewski
+SPDX-License-Identifier: GPL-2.0-only
+Copyright (C) 2026 Siergej Sobolewski
 -->
 
 # Debian packaging for PySH
@@ -33,7 +33,7 @@ automation.
 | `control`    | Debian control metadata; `@VERSION@` is substituted at build |
 | `postinst`   | `dpkg` post-install hook; minimal, no network, no sudo       |
 | `prerm`      | `dpkg` pre-remove hook; minimal, no destructive cleanup      |
-| `copyright`  | Debian copyright file (GPL-3.0-or-later)                     |
+| `copyright`  | Debian copyright file (GPL-2.0-only)                     |
 
 ## Install layout
 

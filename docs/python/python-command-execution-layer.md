@@ -1,15 +1,13 @@
 <!--
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: GPL-2.0-only
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
 File: docs/python/python-command-execution-layer.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 
-Copyright (c) 2026 Siergej Sobolewski
+Copyright (C) 2026 Siergej Sobolewski
 
-Licensed under the GNU General Public License v3.0 or later.
-See the LICENSE file in the project root for full license text.
 -->
 
 # Python Command Execution Layer
@@ -28,7 +26,7 @@ Type `#py` at the normal PySH prompt:
 You will see the Python mode banner:
 
 ```text
-PySH Python Command Execution Layer | GPL-3.0
+PySH Python Command Execution Layer | GPL-2.0-only
 Python <current runtime>
 Type #help for commands. Ctrl+D or #exit to return to PySH.
 

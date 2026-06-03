@@ -1,5 +1,8 @@
 #!/bin/sh
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Copyright (C) 2026 Siergej Sobolewski
+
 # Post-install script for pysh-shell. Deterministic and minimal: never
 # fetches anything from the network, never calls sudo, never modifies
 # files outside of the package's install prefix.

@@ -1,27 +1,7 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-2.0-only
 #
-# Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-# File: scripts/build_release_artifacts.sh
-# Repository: https://github.com/SSobol77/pysh
-# PyPI: https://pypi.org/project/pysh-shell
-#
-# Copyright (c) 2026 Siergej Sobolewski
-#
-# Licensed under the GNU General Public License v3.0 or later.
-# See the LICENSE file in the project root for full license text.
-#
-# Run the full local release pipeline:
-#   1. pytest -q
-#   2. ruff check src tests
-#   3. scripts/build_pysh_package.sh   (PyPI artifacts)
-#   4. scripts/build_deb.sh            (Debian .deb)
-#   5. scripts/build_rpm.sh            (RPM .rpm)
-#   6. scripts/check_release_artifacts.sh   (canonical naming + sha256)
-#
-# Does not publish anything. Does not call sudo. Local-only.
-# Each step fails fast; if rpmbuild is missing, build_rpm.sh exits with
-# a deterministic message and this orchestrator stops.
+# Copyright (C) 2026 Siergej Sobolewski
 
 set -euo pipefail
 

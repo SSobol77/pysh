@@ -1,15 +1,13 @@
 <!--
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: GPL-2.0-only
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
 File: CHANGELOG.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 
-Copyright (c) 2026 Siergej Sobolewski
+Copyright (C) 2026 Siergej Sobolewski
 
-Licensed under the GNU General Public License v3.0 or later.
-See the LICENSE file in the project root for full license text.
 -->
 
 # Changelog
@@ -45,7 +43,7 @@ All notable changes to PySH are documented in this file.
   - Safe source-buffer policy: only successfully executed input is saved.
   - Saved files contain clean Python source — no prompts, no ANSI escapes.
 - Added `system_info` helper for compact startup banner (`System:` line).
-- Updated startup banner: PySH version, Python version, GPL-3.0 license tag,
+- Updated startup banner: PySH version, Python version, GPL-2.0-only license tag,
   and system summary line.
 
 ### Known limitations

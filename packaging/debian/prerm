@@ -1,5 +1,8 @@
 #!/bin/sh
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Copyright (C) 2026 Siergej Sobolewski
+
 # Pre-remove script for pysh-shell. Intentionally minimal.
 set -eu
 

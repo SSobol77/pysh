@@ -1,3 +1,15 @@
+<!--
+SPDX-License-Identifier: GPL-2.0-only
+
+Project: PySH - Python-first interactive shell for Debian and Unix-like systems
+File: docs/shell/multiline-paste.md
+Repository: https://github.com/SSobol77/pysh
+PyPI: https://pypi.org/project/pysh-shell
+
+Copyright (C) 2026 Siergej Sobolewski
+
+-->
+
 # Multiline Paste and Command Chaining
 
 PySH supports pasting newline-separated command blocks directly into an interactive session.  Each complete command is executed in order, as if the user had typed and submitted each one separately.

@@ -1,14 +1,7 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-2.0-only
 #
-# Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-# File: src/pysh/parsing/parser.py
-# Repository: https://github.com/SSobol77/pysh
-# PyPI: https://pypi.org/project/pysh-shell
-#
-# Copyright (c) 2026 Siergej Sobolewski
-#
-# Licensed under the GNU General Public License v3.0 or later.
-# See the LICENSE file in the project root for full license text.
+# Copyright (C) 2026 Siergej Sobolewski
+
 """Compatibility facade for PySH parser helpers.
 
 Issue #8 split parser responsibilities into focused modules. Existing imports
