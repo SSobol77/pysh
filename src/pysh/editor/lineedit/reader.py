@@ -70,6 +70,8 @@ class QueuedCommand:
 
     text: str
     echo: bool = True
+    interrupt: bool = False
+    eof: bool = False
 
 # Matches ANSI CSI sequences (e.g. SGR color codes like "\x1b[32m"). The prompt
 # string handed to the reader may already contain color escapes; those bytes
@@ -132,6 +134,7 @@ class RawLineReader:
         line_renderer: Callable[[str], str] | None = None,
         tab_handler: Callable[[LineBuffer], bool] | None = None,
         initial_text: str = "",
+        echo_queued: bool = True,
     ) -> str:
         """Read a command line, raising EOF/KeyboardInterrupt for Ctrl-D/C.
 
@@ -145,7 +148,11 @@ class RawLineReader:
         """
         if self._command_queue:
             queued = self._command_queue.pop(0)
-            if queued.echo:
+            if queued.interrupt:
+                raise KeyboardInterrupt
+            if queued.eof:
+                raise EOFError
+            if queued.echo and echo_queued:
                 out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
                 self._write((prompt + queued.text + "\n"), out_fd)
             return queued.text
@@ -295,7 +302,13 @@ class RawLineReader:
             elif event.key in {Key.PASTE_START, Key.PASTE_END}:
                 pass  # drop paste markers
             elif event.key is Key.CTRL_C:
-                break  # stop collecting on interrupt
+                self._queue_commands(split_paste_commands("".join(parts)), echo=True)
+                parts = []
+                self._command_queue.append(QueuedCommand("", echo=False, interrupt=True))
+            elif event.key is Key.CTRL_D:
+                self._queue_commands(split_paste_commands("".join(parts)), echo=True)
+                parts = []
+                self._command_queue.append(QueuedCommand("", echo=False, eof=True))
             elif event.key is Key.PRINTABLE and event.text:
                 parts.append(event.text)
             # Navigation, backspace, etc. are meaningless outside a live buffer.

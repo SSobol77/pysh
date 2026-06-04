@@ -362,25 +362,28 @@ class PyShell:
         was cancelled by the user (Ctrl+C or EOF).
         """
         collected: list[str] = [opener]
-        while True:
-            try:
-                cont = input(self._continuation_prompt())
-            except EOFError:
-                print()
-                print("pysh: py: unterminated block", file=sys.stderr)
-                self.last_status = 1
-                return None
-            except KeyboardInterrupt:
-                print()
-                self.last_status = 130
-                return None
-            if is_block_opener(cont):
-                print("pysh: py: nested py { ... } blocks are not supported", file=sys.stderr)
-                self.last_status = 1
-                return None
-            collected.append(cont)
-            if is_block_closer(cont):
-                return "\n".join(collected)
+        try:
+            while True:
+                try:
+                    cont = self._read_multiline_interactive_line(self._continuation_prompt())
+                except EOFError:
+                    print()
+                    print("pysh: py: unterminated block", file=sys.stderr)
+                    self.last_status = 1
+                    return None
+                except KeyboardInterrupt:
+                    print()
+                    self.last_status = 130
+                    return None
+                if is_block_opener(cont):
+                    print("pysh: py: nested py { ... } blocks are not supported", file=sys.stderr)
+                    self.last_status = 1
+                    return None
+                collected.append(cont)
+                if is_block_closer(cont):
+                    return "\n".join(collected)
+        finally:
+            collected.clear()
 
     def _collect_heredoc_interactive(self, command_line: str) -> str | None:
         """Read heredoc body lines until all pending delimiters are seen."""
@@ -391,26 +394,47 @@ class PyShell:
             self.last_status = ExitCode.BUILTIN_MISUSE
             return None
         collected: list[str] = [command_line]
-        for spec in specs:
-            while True:
-                try:
-                    line = input(self._heredoc_prompt())
-                except EOFError:
-                    print()
-                    print(
-                        f"pysh: parse error: missing heredoc terminator: {spec.delimiter}",
-                        file=sys.stderr,
-                    )
-                    self.last_status = ExitCode.BUILTIN_MISUSE
-                    return None
-                except KeyboardInterrupt:
-                    print()
-                    self.last_status = ExitCode.SIGINT
-                    return None
-                collected.append(line)
-                if heredoc_line_matches(line, spec):
-                    break
-        return "\n".join(collected)
+        try:
+            for spec in specs:
+                while True:
+                    try:
+                        line = self._read_multiline_interactive_line(self._heredoc_prompt())
+                    except EOFError:
+                        print()
+                        print(
+                            f"pysh: parse error: missing heredoc terminator: {spec.delimiter}",
+                            file=sys.stderr,
+                        )
+                        self.last_status = ExitCode.BUILTIN_MISUSE
+                        return None
+                    except KeyboardInterrupt:
+                        print()
+                        self.last_status = ExitCode.SIGINT
+                        return None
+                    collected.append(line)
+                    if heredoc_line_matches(line, spec):
+                        break
+            return "\n".join(collected)
+        finally:
+            collected.clear()
+
+    def _read_multiline_interactive_line(self, prompt: str) -> str:
+        """Read one collector-owned continuation line through the active editor."""
+        if self._should_use_raw_editor():
+            options = SimpleNamespace(autosuggest=False, syntax_highlight=False)
+            try:
+                return self.line_reader.read_line(
+                    prompt,
+                    history=[],
+                    suggester=self.autosuggester,
+                    highlighter=self.line_highlighter,
+                    scheme=DEFAULT_SCHEME,
+                    options=options,
+                    echo_queued=False,
+                )
+            except (OSError, termios.error):
+                return input(prompt)
+        return input(prompt)
 
     @staticmethod
     def _continuation_prompt() -> str:
