@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from pysh import __version__
 from pysh.core.errors import exception_to_diagnostic
 from pysh.core.shell import PyShell
+from pysh.diagnostics.trace import DiagnosticTrace, TraceOptions
 from pysh.parsing.multiline import iter_logical_lines
 
 
@@ -33,6 +34,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="execute COMMAND and exit",
     )
+    parser.add_argument(
+        "--debug",
+        "--trace",
+        dest="debug",
+        action="store_true",
+        help="emit deterministic PySH diagnostic trace lines to stderr",
+    )
     return parser
 
 
@@ -45,7 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for PySH top-level error handling (Issue #5).
     """
     args = _build_parser().parse_args(argv if argv is not None else sys.argv[1:])
-    shell = PyShell()
+    shell = PyShell(trace=DiagnosticTrace(TraceOptions(enabled=bool(args.debug))))
     try:
         if args.command is not None:
             if "\n" in args.command:

@@ -40,6 +40,8 @@ reason=<short human-readable explanation>
 ```
 
 The output is deterministic so it can be parsed by tests and tooling.
+The `original=` field is redacted before display when the command text
+contains sensitive assignments or known sensitive environment values.
 
 ## Risk model
 
@@ -79,6 +81,9 @@ plan eval "$(something)"
   classification is not a security clearance — review the command yourself.
 - `plan` never modifies aliases, env vars, the working directory, or the
   filesystem. It is safe to invoke as often as you want.
+- `plan` is not execution. It does not execute command substitutions,
+  redirections, scripts, profile files or PATH candidates in the planned
+  command.
 
 ## Return behavior
 

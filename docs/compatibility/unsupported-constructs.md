@@ -39,7 +39,7 @@ ANSI C quoting, or full script loop semantics.
 | `fd` duplication `2>&1` | Unsupported | — |
 | Nested command substitution | Unsupported | — |
 | Native glob expansion | Supported (Issue #9) | #9 |
-| Job control (`&`, `jobs`, `fg`, `bg`, Ctrl+Z) | Supported (Issue #11) | #11 |
+| Job-control extensions (`wait`, `disown`) | Unsupported | #11 |
 | Process substitution `<(cmd)` | Unsupported | — |
 | Brace expansion `{a,b,c}` | Unsupported | — |
 | `case` / `select` statements | Unsupported | — |
@@ -128,9 +128,9 @@ Implemented in Issue #9.
 | Field | Value |
 | ----- | ----- |
 | Construct | `cmd &`, `jobs`, `bg %N`, `fg %N`, `Ctrl+Z` |
-| Current behavior | `&` is not recognized as background operator. `jobs`, `bg`, `fg` are not builtins. `Ctrl+Z` is passed to the terminal directly. |
-| Required user action | Run commands in separate terminal sessions, or wait for Issue #11. |
-| Owner issue | Issue #11 |
+| Current behavior | Supported by the Issue #11 job-control model. Full Ctrl+Z behavior requires a real TTY. |
+| Required user action | Use documented `cmd &`, `jobs`, `fg` and `bg`; `wait` and `disown` remain unsupported. |
+| Owner issue | Issue #11 (implemented core model) |
 
 ### Process substitution
 

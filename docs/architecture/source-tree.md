@@ -99,7 +99,8 @@ src/pysh/
 │
 ├── diagnostics/
 │   ├── command_plan.py      ← plan builtin: advisory command classifier
-│   └── system_info.py       ← sys_info and env_audit helpers
+│   ├── system_info.py       ← sys_info and env_audit helpers
+│   └── trace.py             ← opt-in trace events, stages and redaction policy
 │
 └── contracts/               ← architecture protocol layer (Issue #3)
     ├── __init__.py          ← re-exports all protocol names
@@ -128,7 +129,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.compat` | Transition and compatibility helpers | Zsh bridge (`ZshBridge`), zsh/sh alias file parser, static profile importer, MC environment detection | Core shell execution, prompt rendering |
 | `pysh.services` | Service management | `svc` builtin client, PID-file-based service control, PyInit metadata parser | Shell REPL, command dispatch |
 | `pysh.security` | Security-sensitive command execution | Trust constants/predicates, `SecureRunner` PTY bridge, fixed-size ring indicator, `indicator_config_from_mapping` | General command dispatch, shell state |
-| `pysh.diagnostics` | Advisory diagnostics | `plan` builtin command classifier, `sys_info`/`env_audit` display helpers | Policy enforcement, runtime execution |
+| `pysh.diagnostics` | Advisory diagnostics | `plan` builtin command classifier, opt-in trace event model, diagnostic redaction | Policy enforcement, runtime execution |
 | `pysh.shell` | Compatibility shim (scheduled removal) | Re-export of `PyShell` from `pysh.core.shell` | Any new logic — shim only |
 | `pysh.script_runner` | Script transition runner | `ScriptRunner`, shebang detection, interpreter delegation, native PySH line-by-line execution | Interactive REPL state |
 
@@ -179,6 +180,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.security.secure_runner` | `SecureRunner`: PTY bridge; `indicator_config_from_mapping` |
 | `pysh.diagnostics.command_plan` | `plan` function: advisory classifier for `plan <cmd>` builtin |
 | `pysh.diagnostics.system_info` | System information helpers used by `sys_info` and `env_audit` |
+| `pysh.diagnostics.trace` | `DiagnosticTrace`, canonical stages and redaction helpers for opt-in stderr trace output |
 | `pysh.script_runner` | `ScriptRunner`, `ScriptType`: shebang dispatch and native line execution |
 
 ---

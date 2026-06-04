@@ -111,7 +111,7 @@ access and no shell-state mutation.
 | #8 | Parser-aware quote/token context without executing expansions |
 | #9 | Shares tilde and hidden-file policy, but does not glob-expand |
 | #11 | Job IDs are completion candidates for `fg`/`bg` |
-| #13 | Observability/trace CLI remains out of scope |
+| #13 | Completion remains non-executing; observability trace is opt-in and does not expose variable values |
 | #14 | Full script mode remains out of scope |
 | #16 | zsh transition hardening remains out of scope |
 | #17 | System shell integration remains out of scope |

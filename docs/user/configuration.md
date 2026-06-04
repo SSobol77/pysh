@@ -173,6 +173,11 @@ The welcome banner and diagnostics use ANSI colors when:
 - `NO_COLOR` is not set,
 - `TERM` is set and is not `dumb`.
 
+Trace diagnostics are not configured from startup files. They are enabled only
+by explicit CLI flags such as `pysh --debug -c "echo hi"` or
+`pysh --trace -c "echo hi"`. Trace output goes to stderr and sensitive values
+are redacted.
+
 When the stdlib raw-mode editor is active, PySH can colorize the editable input
 line and show history autosuggestions. If the terminal is not capable, if
 `TERM=dumb`, if `NO_COLOR` is set, or if `line_editor="readline"` is configured,

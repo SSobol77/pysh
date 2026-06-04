@@ -43,7 +43,7 @@ Issue #7 defines and enforces the security and trust model.  It does not provide
 | 6 | **`secure <cmd>` is opt-in.** The PTY bridge is never created for ordinary commands. |
 | 7 | **Plugins and rc files are trusted local PySH code.** Not sandboxed; not foreign shell code. |
 | 8 | **Python runtime is trusted in-process execution.** Not sandboxed; runs with full OS access. |
-| 9 | **Diagnostics are non-mutating.** `plan`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search` do not mutate system state. |
+| 9 | **Diagnostics are non-mutating.** `plan`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search` and opt-in trace output do not mutate system state. |
 | 10 | **No security theater.** PySH does not claim sandboxing, privilege separation, capability enforcement, or safe containment of untrusted code. |
 
 ---
@@ -86,6 +86,7 @@ Issue #7 defines and enforces the security and trust model.  It does not provide
 | `which_all` | `TRUSTED_LOCAL` | No — read-only lookup | None | PATH scan only | — |
 | `apt_check` | `TRUSTED_LOCAL` | Yes (`apt list --upgradable`) | None (read-only apt) | No sudo; no system mutation | — |
 | `apt_search` | `TRUSTED_LOCAL` | Yes (`apt search`) | None (read-only apt) | No sudo; no system mutation | — |
+| `--debug` / `--trace` | `TRUSTED_LOCAL` | No extra execution | None | Stderr-only redacted trace | #13 |
 
 ---
 
@@ -228,8 +229,12 @@ The following builtins are **advisory and non-mutating**:
 | `apt_check` | Runs `apt list --upgradable` | Installs or upgrades packages; uses sudo |
 | `apt_search` | Runs `apt search <query>` | Installs packages; uses sudo |
 
-`env_audit` redacts variables whose names contain: `KEY`, `TOKEN`, `SECRET`,
-`PASSWORD`, `PASS`, `CREDENTIAL`, `AUTH`.
+`env_audit` and opt-in trace output redact variables whose names contain:
+`PASSWORD`, `PASSWD`, `PASS`, `TOKEN`, `SECRET`, `KEY`, `PRIVATE`,
+`CREDENTIAL`, `AUTH`, `COOKIE`, `SESSION`, `API_KEY`, `ACCESS_TOKEN`,
+`REFRESH_TOKEN`.
+
+Full diagnostics contract: [Observability and Diagnostics Contract](observability-diagnostics-contract.md).
 
 ---
 

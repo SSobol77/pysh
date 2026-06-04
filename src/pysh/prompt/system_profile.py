@@ -23,13 +23,20 @@ from pathlib import Path
 from typing import IO
 
 REDACTED_TOKENS: tuple[str, ...] = (
-    "KEY",
+    "PASSWORD",
+    "PASSWD",
+    "PASS",
     "TOKEN",
     "SECRET",
-    "PASSWORD",
-    "PASS",
+    "KEY",
+    "PRIVATE",
     "CREDENTIAL",
     "AUTH",
+    "COOKIE",
+    "SESSION",
+    "API_KEY",
+    "ACCESS_TOKEN",
+    "REFRESH_TOKEN",
 )
 
 SAFE_ENV_KEYS: tuple[str, ...] = (

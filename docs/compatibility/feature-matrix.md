@@ -67,6 +67,8 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Builtins | `run_script` | Partial | Delegated | `tests/test_script_runner.py` | #14 |
 | Builtins | `zsh` (explicit delegation) | Supported | Delegated | `tests/test_zsh_bridge.py` | — |
 | Builtins | `zsh_fallback` | Supported | Delegated | `tests/test_zsh_transition.py` | — |
+| Diagnostics | `--debug`, `--trace` stderr trace | Supported | Native | `tests/test_observability_diagnostics.py` | #13 |
+| Diagnostics | Diagnostic redaction policy | Supported | Native | `tests/test_observability_diagnostics.py`, `tests/test_security_trust_model.py` | #13 |
 
 ## Aliases
 

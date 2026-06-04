@@ -621,14 +621,12 @@ Depends on: #3, #5, #8.
 Scope:
 
 - `--debug`,
-- `PYSH_DEBUG`,
-- structured debug logs,
-- tokenization trace,
+- `--trace`,
+- deterministic stderr trace lines,
 - expansion trace,
+- redirection and argv trace,
 - command resolution trace,
 - parser trace,
-- paste debug,
-- startup/import-time diagnostics,
 - redaction policy.
 
 Non-goals:
@@ -636,14 +634,16 @@ Non-goals:
 - no telemetry,
 - no remote reporting,
 - no performance profiler.
+- no startup/import-time profiler.
+- no diagnostic execution of target commands.
 
 Definition of done:
 
 - `--debug` produces deterministic parseable trace for a sample line.
 - stdout remains clean.
 - Command resolution path is visible.
-- Paste debug remains opt-in.
-- Startup diagnostics include import/cold-start timing.
+- Sensitive values are redacted.
+- Diagnostic builtins remain non-mutating.
 
 Validation:
 

@@ -67,6 +67,7 @@ from pysh.core.jobs import (
 )
 from pysh.core.signals import returncode_to_exit_status
 from pysh.diagnostics.command_plan import plan as run_plan
+from pysh.diagnostics.trace import DiagnosticStage, DiagnosticTrace
 from pysh.editor.completion import Completer
 from pysh.editor.highlight import colors_enabled, diagnostic
 from pysh.editor.history import DEFAULT_HISTORY_PATH, HistoryManager
@@ -209,10 +210,12 @@ class PyShell:
         service_client: ServiceClient | None = None,
         zsh_bridge: ZshBridge | None = None,
         script_runner: ScriptRunner | None = None,
+        trace: DiagnosticTrace | None = None,
     ) -> None:
         self.local_vars: dict[str, str] = {}
         self.aliases: dict[str, str] = dict(self.DEFAULT_ALIASES)
         self.last_status: int = 0
+        self.trace = trace if trace is not None else DiagnosticTrace()
         self.dir_stack: list[Path] = []
         self.job_table: JobTable = JobTable()
         self._tty_fd: int | None = None
@@ -395,6 +398,7 @@ class PyShell:
     def execute(self, line: str) -> int:
         """Execute one shell line. Returns the exit status of the last command."""
         line = line.rstrip("\n").rstrip("\r")
+        self.trace.emit(DiagnosticStage.INPUT, "received line", line=line)
         line = join_backslash_continuations(line)
         # ``#py`` must be checked *before* strip_comments() because a bare ``#``
         # at the start of a token-boundary is otherwise treated as a comment.
@@ -409,14 +413,25 @@ class PyShell:
                 special_vars={"?": str(self.last_status)},
             )
         except ParseError as exc:
+            self.trace.error(
+                "heredoc parse error",
+                detail=str(exc),
+                code=ExitCode.BUILTIN_MISUSE,
+            )
             print(f"pysh: parse error: {exc}", file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
+        self.trace.emit(DiagnosticStage.HEREDOC, "collected heredocs", count=len(heredoc_bodies))
         line = strip_comments(line)
         if not line.strip():
             return 0
         try:
             validate_unsupported_syntax(line)
         except ParseError as exc:
+            self.trace.error(
+                "unsupported syntax",
+                detail=str(exc),
+                code=ExitCode.BUILTIN_MISUSE,
+            )
             print(f"pysh: parse error: {exc}", file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
 
@@ -448,8 +463,14 @@ class PyShell:
         try:
             chain = split_chain(line)
         except ParseError as exc:
+            self.trace.error(
+                "split chain failed",
+                detail=str(exc),
+                code=ExitCode.BUILTIN_MISUSE,
+            )
             print(f"pysh: parse error: {exc}", file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
+        self.trace.emit(DiagnosticStage.PARSE, "split chain", elements=len(chain))
         status = 0
         run_next = True
         for elem in chain:
@@ -479,10 +500,16 @@ class PyShell:
         try:
             stages = split_pipeline(command)
         except ParseError as exc:
+            self.trace.error(
+                "split pipeline failed",
+                detail=str(exc),
+                code=ExitCode.BUILTIN_MISUSE,
+            )
             print(f"pysh: parse error: {exc}", file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
         if not stages:
             return 0
+        self.trace.emit(DiagnosticStage.PARSE, "split pipeline", stages=len(stages))
         # Alias expansion is applied per simple command (i.e. per pipe stage).
         stages = [self._expand_alias(s) for s in stages]
         # Variable expansion happens after alias expansion so that alias
@@ -491,6 +518,7 @@ class PyShell:
         # expands to the last command exit status (Issue #5).
         _sv = {"?": str(self.last_status)}
         stages = [expand_variables(s, self.local_vars, special_vars=_sv) for s in stages]
+        self.trace.emit(DiagnosticStage.EXPAND, "expanded variables", stages=len(stages))
         if len(stages) == 1:
             return self._run_simple(stages[0], heredoc_bodies, background=background)
         if not heredoc_bodies:
@@ -512,8 +540,20 @@ class PyShell:
         try:
             clean, spec = parse_redirections(stage, heredoc_bodies)
         except ParseError as exc:
+            self.trace.error(
+                "parse redirections failed",
+                detail=str(exc),
+                code=ExitCode.BUILTIN_MISUSE,
+            )
             print(f"pysh: parse error: {exc}", file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
+        self.trace.emit(
+            DiagnosticStage.REDIRECT,
+            "parsed redirections",
+            stdin=bool(spec.stdin_path or spec.stdin_data),
+            stdout=bool(spec.stdout_path),
+            stderr=bool(spec.stderr_path or spec.stderr_to_stdout),
+        )
         # Tilde expansion on redirection targets (glob expansion is not applied
         # to redirection targets to avoid unsafe multi-target behavior).
         spec = _tilde_expand_spec(spec)
@@ -522,10 +562,17 @@ class PyShell:
         except ValueError as exc:
             if self.zsh_fallback_enabled:
                 return self._run_zsh_fallback(stage)
+            self.trace.error(
+                "path expansion failed",
+                detail=str(exc),
+                code=ExitCode.BUILTIN_MISUSE,
+            )
             print(f"pysh: parse error: {exc}", file=sys.stderr)
             return 2
         if not argv:
             return 0
+        self.trace.emit(DiagnosticStage.PATH_EXPAND, "tokenized argv", argc=len(argv))
+        self.trace.emit(DiagnosticStage.EXECUTE_PLAN, "argv prepared", argv=argv)
         env_overrides, cmd_argv = parse_leading_env_assignments(argv)
         if not cmd_argv:
             # All tokens are assignments with no command: update local vars.
@@ -534,14 +581,32 @@ class PyShell:
             return 0
         if cmd_argv[0] in self.BUILTINS:
             # Builtins run in-process; background flag has no effect for builtins.
-            return self._dispatch_builtin(cmd_argv)
-        return self._run_external(
+            self.trace.emit(
+                DiagnosticStage.RESOLVE,
+                "command resolved",
+                command=cmd_argv[0],
+                kind="builtin",
+            )
+            status = self._dispatch_builtin(cmd_argv)
+            self.trace.emit(DiagnosticStage.EXECUTE_PLAN, "command finished", status=status)
+            return status
+        resolved_path = shutil.which(cmd_argv[0])
+        self.trace.emit(
+            DiagnosticStage.RESOLVE,
+            "command resolved",
+            command=cmd_argv[0],
+            kind="external" if resolved_path is not None else "missing",
+            path=resolved_path or "",
+        )
+        status = self._run_external(
             cmd_argv,
             spec,
             original_stage=stage,
             env_overrides=env_overrides if env_overrides else None,
             background=background,
         )
+        self.trace.emit(DiagnosticStage.EXECUTE_PLAN, "command finished", status=status)
+        return status
 
     def _run_pipeline(
         self,
@@ -656,6 +721,11 @@ class PyShell:
                             p.terminate()
                             p.wait()
                         return self._run_zsh_fallback(original_command)
+                    self.trace.error(
+                        "command not found",
+                        command=argv[0],
+                        code=ExitCode.COMMAND_NOT_FOUND,
+                    )
                     print(f"pysh: {argv[0]}: command not found", file=sys.stderr)
                     if prev_out is not None:
                         prev_out.close()
@@ -775,9 +845,19 @@ class PyShell:
             except FileNotFoundError:
                 if self.zsh_fallback_enabled and original_stage is not None:
                     return self._run_zsh_fallback(original_stage)
+                self.trace.error(
+                    "command not found",
+                    command=argv[0],
+                    code=ExitCode.COMMAND_NOT_FOUND,
+                )
                 print(f"pysh: {argv[0]}: command not found", file=sys.stderr)
                 return ExitCode.COMMAND_NOT_FOUND
             except PermissionError as exc:
+                self.trace.error(
+                    "command not executable",
+                    command=argv[0],
+                    code=ExitCode.CANNOT_EXECUTE,
+                )
                 print(f"pysh: {argv[0]}: {exc}", file=sys.stderr)
                 return ExitCode.CANNOT_EXECUTE
 

@@ -173,6 +173,13 @@ persistent context. Limitations:
 - Secret redaction in `env_audit` is name-based; values whose key does not
   match a sensitive token are not treated as secrets.
 
+## Observability and trace
+
+`--debug` and `--trace` are opt-in diagnostics modes. They write redacted
+trace events to stderr and preserve normal command stdout and exit status.
+Trace output is not a security audit log and cannot prove arbitrary command
+output is non-secret.
+
 ## Command planning
 
 `plan <command...>` is advisory only:

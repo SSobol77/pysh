@@ -202,6 +202,26 @@ it renders at most one fixed symbol while the child PTY has echo disabled. It
 does not show one symbol per character, does not reveal password length, and
 does not indicate password correctness.
 
+## Diagnostic builtins
+
+The diagnostic builtins are explicit and non-mutating. They print their
+intentional reports to stdout and usage/runtime errors to stderr. Sensitive
+environment values are redacted by name-based policy.
+
+- `plan <command...>` previews classification, risk and execution route. It is
+  not execution and does not run the planned command.
+- `sys_info` prints read-only platform, Python, cwd, user, shell and PATH-count
+  metadata.
+- `env_audit` prints a redacted environment audit.
+- `path_audit` reports PATH entries as `ok`, `missing`, `not_dir` or
+  `duplicate`.
+- `which_all NAME` lists executable matches in PATH order without executing
+  them.
+- `apt_check` runs read-only `apt list --upgradable`; it never uses `sudo`.
+- `apt_search QUERY` runs read-only `apt search QUERY`; it never uses `sudo`.
+- `compat_check FILE` reads a shell file as text and never sources startup
+  files or executes shell code.
+
 ## `.`
 
 Syntax: `. FILE`

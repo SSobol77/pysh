@@ -21,6 +21,7 @@ set. This page documents the day-to-day surface used at the command line.
 pysh                        # interactive REPL via the console entry point
 python -m pysh              # equivalent module entry point
 pysh -c "echo hi"           # run a single command line and exit
+pysh --debug -c "echo hi"   # run command and write redacted trace to stderr
 pysh --version              # print version and exit
 python -m pysh --version    # module entry point version check
 pysh -V                     # short form
@@ -29,6 +30,10 @@ pysh -V                     # short form
 `Ctrl+C` cancels the line being typed and keeps the shell alive.
 `Ctrl+D` exits the shell. When GNU readline is available, **Ctrl+R**
 opens Bash-like reverse incremental search.
+
+`--debug` and `--trace` are explicit diagnostics modes. They write
+`[PYSH_DEBUG]` trace lines to stderr, never to normal command stdout, and do
+not change command execution or exit status.
 
 ## Operators
 

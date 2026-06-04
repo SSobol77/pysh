@@ -347,20 +347,24 @@ terminal-control architecture.
 
 ## ISSUE #13 - Observability and Diagnostics
 
-**Goal.** Add diagnosability without entangling normal shell execution.
+**Goal.** Add explicit diagnosability without entangling normal shell execution.
 
 **Depends on.** #3, #5, #6, #8.
 
 **Scope.**
 
-- `--debug`.
-- Structured debug logs.
-- Command resolution trace.
-- Parser trace.
-- Paste debug.
-- Startup/import-time diagnostics.
-- Diagnostics redaction policy for paths, environment, and command content where
-  relevant.
+- `--debug` / `--trace` for explicit CLI trace output.
+- Deterministic stderr trace lines.
+- Parser, expansion, redirection, argv, command resolution and status trace.
+- Diagnostics redaction policy for sensitive environment names and values.
+- Formal diagnostic builtins: `plan`, `sys_info`, `env_audit`, `path_audit`,
+  `which_all`, `apt_check`, `apt_search`, `compat_check`.
+
+**Non-goals.**
+
+- Startup/import-time profiling.
+- Telemetry or remote reporting.
+- Extra execution for diagnostics.
 
 **Validation.**
 

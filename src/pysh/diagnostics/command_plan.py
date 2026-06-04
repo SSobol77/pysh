@@ -17,6 +17,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import IO
 
+from pysh.diagnostics.trace import DEFAULT_REDACTION_POLICY
 from pysh.parsing.multiline import PY_BLOCK_OPENER, is_block_opener
 from pysh.parsing.parser import ChainOp, split_chain, split_pipeline
 
@@ -51,9 +52,10 @@ class CommandPlan:
 def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
     """Classify ``line`` into a :class:`CommandPlan`. No execution happens."""
     text = line.rstrip("\n").rstrip("\r")
+    display_text = DEFAULT_REDACTION_POLICY.redact_text(text)
     if not text.strip():
         return CommandPlan(
-            original=text,
+            original=display_text,
             kind="unknown",
             execution="none",
             risk="low",
@@ -63,7 +65,7 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
 
     if is_block_opener(text):
         return CommandPlan(
-            original=text,
+            original=display_text,
             kind="python",
             execution="python-runtime",
             risk="low",
@@ -73,7 +75,7 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
     stripped = text.lstrip()
     if stripped.startswith("py ") or stripped == "py" or stripped.startswith(PY_BLOCK_OPENER):
         return CommandPlan(
-            original=text,
+            original=display_text,
             kind="python",
             execution="python-runtime",
             risk="low",
@@ -86,7 +88,7 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
         risk = _max_risk(p.risk for p in kinds)
         ops = ", ".join(_op_name(elem.operator) for elem in chain if elem.operator)
         return CommandPlan(
-            original=text,
+            original=display_text,
             kind="chain",
             execution="native",
             risk=risk,
@@ -98,7 +100,7 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
         stages = [classify(stage, builtins=builtin_set) for stage in pipeline]
         risk = _max_risk(stage.risk for stage in stages)
         return CommandPlan(
-            original=text,
+            original=display_text,
             kind="pipeline",
             execution="native",
             risk=risk,
@@ -108,7 +110,7 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
     head = _first_word(text)
     if not head:
         return CommandPlan(
-            original=text,
+            original=display_text,
             kind="unknown",
             execution="none",
             risk="low",
@@ -117,7 +119,7 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
 
     if head in ZSH_DELEGATION_BUILTINS:
         return CommandPlan(
-            original=text,
+            original=display_text,
             kind="zsh-delegation",
             execution="zsh",
             risk="medium",
@@ -126,7 +128,7 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
 
     if head == "run_script":
         return CommandPlan(
-            original=text,
+            original=display_text,
             kind="script",
             execution="subprocess",
             risk="medium",
@@ -135,7 +137,7 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
 
     if head in {"source", ".", "source_zsh", "source_zsh_profile", "source_sh_aliases"}:
         return CommandPlan(
-            original=text,
+            original=display_text,
             kind="script",
             execution="native",
             risk="low",
@@ -146,7 +148,7 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
 
     if head in builtin_set:
         return CommandPlan(
-            original=text,
+            original=display_text,
             kind="builtin",
             execution="native",
             risk=risk,
@@ -154,7 +156,7 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
         )
 
     return CommandPlan(
-        original=text,
+        original=display_text,
         kind="external",
         execution="subprocess",
         risk=risk,

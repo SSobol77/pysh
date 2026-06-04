@@ -76,6 +76,9 @@ are gaps that must be resolved before the claim can be published.
 | `env_audit` redacts sensitive variable names | Unit test | `tests/test_security_trust_model.py` | None | #7 |
 | `apt_check` / `apt_search` do not use sudo | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
 | `plan` does not execute target command | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
+| `--debug` / `--trace` writes trace to stderr only | Unit test | `tests/test_observability_diagnostics.py` | None | #13 |
+| Trace mode preserves stdout and exit status | Unit test | `tests/test_observability_diagnostics.py` | None | #13 |
+| Diagnostics redact sensitive values | Unit test | `tests/test_observability_diagnostics.py` | None | #13 |
 | Python runtime is not sandboxed (predicate) | Unit test | `tests/test_security_trust_model.py` | None | #7 |
 | No forbidden security claims in docs | Doc consistency test | `tests/test_docs_consistency.py` | None | #7 |
 | Comments (`#`) work correctly | Unit test | `tests/test_comments.py` | None | — |
@@ -152,7 +155,7 @@ are gaps that must be resolved before the claim can be published.
 | Heredocs and here-strings feed stdin | Unit/integration test | `tests/test_heredoc.py` | None | #10 |
 | Quoted heredoc delimiter disables body expansion | Unit/integration test | `tests/test_heredoc.py` | None | #10 |
 | Here-string content does not glob-expand | Unit/integration test | `tests/test_heredoc.py` | None | #10 |
-| Job control is absent (no `&` background) | Negative unit test | Gap | Negative test needed | #11 |
+| Unsupported job-control extensions (`wait`, `disown`) remain absent | Negative unit test | Gap | Negative test needed | #11 |
 | Shell functions are absent | Negative unit test | Gap | Negative test needed | — |
 
 ---

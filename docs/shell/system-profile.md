@@ -56,9 +56,16 @@ Output starts with `total=<N>`, prints a curated set of safe variables
 - `TOKEN`
 - `SECRET`
 - `PASSWORD`
+- `PASSWD`
 - `PASS`
+- `PRIVATE`
 - `CREDENTIAL`
 - `AUTH`
+- `COOKIE`
+- `SESSION`
+- `API_KEY`
+- `ACCESS_TOKEN`
+- `REFRESH_TOKEN`
 
 as `<NAME>=<redacted>`. The actual secret value is never written to stdout
 or stderr. Returns 0.
@@ -99,9 +106,9 @@ Debian-oriented upgrade probe. Never calls `sudo`, never modifies state:
 apt_check
 ```
 
-If `apt` is not on `$PATH`, the command prints `apt_check: apt not found`
-to stderr and returns 127. Otherwise it runs `apt list --upgradable` and
-returns the apt exit code.
+If `apt` is not on `$PATH`, the command prints
+`pysh: apt_check: apt not found` to stderr and returns 127. Otherwise it runs
+`apt list --upgradable` and returns the apt exit code.
 
 ## `apt_search <query>`
 
