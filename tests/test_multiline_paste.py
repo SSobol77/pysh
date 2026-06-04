@@ -47,6 +47,17 @@ def _read_until(master_fd: int, marker: bytes, timeout: float = 1.0) -> bytes:
     return bytes(chunks)
 
 
+def _paste_capture_diagnostics(payload: str) -> list[str]:
+    lines = payload.splitlines() or [""]
+    return [
+        f"pysh: multiline paste captured ({len(lines)} lines). Review below.",
+        "[paste:begin]",
+        *(f"{index} | {line}" for index, line in enumerate(lines, start=1)),
+        "[paste:end]",
+        "Press Enter to run, Ctrl+C to cancel, or type paste_show/paste_cancel.",
+    ]
+
+
 def test_split_two_lines() -> None:
     cmds = split_paste_commands("echo one\necho two\n")
     assert cmds == ["echo one", "echo two"]
@@ -377,6 +388,199 @@ def test_bracketed_paste_waits_for_explicit_enter() -> None:
         thread.join(timeout=3)
         assert not thread.is_alive()
         assert result["line"] == "echo SAFE"
+    finally:
+        if thread.is_alive():
+            os.write(master, b"\x04")
+            thread.join(timeout=1)
+        os.close(master)
+        os.close(slave)
+
+
+def test_bracketed_paste_with_trailing_newline_waits_for_explicit_enter() -> None:
+    """One copied command plus a final newline is still editable input."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(input_fd=slave, output_fd=slave)
+    result: dict[str, str] = {}
+
+    def target() -> None:
+        result["line"] = reader.read_line(
+            "> ",
+            history=[],
+            suggester=AutoSuggester(),
+            highlighter=LineHighlighter(()),
+            scheme=DEFAULT_SCHEME,
+            options=_make_options(),
+        )
+
+    thread = threading.Thread(target=target)
+    try:
+        thread.start()
+        _read_until(master, b"\x1b[?2004h")
+        os.write(master, b"\x1b[200~echo paste-newline\n\x1b[201~")
+        time.sleep(0.2)
+        assert thread.is_alive(), "Trailing paste newline submitted the buffer early."
+
+        os.write(master, b"\n")
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert result["line"] == "echo paste-newline"
+    finally:
+        if thread.is_alive():
+            os.write(master, b"\x04")
+            thread.join(timeout=1)
+        os.close(master)
+        os.close(slave)
+
+
+def test_bracketed_multiline_paste_is_staged_without_queueing() -> None:
+    """True multiline bracketed paste is captured, not transformed or queued."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(input_fd=slave, output_fd=slave)
+    result: dict[str, str] = {}
+    captured: list[str] = []
+
+    def target() -> None:
+        result["line"] = reader.read_line(
+            "> ",
+            history=[],
+            suggester=AutoSuggester(),
+            highlighter=LineHighlighter(()),
+            scheme=DEFAULT_SCHEME,
+            options=_make_options(),
+            on_multiline_paste=lambda payload: (
+                captured.append(payload) or _paste_capture_diagnostics(payload)
+            ),
+        )
+
+    thread = threading.Thread(target=target)
+    try:
+        thread.start()
+        _read_until(master, b"\x1b[?2004h")
+        os.write(master, b"\x1b[200~echo one\necho two\x1b[201~")
+        output = _read_until(
+            master,
+            b"[paste:end]",
+        )
+        assert (
+            b"pysh: multiline paste captured (2 lines). Review below."
+        ) in output
+        assert b"[paste:begin]" in output
+        assert b"1 | echo one" in output
+        assert b"2 | echo two" in output
+        assert b"[paste:end]" in output
+        assert captured == ["echo one\necho two"]
+        assert reader._command_queue == []
+        assert thread.is_alive(), "Staged multiline paste submitted a command."
+
+        os.write(master, b"echo AFTER\n")
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert result["line"] == "echo AFTER"
+        assert reader._command_queue == []
+    finally:
+        if thread.is_alive():
+            os.write(master, b"\x04")
+            thread.join(timeout=1)
+        os.close(master)
+        os.close(slave)
+
+
+def test_bracketed_python_block_paste_is_staged_without_rewrite() -> None:
+    """Python block paste must not become invalid single-line shell syntax."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(input_fd=slave, output_fd=slave)
+    result: dict[str, str] = {}
+
+    def target() -> None:
+        result["line"] = reader.read_line(
+            "> ",
+            history=[],
+            suggester=AutoSuggester(),
+            highlighter=LineHighlighter(()),
+            scheme=DEFAULT_SCHEME,
+            options=_make_options(),
+            on_multiline_paste=_paste_capture_diagnostics,
+        )
+
+    thread = threading.Thread(target=target)
+    try:
+        thread.start()
+        _read_until(master, b"\x1b[?2004h")
+        os.write(master, b"\x1b[200~py {\nx = 40 + 2\nprint(x)\n}\x1b[201~")
+        output = _read_until(
+            master,
+            b"[paste:end]",
+        )
+        visible = output.replace(b"\r", b"\n")
+        assert (
+            b"pysh: multiline paste captured (4 lines). Review below."
+        ) in visible
+        assert b"1 | py {" in visible
+        assert b"2 | x = 40 + 2" in visible
+        assert b"3 | print(x)" in visible
+        assert b"4 | }" in visible
+        assert b"py { ;" not in visible
+        assert b"SyntaxError" not in visible
+        assert b"command not found" not in visible
+        assert reader._command_queue == []
+
+        os.write(master, b"echo AFTER\n")
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert result["line"] == "echo AFTER"
+    finally:
+        if thread.is_alive():
+            os.write(master, b"\x04")
+            thread.join(timeout=1)
+        os.close(master)
+        os.close(slave)
+
+
+def test_bracketed_heredoc_paste_is_staged_without_entering_collector() -> None:
+    """Heredoc paste must not queue body lines or enter heredoc collection."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(input_fd=slave, output_fd=slave)
+    result: dict[str, str] = {}
+
+    def target() -> None:
+        result["line"] = reader.read_line(
+            "> ",
+            history=[],
+            suggester=AutoSuggester(),
+            highlighter=LineHighlighter(()),
+            scheme=DEFAULT_SCHEME,
+            options=_make_options(),
+            on_multiline_paste=_paste_capture_diagnostics,
+        )
+
+    thread = threading.Thread(target=target)
+    try:
+        thread.start()
+        _read_until(master, b"\x1b[?2004h")
+        os.write(
+            master,
+            b"\x1b[200~cat > /tmp/paste-heredoc-test.txt <<'EOF'\n"
+            b"line one\nline two\nEOF\x1b[201~",
+        )
+        output = _read_until(
+            master,
+            b"[paste:end]",
+        )
+        assert (
+            b"pysh: multiline paste captured (4 lines). Review below."
+        ) in output
+        assert b"1 | cat > /tmp/paste-heredoc-test.txt <<'EOF'" in output
+        assert b"2 | line one" in output
+        assert b"3 | line two" in output
+        assert b"4 | EOF" in output
+        assert b"heredoc>" not in output
+        assert b"command not found" not in output
+        assert reader._command_queue == []
+
+        os.write(master, b"echo AFTER\n")
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert result["line"] == "echo AFTER"
     finally:
         if thread.is_alive():
             os.write(master, b"\x04")

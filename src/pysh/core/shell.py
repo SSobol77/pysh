@@ -239,6 +239,7 @@ class PyShell:
         self.script_name: str = ""
         self.script_args: list[str] = []
         self._script_context: tuple[Path, int] | None = None
+        self.pending_multiline_paste: str | None = None
         self.dir_stack: list[Path] = []
         self.job_table: JobTable = JobTable()
         self._tty_fd: int | None = None
@@ -320,7 +321,30 @@ class PyShell:
                     return 0
                 except KeyboardInterrupt:
                     print()
+                    if self.pending_multiline_paste is not None:
+                        self.pending_multiline_paste = None
+                        print("paste_cancel: pending multiline paste discarded")
                     self.last_status = ExitCode.SIGINT
+                    continue
+                if self.pending_multiline_paste is not None:
+                    if not line.strip():
+                        try:
+                            self.last_status = self._builtin_paste_run([])
+                        except _ExitShell as exit_signal:
+                            return exit_signal.code
+                        continue
+                    if self._pending_paste_command_allowed(line):
+                        try:
+                            self.last_status = self.execute(line)
+                            self.history.add(line)
+                        except _ExitShell as exit_signal:
+                            return exit_signal.code
+                        continue
+                    print(
+                        "pysh: pending multiline paste exists; use paste_run or paste_cancel first",
+                        file=sys.stderr,
+                    )
+                    self.last_status = ExitCode.BUILTIN_MISUSE
                     continue
                 if not line.strip():
                     continue
@@ -483,6 +507,63 @@ class PyShell:
             return self.execute(line)
         except _ExitShell as exc:
             raise ScriptExit(exc.code) from exc
+
+    def _capture_multiline_paste(self, payload: str) -> list[str]:
+        """Store sanitized bracketed multiline paste for explicit user action."""
+        diagnostics: list[str] = []
+        if self.pending_multiline_paste is not None:
+            diagnostics.append("pysh: previous pending paste replaced")
+        self.pending_multiline_paste = payload
+        diagnostics.append(
+            "pysh: multiline paste captured "
+            f"({self._pending_multiline_paste_line_count()} lines). Review below."
+        )
+        diagnostics.extend(
+            self._format_pending_paste_preview(
+                payload,
+                title="paste",
+                max_lines=20,
+            )
+        )
+        diagnostics.append(
+            "Press Enter to run, Ctrl+C to cancel, or type paste_show/paste_cancel."
+        )
+        return diagnostics
+
+    @staticmethod
+    def _format_pending_paste_preview(
+        payload: str,
+        *,
+        title: str,
+        max_lines: int | None = 20,
+    ) -> list[str]:
+        """Return a numbered, framed preview for sanitized paste payload."""
+        lines = payload.splitlines()
+        if not lines:
+            lines = [""]
+        visible_lines = lines if max_lines is None else lines[:max_lines]
+        formatted = [f"[{title}:begin]"]
+        formatted.extend(f"{index} | {line}" for index, line in enumerate(visible_lines, start=1))
+        if max_lines is not None and len(lines) > max_lines:
+            hidden = len(lines) - max_lines
+            formatted.append(f"... {hidden} more lines hidden; use paste_show to inspect all")
+        formatted.append(f"[{title}:end]")
+        return formatted
+
+    def _pending_multiline_paste_line_count(self) -> int:
+        """Return the user-visible line count for the pending paste payload."""
+        if self.pending_multiline_paste is None:
+            return 0
+        return len(self.pending_multiline_paste.splitlines()) or 1
+
+    @staticmethod
+    def _pending_paste_command_allowed(line: str) -> bool:
+        """Return whether *line* may run while multiline paste is pending."""
+        try:
+            argv = shlex.split(line, posix=True)
+        except ValueError:
+            return False
+        return bool(argv) and argv[0] in {"paste_show", "paste_run", "paste_cancel"}
 
     def execute(self, line: str) -> int:
         """Execute one shell line. Returns the exit status of the last command."""
@@ -1087,6 +1168,9 @@ class PyShell:
             "sys_info": self._builtin_sys_info,
             "env_audit": self._builtin_env_audit,
             "path_audit": self._builtin_path_audit,
+            "paste_show": self._builtin_paste_show,
+            "paste_cancel": self._builtin_paste_cancel,
+            "paste_run": self._builtin_paste_run,
             "which_all": self._builtin_which_all,
             "apt_check": self._builtin_apt_check,
             "apt_search": self._builtin_apt_search,
@@ -1268,6 +1352,52 @@ class PyShell:
             return 2
         target = Path(os.path.expanduser(args[0]))
         return self.run_script_file(target, args[1:], native_only=False)
+
+    def _builtin_paste_show(self, args: list[str]) -> int:
+        if args:
+            print("paste_show: usage: paste_show", file=sys.stderr)
+            return 2
+        if self.pending_multiline_paste is None:
+            print("paste_show: no pending multiline paste")
+            return 2
+        for line in self._format_pending_paste_preview(
+            self.pending_multiline_paste,
+            title="paste",
+            max_lines=None,
+        ):
+            print(line)
+        return 0
+
+    def _builtin_paste_cancel(self, args: list[str]) -> int:
+        if args:
+            print("paste_cancel: usage: paste_cancel", file=sys.stderr)
+            return 2
+        if self.pending_multiline_paste is None:
+            print("paste_cancel: no pending multiline paste")
+            return 2
+        self.pending_multiline_paste = None
+        print("paste_cancel: pending multiline paste discarded")
+        return 0
+
+    def _builtin_paste_run(self, args: list[str]) -> int:
+        if args:
+            print("paste_run: usage: paste_run", file=sys.stderr)
+            return 2
+        if self.pending_multiline_paste is None:
+            print("paste_run: no pending multiline paste")
+            return 2
+        payload = self.pending_multiline_paste
+        self.pending_multiline_paste = None
+        for line in self._format_pending_paste_preview(payload, title="paste_run", max_lines=None):
+            print(line)
+        previous_context = self._script_context
+        self._script_context = None
+        try:
+            status = self.script_runner.run_native_text(payload, name="<paste>")
+            self.last_status = status
+            return status
+        finally:
+            self._script_context = previous_context
 
     def _builtin_compat_check(self, args: list[str]) -> int:
         if not args:
@@ -1935,6 +2065,7 @@ class PyShell:
                     highlighter=self.line_highlighter,
                     scheme=DEFAULT_SCHEME,
                     options=options,
+                    on_multiline_paste=self._capture_multiline_paste,
                     completer=self.completer,
                 )
             except (OSError, termios.error):
@@ -2026,6 +2157,10 @@ class PyShell:
 
         if bool(options.get("show_last_status", False)) and self.last_status != 0:
             segments.append(self._color_prompt_segment(f"[{self.last_status}]", "status"))
+
+        if self.pending_multiline_paste is not None:
+            lines = self._pending_multiline_paste_line_count()
+            segments.append(self._color_prompt_segment(f"[paste:{lines}]", "status"))
 
         return " ".join(segments)
 

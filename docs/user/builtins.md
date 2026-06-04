@@ -465,6 +465,45 @@ missing arguments.
 Limitations: native execution is PySH Script Mode v1, not full POSIX script
 semantics. POSIX `set -e`, `set -u` and `set -x` are not implemented.
 
+## `paste_show`, `paste_run`, `paste_cancel`
+
+Syntax:
+
+```sh
+paste_show
+paste_run
+paste_cancel
+```
+
+Purpose: Manage bracketed multiline paste captured by the raw interactive
+editor. Multiline paste is never executed or queued merely because it was
+pasted. Instead, PySH stores the sanitized payload in a session-local pending
+buffer and prints a bounded preview:
+
+```text
+pysh: multiline paste captured (N lines). Review below.
+[paste:begin]
+1 | command one
+2 | command two
+[paste:end]
+Press Enter to run, Ctrl+C to cancel, or type paste_show/paste_cancel.
+```
+
+The capture preview shows the first 20 lines; `paste_show` prints the full
+pending payload in the same numbered `[paste:begin]` / `[paste:end]` frame and
+does not execute it. `paste_cancel` discards the pending payload. `paste_run` is
+explicit user consent to execute the pending payload through PySH's native
+script engine, preserving ordinary multiline commands, heredocs and
+`py { ... }` blocks. Before execution, `paste_run` and empty-Enter confirmation
+print the full payload in a numbered `[paste_run:begin]` / `[paste_run:end]`
+frame. Pressing Ctrl+C at that prompt is equivalent to `paste_cancel`.
+Unrelated commands are blocked while paste is pending so the staged payload
+cannot be silently ignored.
+
+Return behavior: each command returns 0 on success. If no pending paste exists,
+`paste_show`, `paste_run` and `paste_cancel` return 2 and print
+`<command>: no pending multiline paste`. Extra arguments also return 2.
+
 ## `compat_check`
 
 Syntax: `compat_check FILE`

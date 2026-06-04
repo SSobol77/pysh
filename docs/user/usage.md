@@ -186,6 +186,9 @@ Aliases are expanded only for the first word of each pipeline stage.
 | `source_zsh_profile` | Statically import simple zsh aliases, exports and vars. |
 | `source_sh_aliases` | Statically import simple sh/bash aliases, exports and vars. |
 | `run_script` | Run a script through its shebang interpreter or native PySH. |
+| `paste_show` | Display captured bracketed multiline paste without executing it. |
+| `paste_run` | Explicitly execute captured bracketed multiline paste. |
+| `paste_cancel` | Discard captured bracketed multiline paste. |
 | `compat_check` | Print a static migration report for a shell file.      |
 | `zsh`      | Execute one command through real `zsh -lc`.                |
 | `zsh_fallback` | Enable or disable optional zsh fallback mode.         |

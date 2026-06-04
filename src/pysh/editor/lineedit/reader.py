@@ -12,22 +12,26 @@ corruption even when a terminal resizes while editing.
 
 Multiline paste support
 -----------------------
-When the user pastes a block of commands, the terminal typically delivers all
-pasted bytes in a single ``read()`` call.  The reader decodes those bytes into
-``KeyEvent`` objects and, upon the first ``ENTER`` event, returns the first
-complete command while queuing all subsequent complete lines in
-``_command_queue``.  The next call to :meth:`read_line` drains the queue
-without touching the TTY, so the shell's main loop transparently executes each
-pasted command in order.
+When a terminal does not provide bracketed paste markers, it may deliver a
+block of pasted command bytes in a single ``read()`` call.  The reader decodes
+those bytes into ``KeyEvent`` objects and, upon the first ``ENTER`` event,
+returns the first complete command while queuing subsequent complete lines in
+``_command_queue``.  The next call to :meth:`read_line` drains the queue without
+touching the TTY, preserving compatibility with existing plain-paste behavior.
 
 Bracketed paste mode
 --------------------
 Terminals that support bracketed paste mode wrap pasted text with the CSI
 sequences ``ESC [ 200 ~`` (paste-start) and ``ESC [ 201 ~`` (paste-end).
-When these markers are detected the reader collects the entire paste block,
-splits it on unquoted newlines using :func:`pysh.parsing.parser.split_paste_commands`,
-and queues all resulting commands.  Paste markers never appear in the command
-buffer or in the returned command string.
+When these markers are detected the reader collects the paste payload as
+editable input.  Paste-end never returns a completed command and never queues
+pasted lines for execution; the command can execute only after a later explicit
+``ENTER`` key event outside the paste markers.  Because the current line buffer
+is single-line, true multiline bracketed paste is handed to the shell through an
+explicit callback and left pending for ``paste_show``, ``paste_run``, or
+``paste_cancel``; a single trailing paste newline is accepted and dropped. Paste
+markers and terminal control sequences never appear in the command buffer or in
+the returned command string.
 """
 from __future__ import annotations
 
@@ -133,6 +137,7 @@ class RawLineReader:
         completer: Completer | None = None,
         line_renderer: Callable[[str], str] | None = None,
         tab_handler: Callable[[LineBuffer], bool] | None = None,
+        on_multiline_paste: Callable[[str], Sequence[str] | None] | None = None,
         initial_text: str = "",
         echo_queued: bool = True,
     ) -> str:
@@ -220,24 +225,48 @@ class RawLineReader:
                     if in_paste:
                         if event.key is Key.PASTE_END:
                             in_paste = False
-                            paste_text = "".join(paste_buf)
+                            paste_text, is_multiline = self._classify_bracketed_paste(
+                                "".join(paste_buf)
+                            )
                             paste_buf = []
-                            combined = buffer.text + paste_text
-                            cmds = split_paste_commands(combined)
-                            if cmds:
-                                # Queue commands after the first; first is returned.
-                                self._queue_commands(cmds[1:], echo=True)
-                                self._enqueue_from_events(events[idx:])
-                                returned_line = cmds[0]
-                                self._debug_read_chunk(
-                                    data,
-                                    events,
+                            if is_multiline:
+                                diagnostics: Sequence[str] | None = None
+                                if on_multiline_paste is not None:
+                                    diagnostics = on_multiline_paste(paste_text)
+                                buffer.set("")
+                                suggestion = ""
+                                if diagnostics:
+                                    self._write("\r\n" + "\r\n".join(diagnostics) + "\r\n", out_fd)
+                                self._start_rows = 0
+                                self._redraw(
+                                    prompt,
                                     buffer,
-                                    returned=returned_line,
+                                    suggestion,
+                                    highlighter,
+                                    scheme,
+                                    enabled,
+                                    line_renderer,
                                 )
-                                self._write("\r" + prompt + returned_line + "\r\n", out_fd)
-                                return returned_line
-                            # Empty paste: continue editing
+                            elif paste_text:
+                                buffer.insert(paste_text)
+                                suggestion = self._suggest(
+                                    buffer,
+                                    history_list,
+                                    suggester,
+                                    options,
+                                )
+                                self._redraw(
+                                    prompt,
+                                    buffer,
+                                    suggestion,
+                                    highlighter,
+                                    scheme,
+                                    enabled,
+                                    line_renderer,
+                                )
+                            # Empty paste: continue editing.  A following ENTER
+                            # event in the same read batch is explicit user input
+                            # outside the bracketed paste payload and may submit.
                         elif event.key is Key.ENTER:
                             paste_buf.append("\n")
                         elif event.key is Key.PRINTABLE and event.text:
@@ -332,6 +361,8 @@ class RawLineReader:
             return None
         if not any(event.key is Key.ENTER for event in events):
             return None
+        if not any(event.key is Key.PRINTABLE and event.text for event in events):
+            return None
         parts: list[str] = []
         for event in events:
             if event.key is Key.ENTER:
@@ -342,6 +373,31 @@ class RawLineReader:
                 return None
         text = "".join(parts)
         return text if "\n" in text else None
+
+    @staticmethod
+    def _sanitize_raw_paste_payload(text: str) -> str:
+        """Strip terminal-affecting bytes from raw bracketed paste payload."""
+        text = _ANSI_CSI_RE.sub("", text)
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        return "".join(ch for ch in text if ch == "\n" or ord(ch) >= 0x20)
+
+    @classmethod
+    def _classify_bracketed_paste(cls, text: str) -> tuple[str, bool]:
+        """Return ``(single_line_payload, is_multiline)`` for bracketed paste.
+
+        Bracketed paste is editable input, not an already submitted command
+        stream.  The current editor does not support multi-line buffer display,
+        so true multiline payloads are captured instead of transformed into
+        executable text.  A single final newline from copying one command line
+        is accepted and removed.
+        """
+        sanitized = cls._sanitize_raw_paste_payload(text)
+        newline_count = sanitized.count("\n")
+        if newline_count == 0:
+            return sanitized, False
+        if newline_count == 1 and sanitized.endswith("\n"):
+            return sanitized[:-1], False
+        return sanitized, True
 
     def _enable_bracketed_paste(self, out_fd: int) -> None:
         """Ask capable terminals to wrap pasted text in bracketed-paste markers."""
@@ -370,19 +426,20 @@ class RawLineReader:
             return
         try:
             _PASTE_DEBUG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            event_repr = [(event.key.value, event.text) for event in events]
+            event_repr = [
+                (event.key.value, len(event.text) if event.text else 0)
+                for event in events
+            ]
             seen_start = any(event.key is Key.PASTE_START for event in events)
             seen_end = any(event.key is Key.PASTE_END for event in events)
             with _PASTE_DEBUG_PATH.open("a", encoding="utf-8") as stream:
                 stream.write("read_chunk\n")
-                stream.write(f"raw={data!r}\n")
-                stream.write(f"len={len(data)}\n")
-                stream.write(f"events={event_repr!r}\n")
+                stream.write(f"raw_len={len(data)}\n")
+                stream.write(f"event_keys_and_text_lengths={event_repr!r}\n")
                 stream.write(f"paste_start={seen_start} paste_end={seen_end}\n")
-                stream.write(f"buffer_before_enter={buffer.text!r}\n")
-                stream.write(f"returned={returned!r}\n")
-                queued = [item.text for item in self._command_queue]
-                stream.write(f"queued={queued!r}\n\n")
+                stream.write(f"buffer_before_enter_len={len(buffer.text)}\n")
+                stream.write(f"returned_len={len(returned) if returned is not None else None}\n")
+                stream.write(f"queued_count={len(self._command_queue)}\n\n")
         except OSError:
             pass
 

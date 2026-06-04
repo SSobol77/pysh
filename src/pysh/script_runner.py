@@ -130,6 +130,25 @@ class ScriptRunner:
                 status = result.status
         return status
 
+    def run_native_text(self, text: str, *, name: str = "<input>") -> int:
+        """Run in-memory PySH text through the native logical-line engine."""
+        lines = text.splitlines()
+        try:
+            logical_lines = list(iter_logical_lines(lines))
+        except ValueError as exc:
+            print(f"run_script: {name}: {exc}", file=sys.stderr)
+            return BUILTIN_MISUSE_STATUS
+
+        status = 0
+        path = Path(name)
+        for line_number, raw_line in enumerate(logical_lines, start=1):
+            result = self._dispatch_logical_line(raw_line, path=path, line_number=line_number)
+            if result.stop:
+                return result.status
+            if result.executed:
+                status = result.status
+        return status
+
     def _dispatch_logical_line(self, raw_line: str, *, path: Path, line_number: int) -> _LineResult:
         """Execute one logical line and report whether the script must stop."""
         if "\n" in raw_line and is_block_opener(raw_line.split("\n", 1)[0]):

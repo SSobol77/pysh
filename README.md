@@ -274,6 +274,7 @@ documented.
 | `source_zsh_profile` | Statically import simple zsh profile entries. |
 | `source_sh_aliases` | Statically import simple sh/bash aliases and vars. |
 | `run_script` | Run a script through a shebang interpreter or native PySH lines. |
+| `paste_show` / `paste_run` / `paste_cancel` | Manage captured bracketed multiline paste. |
 | `compat_check` | Produce a static migration report for a shell file. |
 | `zsh`      | Execute one command through real `zsh -lc`.              |
 | `zsh_fallback` | Enable or disable explicit zsh fallback mode.       |

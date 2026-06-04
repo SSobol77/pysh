@@ -9,11 +9,12 @@ sends raw byte sequences to the master (simulating terminal input), then
 reads all output and asserts on its content.
 
 These tests verify end-to-end behavior that unit tests cannot cover:
-  - Multiline paste: all pasted commands must execute, none swallowed.
+  - Plain multiline paste: all pasted commands must execute, none swallowed.
   - Semicolon-chained commands execute in order.
   - Leading temporary environment assignments reach the child process.
   - Temporary assignments do not mutate the parent shell environment.
   - Bracketed paste markers (ESC[200~ / ESC[201~) do not appear in output.
+  - Bracketed multiline paste is captured pending explicit command execution.
 
 Design constraints:
   - Standard library only (pty, os, select, subprocess, struct, termios, fcntl).
@@ -82,6 +83,17 @@ def _visible_lines(data: bytes) -> list[str]:
     """Return non-empty ANSI-stripped terminal lines for order assertions."""
     text = _strip_ansi(data).decode("utf-8", errors="replace")
     return [line.strip() for line in text.replace("\r", "\n").splitlines() if line.strip()]
+
+
+def _assert_lines_in_order(lines: list[str], expected: list[str]) -> None:
+    """Assert each expected line appears after the previous one."""
+    cursor = 0
+    for item in expected:
+        try:
+            position = lines.index(item, cursor)
+        except ValueError as exc:
+            raise AssertionError(f"{item!r} missing after index {cursor}: {lines!r}") from exc
+        cursor = position + 1
 
 
 def _set_winsize(fd: int, rows: int = 24, cols: int = 80) -> None:
@@ -178,6 +190,66 @@ def _run_pty_session(
         os.write(master_fd, commands)
 
         # Collect output until process exits or timeout.
+        deadline = time.monotonic() + collect_timeout
+        last_data = time.monotonic()
+        while time.monotonic() < deadline:
+            if time.monotonic() - last_data > settle and proc.poll() is not None:
+                break
+            try:
+                r, _, _ = select.select([master_fd], [], [], 0.05)
+            except (ValueError, OSError):
+                break
+            if r:
+                try:
+                    chunk = os.read(master_fd, 4096)
+                    if not chunk:
+                        break
+                    buf.extend(chunk)
+                    last_data = time.monotonic()
+                except OSError:
+                    break
+            elif proc.poll() is not None and time.monotonic() - last_data > settle:
+                break
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
+    return bytes(buf)
+
+
+def _run_pty_session_phased(
+    chunks: list[bytes],
+    *,
+    prompt_timeout: float = _PROMPT_TIMEOUT,
+    collect_timeout: float = _COLLECT_TIMEOUT,
+    settle: float = _SETTLE,
+) -> bytes:
+    """Run PySH in a PTY and write input chunks with output drains between them."""
+    master_fd, slave_fd = pty.openpty()
+    _set_winsize(slave_fd)
+    proc = subprocess.Popen(
+        _PYSH_CMD,
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        env=_PTY_ENV,
+        close_fds=True,
+    )
+    os.close(slave_fd)
+    buf = bytearray()
+    try:
+        buf.extend(_wait_for_prompt(master_fd, timeout=prompt_timeout))
+        for chunk in chunks:
+            os.write(master_fd, chunk)
+            buf.extend(_read_nonblocking(master_fd, settle=0.25, timeout=1.0))
+
         deadline = time.monotonic() + collect_timeout
         last_data = time.monotonic()
         while time.monotonic() < deadline:
@@ -372,12 +444,12 @@ def test_pty_temp_env_does_not_leak_to_parent() -> None:
 
 def test_pty_bracketed_paste_markers_not_in_output() -> None:
     """ESC[200~ and ESC[201~ must not appear as text in PySH output."""
-    # Simulate a terminal that sends bracketed paste markers.
+    # Simulate a terminal that sends one editable line with bracketed paste markers.
     bracketed = (
         b"\x1b[200~"      # PASTE_START
-        b"echo BPASTE\n"  # pasted content
+        b"echo BPASTE"    # pasted content
         b"\x1b[201~"      # PASTE_END
-        b"exit\n"
+        b"\nexit\n"
     )
     output = _run_pty_session(bracketed)
     stripped = _strip_ansi(output)
@@ -396,56 +468,293 @@ def test_pty_bracketed_paste_markers_not_in_output() -> None:
     )
 
 
-def test_pty_vte_bracketed_paste_three_echo_commands() -> None:
-    """VTE-style bracketed paste bytes must execute every pasted command."""
+def test_pty_vte_bracketed_multiline_paste_is_captured() -> None:
+    """VTE-style bracketed multiline paste must not execute pasted commands."""
     output = _run_pty_session(
-        b"\x1b[200~echo FIRST\necho SECOND\necho THIRD\n\x1b[201~exit\n"
+        b"\x1b[200~echo FIRST\necho SECOND\necho THIRD\n\x1b[201~paste_cancel\nexit\n"
     )
     stripped = _strip_ansi(output)
-    assert b"FIRST" in stripped, f"FIRST missing.\nRaw: {output!r}"
-    assert b"SECOND" in stripped, f"SECOND missing.\nRaw: {output!r}"
-    assert b"THIRD" in stripped, f"THIRD missing.\nRaw: {output!r}"
+    assert (
+        b"pysh: multiline paste captured (3 lines). Review below."
+    ) in stripped
+    assert b"[paste:begin]" in stripped
+    assert b"1 | echo FIRST" in stripped
+    assert b"2 | echo SECOND" in stripped
+    assert b"3 | echo THIRD" in stripped
+    assert b"[paste:end]" in stripped
+    assert b"FIRST\n" not in stripped, f"FIRST executed.\nRaw: {output!r}"
+    assert b"SECOND\n" not in stripped, f"SECOND executed.\nRaw: {output!r}"
+    assert b"THIRD\n" not in stripped, f"THIRD executed.\nRaw: {output!r}"
     assert b"200~" not in stripped, f"PASTE_START leaked.\nRaw: {output!r}"
     assert b"201~" not in stripped, f"PASTE_END leaked.\nRaw: {output!r}"
 
 
-def test_pty_bracketed_paste_replays_each_command_before_output() -> None:
+def test_pty_bracketed_multiline_paste_blocks_unrelated_commands() -> None:
     output = _run_pty_session(
-        b"\x1b[200~echo FIRST\necho SECOND\necho THIRD\n\x1b[201~exit\n"
+        b"\x1b[200~echo FIRST\necho SECOND\necho THIRD\n\x1b[201~echo AFTER\n"
+        b"paste_cancel\nexit\n"
     )
     lines = _visible_lines(output)
-    expected = [
-        "> echo FIRST",
-        "FIRST",
-        "> echo SECOND",
-        "SECOND",
-        "> echo THIRD",
-        "THIRD",
-    ]
-    positions = []
-    for item in expected:
-        try:
-            positions.append(lines.index(item))
-        except ValueError as exc:
-            raise AssertionError(f"{item!r} missing from visible lines: {lines!r}") from exc
-    assert positions == sorted(positions)
-    assert not any(line.startswith("(.venv)") and "echo SECOND" in line for line in lines)
+    assert (
+        "pysh: multiline paste captured (3 lines). Review below."
+    ) in lines
+    assert "pysh: pending multiline paste exists; use paste_run or paste_cancel first" in lines
+    assert "AFTER" not in lines
+    assert "FIRST" not in lines
+    assert "SECOND" not in lines
+    assert "THIRD" not in lines
 
 
-def test_pty_bracketed_command_builtin_paste_replays_once() -> None:
+def test_pty_bracketed_command_builtin_multiline_paste_is_captured() -> None:
     output = _run_pty_session(
-        b"\x1b[200~command -v pysh\ncommand -v python\ncommand -V cd\n\x1b[201~exit\n"
+        b"\x1b[200~command -v pysh\ncommand -v python\ncommand -V cd\n"
+        b"\x1b[201~paste_cancel\nexit\n"
     )
     lines = _visible_lines(output)
     for command in ("command -v pysh", "command -v python", "command -V cd"):
-        assert lines.count(f"> {command}") == 1, (
-            f"{command!r} should be visibly replayed exactly once.\n"
+        assert lines.count(f"> {command}") == 0, (
+            f"{command!r} should not replay from staged bracketed paste.\n"
             f"Visible lines: {lines!r}\nRaw: {output!r}"
         )
-    assert any(line.endswith("pysh") and "/" in line for line in lines)
-    assert any(("python" in line and "/" in line) for line in lines)
-    assert "cd is a PySH builtin" in lines
+    assert (
+        "pysh: multiline paste captured (3 lines). Review below."
+    ) in lines
+    assert not any(line.endswith("pysh") and "/" in line for line in lines)
+    assert not any(("python" in line and "/" in line) for line in lines)
+    assert "cd is a PySH builtin" not in lines
     assert b"pysh: command: command not found" not in _strip_ansi(output)
+
+
+def test_pty_bracketed_python_block_paste_is_captured() -> None:
+    output = _run_pty_session(
+        b"\x1b[200~py {\n"
+        b"x = 40 + 2\n"
+        b"print(x)\n"
+        b"}\x1b[201~paste_cancel\nexit\n",
+        collect_timeout=4.0,
+    )
+    stripped = _strip_ansi(output)
+    assert (
+        b"pysh: multiline paste captured (4 lines). Review below."
+    ) in stripped
+    assert b"1 | py {" in stripped
+    assert b"2 | x = 40 + 2" in stripped
+    assert b"3 | print(x)" in stripped
+    assert b"4 | }" in stripped
+    assert b"py { ;" not in stripped
+    assert b"SyntaxError" not in stripped
+    assert b"pysh: x: command not found" not in stripped
+    assert b"42" not in stripped
+
+
+def test_pty_bracketed_heredoc_paste_is_captured(tmp_path) -> None:
+    target = tmp_path / "paste-heredoc-test.txt"
+    payload = (
+        b"\x1b[200~cat > "
+        + str(target).encode("utf-8")
+        + b" <<'EOF'\nline one\nline two\nEOF\x1b[201~paste_cancel\nexit\n"
+    )
+    output = _run_pty_session(payload, collect_timeout=4.0)
+    stripped = _strip_ansi(output)
+    assert (
+        b"pysh: multiline paste captured (4 lines). Review below."
+    ) in stripped
+    assert b"1 | cat > " in stripped
+    assert b" <<'EOF'" in stripped
+    assert b"2 | line one" in stripped
+    assert b"3 | line two" in stripped
+    assert b"4 | EOF" in stripped
+    assert b"heredoc>" not in stripped
+    assert b"pysh: EOF: command not found" not in stripped
+    assert not target.exists()
+
+
+def test_pty_paste_show_and_cancel_for_pending_multiline_paste() -> None:
+    output = _run_pty_session(
+        b"\x1b[200~git diff --stat\ngit status --short\x1b[201~"
+        b"paste_show\npaste_cancel\npaste_show\nexit\n"
+    )
+    lines = _visible_lines(output)
+    assert (
+        "pysh: multiline paste captured (2 lines). Review below."
+    ) in lines
+    assert "[paste:begin]" in lines
+    assert "1 | git diff --stat" in lines
+    assert "2 | git status --short" in lines
+    assert "[paste:end]" in lines
+    assert lines.count("[paste:begin]") >= 2
+    assert lines.count("1 | git diff --stat") >= 2
+    assert lines.count("2 | git status --short") >= 2
+    assert lines.count("[paste:end]") >= 2
+    assert "paste_cancel: pending multiline paste discarded" in lines
+    assert "paste_show: no pending multiline paste" in lines
+
+
+def test_pty_paste_run_executes_pending_ordinary_commands() -> None:
+    output = _run_pty_session(
+        b"\x1b[200~echo one\necho two\x1b[201~paste_run\nexit\n"
+    )
+    lines = _visible_lines(output)
+    assert (
+        "pysh: multiline paste captured (2 lines). Review below."
+    ) in lines
+    assert "[paste_run:begin]" in lines
+    assert "1 | echo one" in lines
+    assert "2 | echo two" in lines
+    assert "[paste_run:end]" in lines
+    _assert_lines_in_order(
+        lines,
+        ["[paste_run:begin]", "1 | echo one", "2 | echo two", "[paste_run:end]", "one", "two"],
+    )
+    assert "one" in lines
+    assert "two" in lines
+
+
+def test_pty_empty_enter_executes_pending_ordinary_commands() -> None:
+    output = _run_pty_session(
+        b"\x1b[200~echo one\necho two\x1b[201~\nexit\n"
+    )
+    lines = _visible_lines(output)
+    assert (
+        "pysh: multiline paste captured (2 lines). Review below."
+    ) in lines
+    assert "[paste_run:begin]" in lines
+    assert "1 | echo one" in lines
+    assert "2 | echo two" in lines
+    assert "[paste_run:end]" in lines
+    _assert_lines_in_order(
+        lines,
+        ["[paste_run:begin]", "1 | echo one", "2 | echo two", "[paste_run:end]", "one", "two"],
+    )
+    assert "one" in lines
+    assert "two" in lines
+
+
+def test_pty_ctrl_c_cancels_pending_multiline_paste() -> None:
+    output = _run_pty_session_phased(
+        [
+            b"\x1b[200~echo one\necho two\x1b[201~",
+            b"\x03",
+            b"paste_show\nexit\n",
+        ]
+    )
+    lines = _visible_lines(output)
+    assert (
+        "pysh: multiline paste captured (2 lines). Review below."
+    ) in lines
+    assert "paste_cancel: pending multiline paste discarded" in lines
+    assert "paste_show: no pending multiline paste" in lines
+    assert "one" not in lines
+    assert "two" not in lines
+
+
+def test_pty_paste_run_executes_pending_python_block() -> None:
+    output = _run_pty_session(
+        b"\x1b[200~py {\n"
+        b"x = 40 + 2\n"
+        b"print(x)\n"
+        b"}\x1b[201~paste_run\nexit\n",
+        collect_timeout=4.0,
+    )
+    stripped = _strip_ansi(output)
+    lines = _visible_lines(output)
+    assert b"py { ;" not in stripped
+    assert b"SyntaxError" not in stripped
+    assert b"pysh: x: command not found" not in stripped
+    assert "[paste_run:begin]" in lines
+    assert "1 | py {" in lines
+    assert "2 | x = 40 + 2" in lines
+    assert "3 | print(x)" in lines
+    assert "4 | }" in lines
+    assert "[paste_run:end]" in lines
+    assert "42" in lines
+
+
+def test_pty_empty_enter_executes_pending_python_block() -> None:
+    output = _run_pty_session(
+        b"\x1b[200~py {\n"
+        b"x = 40 + 2\n"
+        b"print(x)\n"
+        b"}\x1b[201~\nexit\n",
+        collect_timeout=4.0,
+    )
+    stripped = _strip_ansi(output)
+    lines = _visible_lines(output)
+    assert b"py { ;" not in stripped
+    assert b"SyntaxError" not in stripped
+    assert b"pysh: x: command not found" not in stripped
+    assert "[paste_run:begin]" in lines
+    assert "1 | py {" in lines
+    assert "2 | x = 40 + 2" in lines
+    assert "3 | print(x)" in lines
+    assert "4 | }" in lines
+    assert "[paste_run:end]" in lines
+    assert "42" in lines
+
+
+def test_pty_paste_run_executes_pending_heredoc(tmp_path) -> None:
+    target = tmp_path / "paste-heredoc-test.txt"
+    payload = (
+        b"\x1b[200~cat > "
+        + str(target).encode("utf-8")
+        + b" <<'EOF'\nline one\nline two\nEOF\x1b[201~"
+        + b"paste_run\ncat "
+        + str(target).encode("utf-8")
+        + b"\nexit\n"
+    )
+    output = _run_pty_session(payload, collect_timeout=4.0)
+    stripped = _strip_ansi(output)
+    lines = _visible_lines(output)
+    assert b"heredoc>" not in stripped
+    assert b"pysh: EOF: command not found" not in stripped
+    assert target.exists()
+    assert "[paste_run:begin]" in lines
+    assert any(line.startswith("1 | cat > ") and line.endswith(" <<'EOF'") for line in lines)
+    assert "2 | line one" in lines
+    assert "3 | line two" in lines
+    assert "4 | EOF" in lines
+    assert "[paste_run:end]" in lines
+    assert "line one" in lines
+    assert "line two" in lines
+
+
+def test_pty_empty_enter_executes_pending_heredoc(tmp_path) -> None:
+    target = tmp_path / "paste-heredoc-test.txt"
+    payload = (
+        b"\x1b[200~cat > "
+        + str(target).encode("utf-8")
+        + b" <<'EOF'\nline one\nline two\nEOF\x1b[201~\ncat "
+        + str(target).encode("utf-8")
+        + b"\nexit\n"
+    )
+    output = _run_pty_session(payload, collect_timeout=4.0)
+    stripped = _strip_ansi(output)
+    lines = _visible_lines(output)
+    assert b"heredoc>" not in stripped
+    assert b"pysh: EOF: command not found" not in stripped
+    assert target.exists()
+    assert "[paste_run:begin]" in lines
+    assert any(line.startswith("1 | cat > ") and line.endswith(" <<'EOF'") for line in lines)
+    assert "2 | line one" in lines
+    assert "3 | line two" in lines
+    assert "4 | EOF" in lines
+    assert "[paste_run:end]" in lines
+    assert "line one" in lines
+    assert "line two" in lines
+
+
+def test_pty_second_multiline_paste_replaces_first() -> None:
+    output = _run_pty_session(
+        b"\x1b[200~echo old-one\necho old-two\x1b[201~"
+        b"\x1b[200~echo new-one\necho new-two\x1b[201~"
+        b"paste_run\nexit\n"
+    )
+    lines = _visible_lines(output)
+    assert "pysh: previous pending paste replaced" in lines
+    assert "old-one" not in lines
+    assert "old-two" not in lines
+    assert "new-one" in lines
+    assert "new-two" in lines
 
 
 def test_pty_command_builtin_resolves_pysh_and_cd() -> None:

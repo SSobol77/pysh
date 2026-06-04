@@ -101,11 +101,51 @@ pasted text
 ESC [ 201 ~   ← paste end
 ```
 
-PySH recognises these markers and collects the entire paste block before splitting it into commands.  This ensures that:
+PySH recognises these markers and treats the payload as editable input, not as
+an already submitted command stream. Single-line paste is inserted into the
+current line buffer and waits for an explicit Enter key. A single trailing
+newline from copying one command line is dropped before insertion.
+
+True multiline bracketed paste is stored in a session-local pending paste
+buffer and is not executed automatically. PySH prints a bounded preview:
+
+```text
+pysh: multiline paste captured (N lines). Review below.
+[paste:begin]
+1 | command one
+2 | command two
+[paste:end]
+Press Enter to run, Ctrl+C to cancel, or type paste_show/paste_cancel.
+```
+
+Capture preview shows the first 20 lines. Longer payloads include a hidden-line
+notice and can be inspected fully with `paste_show`.
+
+Pressing Enter on an empty prompt while paste is pending executes the staged
+payload through PySH's native script engine. Before execution, PySH echoes the
+exact staged payload in a numbered frame:
+
+```text
+[paste_run:begin]
+1 | command one
+2 | command two
+[paste_run:end]
+```
+
+Pressing Ctrl+C at the empty prompt discards the pending payload. Use
+`paste_show` to display the full captured text in the same numbered preview
+format, `paste_cancel` to discard it, or `paste_run` to explicitly execute it.
+This preserves ordinary multiline commands, heredocs and `py { ... }` blocks
+without queuing pasted lines or rewriting them into single-line syntax. If
+another multiline paste arrives before the current one is resolved, the new
+paste replaces the previous pending payload.
+
+This ensures that:
 
 - The paste-start and paste-end markers never appear in the command buffer or in executed commands.
-- Newlines inside quoted strings in the pasted text are not treated as command boundaries.
-- The full paste is split atomically, so no partial commands are executed.
+- Multiline pasted text never executes until the user explicitly presses Enter
+  on an empty pending-paste prompt or runs `paste_run`.
+- Pasted heredoc and Python-block syntax is not rewritten into invalid single-line text.
 
 When the raw-mode editor is active on an interactive TTY, PySH enables
 bracketed paste before reading input with:
