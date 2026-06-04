@@ -447,7 +447,8 @@ Syntax: `run_script FILE [args...]`
 
 Purpose: Run legacy scripts as an explicit transition action. Scripts with
 `zsh`, `bash` or `sh` shebangs are delegated to the real interpreter. Scripts
-without a shebang run line-by-line through PySH where possible.
+without a supported foreign-shell shebang run through PySH's native script
+engine.
 
 Examples:
 
@@ -457,12 +458,12 @@ run_script ./maintenance.sh --dry-run
 run_script ./pysh-script
 ```
 
-Return behavior: returns the delegated script exit code. Returns 127 when a
-required interpreter is unavailable, 1 for file read errors and 2 for missing
-arguments.
+Return behavior: returns the delegated or native script exit code. Returns 127
+when a required interpreter is unavailable, 1 for file read errors and 2 for
+missing arguments.
 
-Limitations: no-shebang execution is PySH line execution, not full POSIX
-script semantics.
+Limitations: native execution is PySH Script Mode v1, not full POSIX script
+semantics. POSIX `set -e`, `set -u` and `set -x` are not implemented.
 
 ## `compat_check`
 

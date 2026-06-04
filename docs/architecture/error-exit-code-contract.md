@@ -205,9 +205,10 @@ echo $?        # prints 127
 **Constraints:**
 - `$?` is valid inside double quotes (expanded) and outside quotes.
 - `$?` is literal inside single quotes (not expanded).
-- No other POSIX special parameters are implemented (`$0`, `$$`, `$!`, `$#`,
-  `$@`, `$*`, positional parameters). These are not owned by Issue #5.
-- Advanced parameter expansion (`${?}`, `${?:-default}`) is not implemented.
+- Script positional parameters (`$0`, `$1`, `$#`, `$@`, `$*`) are implemented
+  by Issue #14 and are documented in [script-mode-contract.md](script-mode-contract.md).
+- Other POSIX special parameters such as `$$` and `$!` are not implemented.
+- Advanced parameter expansion such as `${?:-default}` is not implemented.
 
 ---
 
@@ -235,18 +236,21 @@ This ensures:
 
 ---
 
-## Script-mode current behavior and Issue #14
+## Script-mode exit behavior
 
-In PySH 0.5.x, script mode is partial:
-- `run_script <file>` delegates shebang scripts to the real interpreter.
-- No-shebang scripts are executed line-by-line through PySH's native engine.
-- The exit code of `run_script` follows the same mapping as interactive mode.
-- `set -e` / `set -x` / `set -u` are not implemented.
-- Full script-mode exit-code contract (non-zero propagation, `set -e`
-  semantics) is owned by GitHub Issue #14.
+Script Mode v1 is implemented by Issue #14:
 
-Until Issue #14 is resolved, script-mode callers should not rely on
-consistent exit-code propagation for complex pipelines or multi-command scripts.
+- `pysh script.pysh [args...]` and `python -m pysh script.pysh [args...]`
+  execute PySH-native scripts.
+- Without explicit `exit`, the script status is the last executed command
+  status.
+- `exit N` terminates the script immediately with status `N`.
+- Parse/usage status `2` stops the script in v1.
+- Command-not-found maps to `127` for that line; if it is the last command,
+  script status is `127`.
+- `set -e` / `set -x` / `set -u` are not implemented as POSIX strict modes.
+
+Full script contract: [script-mode-contract.md](script-mode-contract.md).
 
 ---
 

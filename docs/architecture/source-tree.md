@@ -37,7 +37,7 @@ src/pysh/
 ├── __main__.py              ← python -m pysh entry point
 ├── cli.py                   ← console script entry point; argument parsing
 ├── shell.py                 ← compatibility shim → pysh.core.shell (Issue #19)
-├── script_runner.py         ← script transition runner (shebang dispatch)
+├── script_runner.py         ← script mode / transition runner
 │
 ├── core/
 │   ├── errors.py            ← canonical ExitCode / PyShError / Diagnostic contract
@@ -131,7 +131,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.security` | Security-sensitive command execution | Trust constants/predicates, `SecureRunner` PTY bridge, fixed-size ring indicator, `indicator_config_from_mapping` | General command dispatch, shell state |
 | `pysh.diagnostics` | Advisory diagnostics | `plan` builtin command classifier, opt-in trace event model, diagnostic redaction | Policy enforcement, runtime execution |
 | `pysh.shell` | Compatibility shim (scheduled removal) | Re-export of `PyShell` from `pysh.core.shell` | Any new logic — shim only |
-| `pysh.script_runner` | Script transition runner | `ScriptRunner`, shebang detection, interpreter delegation, native PySH line-by-line execution | Interactive REPL state |
+| `pysh.script_runner` | Script mode runner | `ScriptRunner`, shebang detection, interpreter delegation, native PySH logical-line execution | Interactive REPL state |
 
 ---
 
@@ -181,7 +181,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.diagnostics.command_plan` | `plan` function: advisory classifier for `plan <cmd>` builtin |
 | `pysh.diagnostics.system_info` | System information helpers used by `sys_info` and `env_audit` |
 | `pysh.diagnostics.trace` | `DiagnosticTrace`, canonical stages and redaction helpers for opt-in stderr trace output |
-| `pysh.script_runner` | `ScriptRunner`, `ScriptType`: shebang dispatch and native line execution |
+| `pysh.script_runner` | `ScriptRunner`, `ScriptType`, `ScriptExit`: shebang dispatch and native logical-line execution |
 
 ---
 

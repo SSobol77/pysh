@@ -30,7 +30,7 @@ Supported after Issue #13:
 
 Non-goals:
 
-- Full script mode; that remains Issue #14.
+- Script execution semantics; those are owned by Issue #14.
 - Python script migration layer; that remains Issue #15.
 - Zsh transition hardening; that remains Issue #16.
 - System shell integration; that remains Issue #17.
@@ -180,7 +180,7 @@ Validation invariants:
 | #10 | Observes heredoc collection without changing stdin behavior. |
 | #11 | Reserves `JOB_CONTROL` stage; no job-control expansion here. |
 | #12 | Completion remains non-executing and value-redacted. |
-| #14 | Full script mode remains out of scope. |
+| #14 | Script mode adds file/line trace context for direct script execution. |
 | #15 | Python script migration remains out of scope. |
 | #16 | Zsh transition hardening remains out of scope. |
 | #17 | System shell integration remains out of scope. |

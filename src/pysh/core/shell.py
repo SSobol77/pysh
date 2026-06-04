@@ -110,7 +110,7 @@ from pysh.python_layer.runtime import (
     is_block_closer,
     is_block_opener,
 )
-from pysh.script_runner import ScriptRunner
+from pysh.script_runner import ScriptExit, ScriptRunner
 from pysh.security.secure_runner import SecureRunner, indicator_config_from_mapping
 from pysh.services.service import (
     DEFAULT_PID_ROOT,
@@ -216,6 +216,9 @@ class PyShell:
         self.aliases: dict[str, str] = dict(self.DEFAULT_ALIASES)
         self.last_status: int = 0
         self.trace = trace if trace is not None else DiagnosticTrace()
+        self.script_name: str = ""
+        self.script_args: list[str] = []
+        self._script_context: tuple[Path, int] | None = None
         self.dir_stack: list[Path] = []
         self.job_table: JobTable = JobTable()
         self._tty_fd: int | None = None
@@ -244,7 +247,10 @@ class PyShell:
         self.zsh_fallback_enabled = os.environ.get("PYSH_ZSH_FALLBACK") == "1"
         self.python_runtime = PythonRuntime()
         self.script_runner = (
-            script_runner if script_runner is not None else ScriptRunner(self.execute)
+            script_runner if script_runner is not None else ScriptRunner(
+                self._execute_script_line,
+                before_execute=self._before_script_line,
+            )
         )
         if service_client is not None:
             self.service_client = service_client
@@ -395,10 +401,54 @@ class PyShell:
         return "heredoc> "
 
     # --------------------------------------------------------------- execute
+    def run_script_file(
+        self,
+        path: Path,
+        args: list[str],
+        *,
+        native_only: bool = False,
+    ) -> int:
+        """Run a script file with script positional parameters installed."""
+        previous_name = self.script_name
+        previous_args = list(self.script_args)
+        previous_context = self._script_context
+        self.script_name = str(path)
+        self.script_args = list(args)
+        self._script_context = None
+        try:
+            status = self.script_runner.run(path, args, native_only=native_only)
+            self.last_status = status
+            return status
+        finally:
+            self.script_name = previous_name
+            self.script_args = previous_args
+            self._script_context = previous_context
+
+    def _before_script_line(self, path: Path, line_number: int, command: str) -> None:
+        self._script_context = (path, line_number)
+        self.trace.emit(
+            DiagnosticStage.INPUT,
+            "script line",
+            file=str(path),
+            line=line_number,
+            command=command,
+        )
+
+    def _execute_script_line(self, line: str) -> int:
+        try:
+            return self.execute(line)
+        except _ExitShell as exc:
+            raise ScriptExit(exc.code) from exc
+
     def execute(self, line: str) -> int:
         """Execute one shell line. Returns the exit status of the last command."""
         line = line.rstrip("\n").rstrip("\r")
-        self.trace.emit(DiagnosticStage.INPUT, "received line", line=line)
+        trace_fields: dict[str, object] = {"line": line}
+        if self._script_context is not None:
+            script_file, script_line = self._script_context
+            trace_fields["file"] = str(script_file)
+            trace_fields["script_line"] = script_line
+        self.trace.emit(DiagnosticStage.INPUT, "received line", **trace_fields)
         line = join_backslash_continuations(line)
         # ``#py`` must be checked *before* strip_comments() because a bare ``#``
         # at the start of a token-boundary is otherwise treated as a comment.
@@ -410,7 +460,7 @@ class PyShell:
             line, heredoc_bodies = collect_heredoc_bodies(
                 line,
                 self.local_vars,
-                special_vars={"?": str(self.last_status)},
+                special_vars=self._special_vars(),
             )
         except ParseError as exc:
             self.trace.error(
@@ -516,7 +566,7 @@ class PyShell:
         # bodies behave like literal text but user variables in arguments
         # are still substituted.  $? is passed as a special variable so it
         # expands to the last command exit status (Issue #5).
-        _sv = {"?": str(self.last_status)}
+        _sv = self._special_vars()
         stages = [expand_variables(s, self.local_vars, special_vars=_sv) for s in stages]
         self.trace.emit(DiagnosticStage.EXPAND, "expanded variables", stages=len(stages))
         if len(stages) == 1:
@@ -1159,7 +1209,7 @@ class PyShell:
             print("run_script: filename argument required", file=sys.stderr)
             return 2
         target = Path(os.path.expanduser(args[0]))
-        return self.script_runner.run(target, args[1:])
+        return self.run_script_file(target, args[1:], native_only=False)
 
     def _builtin_compat_check(self, args: list[str]) -> int:
         if not args:
@@ -1600,6 +1650,18 @@ class PyShell:
             print(f"pysh: py: {exc}", file=sys.stderr)
             return 2
         return self.python_runtime.execute_block(body)
+
+    def _special_vars(self) -> dict[str, str]:
+        special = {"?": str(self.last_status)}
+        if self.script_name:
+            special["0"] = self.script_name
+            special["#"] = str(len(self.script_args))
+            joined_args = " ".join(self.script_args)
+            special["@"] = joined_args
+            special["*"] = joined_args
+            for index, value in enumerate(self.script_args, start=1):
+                special[str(index)] = value
+        return special
 
     @staticmethod
     def _is_python_block_text(text: str) -> bool:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from pysh import __version__
 from pysh.core.errors import exception_to_diagnostic
@@ -41,6 +42,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="emit deterministic PySH diagnostic trace lines to stderr",
     )
+    parser.add_argument(
+        "script",
+        nargs="?",
+        help="execute a PySH script file and exit",
+    )
+    parser.add_argument(
+        "script_args",
+        nargs=argparse.REMAINDER,
+        help="arguments passed to the script",
+    )
     return parser
 
 
@@ -56,12 +67,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     shell = PyShell(trace=DiagnosticTrace(TraceOptions(enabled=bool(args.debug))))
     try:
         if args.command is not None:
+            if args.script is not None:
+                print("pysh: -c does not accept a script path", file=sys.stderr)
+                return 2
             if "\n" in args.command:
                 status = 0
                 for logical_line in iter_logical_lines(args.command.splitlines()):
                     status = shell.execute(logical_line)
                 return status
             return shell.execute(args.command)
+        if args.script is not None:
+            return shell.run_script_file(
+                Path(args.script),
+                list(args.script_args),
+                native_only=True,
+            )
         return shell.run()
     except SystemExit as exc:
         return int(exc.code) if exc.code is not None else 0

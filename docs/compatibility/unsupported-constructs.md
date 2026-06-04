@@ -52,7 +52,7 @@ ANSI C quoting, or full script loop semantics.
 | `pipefail` semantics | Unsupported | — |
 | ANSI C quoting `$'...'` | Unsupported | — |
 | Full for/while/until in scripts | Unsupported | — |
-| `set -e`, `set -x`, `set -u` | Planned | #14 |
+| POSIX `set -e`, `set -x`, `set -u` | Unsupported | #14 |
 | `/bin/sh` provider | Unsupported | #17 |
 
 ---

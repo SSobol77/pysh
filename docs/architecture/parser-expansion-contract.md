@@ -29,7 +29,7 @@ Future feature ownership remains:
 | Native glob and path expansion | Issue #9 |
 | Heredoc and here-string execution | Implemented in Issue #10 |
 | Job control and process groups | Issue #11 |
-| Full script-mode contract | Issue #14 |
+| Script Mode v1 execution contract | Issue #14 |
 | System-shell integration policy | Issue #17 |
 
 ## Module Responsibilities

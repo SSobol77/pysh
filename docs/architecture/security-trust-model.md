@@ -78,7 +78,8 @@ Issue #7 defines and enforces the security and trust model.  It does not provide
 | `compat_check` | `STATIC_IMPORT` | No — text parse only | None | Static parse, no subprocess | — |
 | `zsh <command>` | `TRUSTED_DELEGATED` | Yes (zsh subprocess) | External | Explicit `zsh -lc` only | — |
 | `zsh_fallback on` | `TRUSTED_DELEGATED` | Yes (zsh subprocess) | External | Explicit opt-in, off by default | — |
-| `run_script` | `TRUSTED_DELEGATED` | Yes (interpreter subprocess) | External | Shebang-based explicit delegation | #14 |
+| `pysh script.pysh` | `TRUSTED_LOCAL` | Yes (PySH script) | Script state | Explicit local file, not sandboxed | #14 |
+| `run_script` | `TRUSTED_DELEGATED` / `TRUSTED_LOCAL` | Yes | External or PySH script | Shebang delegation or native script mode | #14 |
 | `secure <cmd>` | `TRUSTED_DELEGATED` | Yes (PTY bridge) | Subprocess | Explicit opt-in PTY bridge | — |
 | `plan` | `TRUSTED_LOCAL` | No — advisory only | None | Classification only | — |
 | `env_audit` | `TRUSTED_LOCAL` | No — read-only display | None | Redacted; no system mutation | — |
@@ -333,6 +334,6 @@ These are enforced by `tests/test_docs_consistency.py::test_no_forbidden_securit
 | Issue #7 | This document |
 | Issue #8 | Parser boundary cleanup: parser foundation and shared-leaf classification |
 | Issue #11 | Job control: will introduce process-group ownership (security-relevant) |
-| Issue #14 | Script-mode: will formalize script delegation trust model |
+| Issue #14 | Script Mode v1: direct local PySH script execution and shebang delegation trust model |
 | Issue #16 | Shell comparison tests: will validate delegation behavior |
 | Issue #17 | POSIX sh scope: reinforces the non-/bin/sh claim |

@@ -24,7 +24,7 @@ after `fg` and `bg` when the current shell has jobs.
 
 Completion Engine v1 does not implement programmable bash, zsh, or fish
 completion. It does not source foreign completion scripts, execute commands,
-query the network, implement observability/trace CLI (#13), full script mode
+query the network, implement observability/trace CLI (#13), script execution
 (#14), zsh transition hardening (#16), or system shell integration (#17).
 
 ## Architecture
@@ -112,6 +112,6 @@ access and no shell-state mutation.
 | #9 | Shares tilde and hidden-file policy, but does not glob-expand |
 | #11 | Job IDs are completion candidates for `fg`/`bg` |
 | #13 | Completion remains non-executing; observability trace is opt-in and does not expose variable values |
-| #14 | Full script mode remains out of scope |
+| #14 | Script execution remains out of completion scope |
 | #16 | zsh transition hardening remains out of scope |
 | #17 | System shell integration remains out of scope |

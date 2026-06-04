@@ -79,6 +79,10 @@ are gaps that must be resolved before the claim can be published.
 | `--debug` / `--trace` writes trace to stderr only | Unit test | `tests/test_observability_diagnostics.py` | None | #13 |
 | Trace mode preserves stdout and exit status | Unit test | `tests/test_observability_diagnostics.py` | None | #13 |
 | Diagnostics redact sensitive values | Unit test | `tests/test_observability_diagnostics.py` | None | #13 |
+| Direct PySH script invocation works | Unit test | `tests/test_script_mode.py` | None | #14 |
+| Script positional parameters expand | Unit test | `tests/test_script_mode.py` | None | #14 |
+| Script exit status follows last command / `exit N` | Unit test | `tests/test_script_mode.py` | None | #14 |
+| Script heredoc, glob and Python blocks work | Unit test | `tests/test_script_mode.py` | None | #14 |
 | Python runtime is not sandboxed (predicate) | Unit test | `tests/test_security_trust_model.py` | None | #7 |
 | No forbidden security claims in docs | Doc consistency test | `tests/test_docs_consistency.py` | None | #7 |
 | Comments (`#`) work correctly | Unit test | `tests/test_comments.py` | None | — |
@@ -135,7 +139,7 @@ are gaps that must be resolved before the claim can be published.
 | ----- | ----------------- | ---------------- | --- | ----------- |
 | `zsh COMMAND` delegates to `zsh -lc` | Unit test with real zsh | `tests/test_zsh_bridge.py` | None | — |
 | `zsh COMMAND` returns 127 when zsh is absent | Unit test | `tests/test_zsh_bridge.py` | None | — |
-| `run_script` delegates bash/zsh/sh shebangs | Script fixture test | `tests/test_script_runner.py` | Full script mode contract | #14 |
+| `run_script` delegates bash/zsh/sh shebangs | Script fixture test | `tests/test_script_runner.py` | None | #14 |
 | `zsh_fallback on` enables delegation | Unit test | `tests/test_zsh_transition.py` | None | — |
 | `zsh_fallback off` disables delegation | Unit test | `tests/test_zsh_transition.py` | None | — |
 | Fallback is off by default | Unit test | `tests/test_zsh_transition.py` | None | — |

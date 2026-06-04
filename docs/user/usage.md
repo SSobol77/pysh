@@ -21,6 +21,7 @@ set. This page documents the day-to-day surface used at the command line.
 pysh                        # interactive REPL via the console entry point
 python -m pysh              # equivalent module entry point
 pysh -c "echo hi"           # run a single command line and exit
+pysh script.pysh arg1 arg2  # run a PySH-native script file
 pysh --debug -c "echo hi"   # run command and write redacted trace to stderr
 pysh --version              # print version and exit
 python -m pysh --version    # module entry point version check
@@ -34,6 +35,22 @@ opens Bash-like reverse incremental search.
 `--debug` and `--trace` are explicit diagnostics modes. They write
 `[PYSH_DEBUG]` trace lines to stderr, never to normal command stdout, and do
 not change command execution or exit status.
+
+## Script mode
+
+Script Mode v1 runs explicit local PySH script files:
+
+```sh
+pysh script.pysh
+python -m pysh script.pysh arg1 arg2
+```
+
+A first-line shebang such as `#!/usr/bin/env pysh` is ignored as a header.
+Scripts are PySH-native; they are not POSIX sh, bash or zsh scripts. `$0`
+expands to the script path, `$1`, `$2`, ... expand to script arguments, `$#`
+is the argument count, and `$@` / `$*` expand to a deterministic space-joined
+argument string in v1. Without `exit N`, the script status is the last
+executed command status.
 
 ## Operators
 

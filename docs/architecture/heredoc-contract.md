@@ -14,7 +14,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 Issue #10 adds native stdin inline-data redirection for here-documents and
 here-strings. It does not add job control, completion, observability commands,
-full script mode, process substitution, shell functions, arithmetic expansion,
+process substitution, shell functions, arithmetic expansion,
 advanced parameter expansion, or broad POSIX/bash/zsh compatibility.
 
 ## Supported syntax
@@ -130,6 +130,6 @@ them as commands.
 - Issue #9 supplies path/glob expansion, which is intentionally not applied to
   heredoc or here-string content.
 - Issue #11 remains responsible for job control.
-- Issue #14 remains responsible for full script mode.
+- Issue #14 uses this heredoc contract in Script Mode v1.
 - Issue #16 remains responsible for shell-comparison hardening.
 - Issue #17 remains responsible for system-shell integration policy.

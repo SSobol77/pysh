@@ -130,18 +130,18 @@ def test_run_script_no_shebang_runs_native_lines(tmp_path: Path) -> None:
     assert executed == ["ONE=1", "echo ok"]
 
 
-def test_run_script_no_shebang_stops_on_first_failure(tmp_path: Path) -> None:
+def test_run_script_no_shebang_returns_last_status_by_default(tmp_path: Path) -> None:
     script = tmp_path / "pysh-script"
-    script.write_text("false\nshould-not-run\n", encoding="utf-8")
+    script.write_text("false\nfinal\n", encoding="utf-8")
     executed: list[str] = []
 
     def execute(line: str) -> int:
         executed.append(line)
-        return 3
+        return 3 if line == "false" else 9
 
     runner = ScriptRunner(execute)
-    assert runner.run(script, []) == 3
-    assert executed == ["false"]
+    assert runner.run(script, []) == 9
+    assert executed == ["false", "final"]
 
 
 def test_run_script_no_shebang_continues_for_error_operator(tmp_path: Path) -> None:

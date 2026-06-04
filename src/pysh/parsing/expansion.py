@@ -14,6 +14,7 @@ from collections.abc import Callable
 DEFAULT_SUBSTITUTION_TIMEOUT_SECONDS = 5.0
 
 _VAR_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_POSITIONAL_BRACED_RE = re.compile(r"[0-9]+|[?@#*]")
 _UNSUPPORTED_PARAMETER_RE = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?::-|:=|:\?|#|%|/).+|^#[A-Za-z_][A-Za-z0-9_]*$"
 )
@@ -26,7 +27,7 @@ def expand_variables(
     *,
     special_vars: dict[str, str] | None = None,
 ) -> str:
-    """Expand ``$NAME``, ``${NAME}``, and ``$?`` references in ``text``."""
+    """Expand simple variable and special-parameter references in ``text``."""
     if env_vars is None:
         env_vars = dict(os.environ)
     _special = special_vars or {}
@@ -65,6 +66,14 @@ def expand_variables(
                 out.append(_special.get("?", "0"))
                 i += 2
                 continue
+            if nxt in "@#*":
+                out.append(_special.get(nxt, ""))
+                i += 2
+                continue
+            if nxt.isdigit():
+                out.append(_special.get(nxt, ""))
+                i += 2
+                continue
             if nxt == "{":
                 end = text.find("}", i + 2)
                 if end == -1:
@@ -72,6 +81,10 @@ def expand_variables(
                     i += 1
                     continue
                 name = text[i + 2 : end]
+                if _POSITIONAL_BRACED_RE.fullmatch(name):
+                    out.append(_special.get(name, "0" if name == "?" else ""))
+                    i = end + 1
+                    continue
                 if not _VAR_NAME_RE.fullmatch(name):
                     out.append(text[i : end + 1])
                     i = end + 1

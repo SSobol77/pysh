@@ -35,9 +35,8 @@ This document defines PySH's relationship to the POSIX shell standard
    script to PySH's native executor is not supported. Use `run_script` to
    delegate scripts with `#!/bin/sh` shebangs to the real `sh` interpreter.
 
-5. **Script mode is owned by Issue #14.** Full `.pysh` script semantics are
-   planned but not yet implemented. Even when implemented, the target is
-   PySH-native script semantics, not POSIX sh semantics.
+5. **Script mode is PySH-native.** `.pysh` script semantics do not imply POSIX
+   sh compatibility.
 
 6. **System shell integration policy is owned by Issue #17.** Until Issue #17
    is resolved, PySH makes no claim about integration with system tooling that
@@ -69,11 +68,11 @@ This document defines PySH's relationship to the POSIX shell standard
 | `test` / `[` builtin | **Not supported** | Use Python in `py { ... }` | — |
 | Arithmetic expansion (`$((expr))`) | **Not supported** | Deterministic parser diagnostic | — |
 | Here-documents (`<< DELIM`) | Supported for documented native policy | Native | #10 |
-| Native glob expansion (`*`, `?`, `[...]`) | **Not supported** | Arguments pass literally | #9 |
+| Native glob expansion (`*`, `?`, `[...]`) | Supported for documented native policy | Native | #9 |
 | Parameter expansion (advanced forms) | **Not supported** | Simple forms only; advanced forms remain literal | — |
-| `set -e`, `set -x`, `set -u` | **Not supported** | Planned for script mode | #14 |
+| `set -e`, `set -x`, `set -u` | **Not supported** | Unsupported in PySH Script Mode v1 | #14 |
 | Traps (`trap`) | **Not supported** | Not on current roadmap | — |
-| Job control (`&`, `jobs`, `bg`, `fg`) | **Not supported** | Planned | #11 |
+| Job control (`&`, `jobs`, `bg`, `fg`) | Supported for documented native policy | Native | #11 |
 | Process substitution (`<(cmd)`) | **Not supported** | Not planned | — |
 | `/bin/sh` provider status | **Not supported** | Hard prohibition | #17 |
 
@@ -103,8 +102,8 @@ hooks, and init system scripts must continue to use a real POSIX sh
 ### For interactive use
 
 PySH's documented native constructs cover the common interactive shell
-workflow. Features not yet native (job control and full script mode) have roadmap
-issues. For constructs that will never be native, use `zsh <cmd>` or
+workflow. Native PySH scripts do not change the delegation rule for real POSIX
+scripts. For constructs that will never be native, use `zsh <cmd>` or
 `run_script`.
 
 ---

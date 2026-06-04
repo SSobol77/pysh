@@ -91,7 +91,8 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Variables | Default value: `${NAME:-default}` | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
 | Variables | Length: `${#NAME}` | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
 | Variables | Substring/pattern expansion | Unsupported | Unsupported | `tests/test_expansion_foundation.py` | — |
-| Variables | Other POSIX special params (`$0`, `$$`, `$!`, `$#`, `$@`) | Unsupported | Unsupported | — | — |
+| Variables | Script positional params (`$0`, `$1`, `$#`, `$@`, `$*`) | Supported | Native | `tests/test_script_mode.py` | #14 |
+| Variables | Other POSIX special params (`$$`, `$!`) | Unsupported | Unsupported | — | — |
 
 ## Environment exports
 
@@ -418,11 +419,12 @@ shell feature area in PySH 0.5.x. Category definitions are in
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
 | Script mode | Run shebang scripts via `run_script` | Supported | Delegated | `tests/test_script_runner.py` | #14 |
-| Script mode | Run no-shebang scripts line-by-line | Partial | Native | `tests/test_script_runner.py` | #14 |
-| Script mode | Full `.pysh` script contract | Planned | Planned | — | #14 |
-| Script mode | `pysh script.pysh` invocation | Planned | Planned | — | #14 |
-| Script mode | Error propagation in scripts | Partial | Native | — | #5 |
-| Script mode | `set -e` / `set -x` / similar | Unsupported | Planned | — | #14 |
+| Script mode | Run native PySH scripts via `pysh script.pysh` | Supported | Native | `tests/test_script_mode.py` | #14 |
+| Script mode | Run native PySH scripts via `python -m pysh script.pysh` | Supported | Native | `tests/test_script_mode.py` | #14 |
+| Script mode | Run no-shebang scripts line-by-line | Supported | Native | `tests/test_script_runner.py`, `tests/test_script_mode.py` | #14 |
+| Script mode | Shebang header ignored in native PySH mode | Supported | Native | `tests/test_script_mode.py` | #14 |
+| Script mode | Error propagation in scripts | Supported | Native | `tests/test_script_mode.py` | #14 |
+| Script mode | `set -e` / `set -x` / `set -u` POSIX strict modes | Unsupported | Unsupported | — | #14 |
 
 ## `/bin/sh` provider status
 

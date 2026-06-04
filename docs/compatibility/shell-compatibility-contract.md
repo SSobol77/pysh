@@ -136,7 +136,7 @@ The following are not natively implemented in PySH 0.5.x:
 - Process substitution (`<(cmd)`, `>(cmd)`).
 - Brace expansion (`{a,b,c}`).
 - `case`, `select` statements.
-- Full script-mode contract — planned in Issue #14.
+- Script Mode v1 is PySH-native and does not imply POSIX sh compatibility.
 
 See [unsupported-constructs.md](unsupported-constructs.md) for the complete
 list and correct user action for each.

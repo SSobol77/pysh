@@ -68,7 +68,7 @@ It is not a full layer-boundary enforcement; that belongs to Issue #3's successo
 | `pysh.diagnostics` | Advisory diagnostics | `plan` classifier, opt-in trace model, redaction policy | Policy enforcement, runtime execution |
 | `pysh.contracts` | Architecture protocol layer | Protocol definitions for boundary surfaces | Any runtime logic; implementation package imports |
 | `pysh.shell` | Compatibility shim (scheduled removal) | Re-export of `PyShell` from `pysh.core.shell` | Any new logic |
-| `pysh.script_runner` | Script transition runner | `ScriptRunner`, shebang detection, interpreter delegation | Interactive REPL state |
+| `pysh.script_runner` | Script mode runner | `ScriptRunner`, shebang detection, interpreter delegation, native logical-line execution | Interactive REPL state |
 
 ---
 
@@ -314,6 +314,7 @@ subprocess calls) that should be deferred to first use.
 | Issue #8 | Parser/expansion/multiline foundation: decomposes parser modules, defines unsupported syntax ownership, and classifies `pysh.parsing` as a shared leaf consumed by editor, diagnostics and script runner. |
 | Issue #9 | Native path and glob expansion: `tokenize_and_glob_expand`, tilde expansion, dotfile policy, no-match policy. See [path-expansion-contract.md](path-expansion-contract.md). |
 | Issue #13 | Observability and diagnostics: opt-in `--debug`/`--trace`, stderr-only trace output, redaction policy, and formalized diagnostic builtins. See [observability-diagnostics-contract.md](observability-diagnostics-contract.md). |
+| Issue #14 | Script Mode v1: direct PySH-native script invocation, shebang header handling, positional parameters and script exit-code policy. See [script-mode-contract.md](script-mode-contract.md). |
 | Issue #10 | Here-documents and here-strings: stdin inline-data parser model, body collection, delimiter expansion policy, and redirection precedence. See [heredoc-contract.md](heredoc-contract.md). |
 | Issue #12 | Completion Engine v1. See [completion-engine-contract.md](completion-engine-contract.md). |
 | Issue #14 | Script/config mode cleanup: resolves `pysh.config → pysh.python_layer` and finalizes native script-mode contracts. |

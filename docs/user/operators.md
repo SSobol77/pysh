@@ -15,6 +15,9 @@ Copyright (C) 2026 Siergej Sobolewski
 PySH implements a small quote-aware operator set. Operators inside single or
 double quotes are treated as literal text.
 
+The same operator semantics apply in Script Mode v1. PySH scripts are
+PySH-native scripts, not POSIX sh scripts.
+
 ## Command chains
 
 | Operator | Syntax          | Behavior                                      |

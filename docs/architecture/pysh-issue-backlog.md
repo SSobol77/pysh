@@ -387,6 +387,8 @@ replacement.
 - Exit behavior and error policy using ISSUE #5.
 - Script-mode failure behavior.
 - Explicit unsupported-syntax diagnostics.
+- Positional parameters `$0`, `$1`, `$#`, `$@`.
+- Debug trace integration from Issue #13.
 
 **Validation.**
 

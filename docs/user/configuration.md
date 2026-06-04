@@ -178,6 +178,10 @@ by explicit CLI flags such as `pysh --debug -c "echo hi"` or
 `pysh --trace -c "echo hi"`. Trace output goes to stderr and sensitive values
 are redacted.
 
+Script mode does not load extra startup files for each script. It executes the
+explicit script path supplied on the command line and does not source
+`.bashrc`, `.zshrc` or `.profile`.
+
 When the stdlib raw-mode editor is active, PySH can colorize the editable input
 line and show history autosuggestions. If the terminal is not capable, if
 `TERM=dumb`, if `NO_COLOR` is set, or if `line_editor="readline"` is configured,

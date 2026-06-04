@@ -666,7 +666,7 @@ Scope:
 
 - deterministic script execution,
 - exit codes per ISSUE #5,
-- strict-mode option,
+- documented v1 strict-mode limitation,
 - source semantics,
 - positional args `$0`, `$1`, ...,
 - script-local variables.
@@ -679,8 +679,7 @@ Definition of done:
 
 - Script file runs deterministically.
 - Exit code matches ISSUE #5.
-- Strict mode aborts on first error/unset variable according to documented
-  policy.
+- Strict-mode policy is explicitly documented.
 - `source` shares state per documented semantics.
 - Positional args populate correctly.
 - Script behavior references ISSUE #4 matrix.

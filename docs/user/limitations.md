@@ -140,9 +140,13 @@ managers, arrays and shell functions.
 
 ## Script transition runner
 
+Script Mode v1 supports direct PySH-native scripts via `pysh script.pysh`.
+It is not full POSIX script semantics. POSIX `set -e`, `set -u` and `set -x`
+are not implemented. `$@` / `$*` use deterministic space-joined string
+expansion rather than POSIX separate-word semantics.
+
 `run_script` delegates shebang scripts to real `zsh`, `bash` or `sh` when
-declared. A no-shebang script is executed line-by-line through PySH's native
-engine where possible. That native path is not full POSIX script semantics.
+declared. A no-shebang script is executed through PySH's native script engine.
 
 ## Fallback mode
 

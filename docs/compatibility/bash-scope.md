@@ -74,7 +74,7 @@ but PySH is not bash and does not claim bash compatibility.
 | bash process substitution (`<(cmd)`) | Not supported | Unsupported | — |
 | bash here-strings (`<<<`) | Supported for documented native policy | Native | #10 |
 | bash heredocs (`<< DELIM`) | Supported for documented native policy | Native | #10 |
-| bash `set -e`, `set -x`, `set -u` | Not supported | Planned for script mode | #14 |
+| bash `set -e`, `set -x`, `set -u` | Not supported | Unsupported in PySH Script Mode v1 | #14 |
 | bash job control (`&`, `jobs`, `bg`, `fg`) | Not supported | Planned | #11 |
 | bash traps (`trap`) | Not supported | Not on current roadmap | — |
 | bash `source` / `.` with bash semantics | Not supported | `source` runs PySH rc-interpreter only | — |

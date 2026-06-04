@@ -89,6 +89,10 @@ validated primarily on **Debian 13** and Unix-like systems.
   in a persistent per-session runtime context.
 - **Python automation blocks**: `py { ... }` runs a multiline Python block in
   the same persistent runtime context as the one-line `py` form.
+- **PySH-native script mode**: `pysh script.pysh [args...]` and
+  `python -m pysh script.pysh [args...]` execute explicit local PySH scripts
+  with `$0`, `$1`, `$#`, `$@`, heredocs, glob expansion and `py { ... }`
+  blocks. PySH scripts are not POSIX sh scripts.
 - **Debian/system profile helpers**: `sys_info`, `env_audit`, `path_audit`,
   `which_all`, `apt_check`, `apt_search` — non-mutating, never call `sudo`.
 - **Command planning**: `plan <command...>` previews how PySH would classify
@@ -150,6 +154,7 @@ pysh
 pysh
 pysh --version
 pysh -c "echo hi"
+pysh script.pysh arg1 arg2
 # ~/.pyshrc.py is created automatically on first launch
 ls #abc           # comment stripped; ls runs without #abc argument
 echo "#abc"       # quoted hash preserved: prints #abc
@@ -184,6 +189,7 @@ pysh           # console entry point installed by the wheel
 python -m pysh # equivalent module entry point
 pysh --version # print version and exit
 pysh -c "echo hi; echo there"  # run one command line and exit
+pysh script.pysh arg1 arg2     # run a PySH-native script file
 ```
 
 ---

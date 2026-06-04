@@ -74,6 +74,8 @@ should report **all tests passing**. `uv run ruff check` should report
 pysh --version
 python -m pysh --version
 pysh -c 'echo "hello, pysh"'
+printf 'echo script-ok\n' > /tmp/pysh-smoke.pysh
+pysh /tmp/pysh-smoke.pysh
 ```
 
 ## Repository layout
@@ -101,7 +103,7 @@ pysh/
 │       ├── __main__.py         # python -m pysh entry point
 │       ├── cli.py              # Console script entry point (argparse + --version)
 │       ├── shell.py            # Compatibility shim → pysh.core.shell (Issue #19)
-│       ├── script_runner.py    # Script transition runner (shebang dispatch)
+│       ├── script_runner.py    # Script mode and transition runner
 │       ├── core/               # PyShell: REPL loop, command dispatch, builtins
 │       ├── parsing/            # Quote-aware parser, redirection
 │       ├── editor/             # Completer, history, ANSI helpers

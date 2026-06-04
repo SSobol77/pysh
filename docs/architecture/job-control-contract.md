@@ -35,7 +35,7 @@ Issue #11 implements the **minimal professional job-control foundation**:
 | ------- | ----------- |
 | Completion engine v1 | #12 |
 | Observability/trace CLI | #13 |
-| Full script-mode contract | #14 |
+| Script Mode v1 execution contract | #14 |
 | zsh transition hardening | #16 |
 | FreeBSD full validation | #18 |
 | Shell `trap` | — (Unsupported) |
