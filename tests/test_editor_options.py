@@ -87,7 +87,8 @@ def test_raw_editor_auto_falls_back_for_non_tty(monkeypatch) -> None:
     assert shell._should_use_raw_editor() is False
 
 
-def test_raw_editor_auto_falls_back_for_color_gate(monkeypatch) -> None:
+def test_raw_editor_auto_falls_back_for_dumb_term(monkeypatch) -> None:
+    """TERM=dumb must disable the raw editor regardless of color settings."""
     shell = PyShell()
     monkeypatch.setattr("pysh.core.shell.sys.stdin", _FakeStream(True))
     monkeypatch.setattr("pysh.core.shell.sys.stdout", _FakeStream(True))
@@ -95,9 +96,15 @@ def test_raw_editor_auto_falls_back_for_color_gate(monkeypatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     assert shell._should_use_raw_editor() is False
 
+
+def test_raw_editor_no_color_does_not_disable_editor(monkeypatch) -> None:
+    """NO_COLOR must not disable the raw editor — paste safety requires it active."""
+    shell = PyShell()
+    monkeypatch.setattr("pysh.core.shell.sys.stdin", _FakeStream(True))
+    monkeypatch.setattr("pysh.core.shell.sys.stdout", _FakeStream(True))
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("NO_COLOR", "1")
-    assert shell._should_use_raw_editor() is False
+    assert shell._should_use_raw_editor() is True
 
 
 def test_raw_editor_forced_readline_and_basic_modes(monkeypatch) -> None:

@@ -24,6 +24,7 @@ class Key(StrEnum):
     CTRL_D = "ctrl_d"
     CTRL_E = "ctrl_e"
     CTRL_F = "ctrl_f"
+    CTRL_G = "ctrl_g"
     CTRL_K = "ctrl_k"
     CTRL_L = "ctrl_l"
     CTRL_R = "ctrl_r"
@@ -54,6 +55,7 @@ _CONTROL_KEYS: dict[int, Key] = {
     0x04: Key.CTRL_D,
     0x05: Key.CTRL_E,
     0x06: Key.CTRL_F,
+    0x07: Key.CTRL_G,
     0x0B: Key.CTRL_K,
     0x0C: Key.CTRL_L,
     0x12: Key.CTRL_R,
@@ -173,4 +175,3 @@ class KeyDecoder:
         if 0xF0 <= first <= 0xF4:
             return 4
         return 0
-

@@ -97,7 +97,7 @@ PySH implements the following natively:
 - All documented builtins (see `docs/user/builtins.md`).
 - Aliases (definition, expansion, `unalias`).
 - Directory stack (`pushd`, `popd`, `dirs`).
-- History (persistent, `~/.pysh_history`, Ctrl+R when readline available).
+- History (persistent, `~/.pysh_history`, Ctrl+R reverse incremental search).
 - Tab completion (aliases, builtins, PATH commands, filesystem paths,
   variables, and jobs).
 - Python execution (`py`, `py { ... }`, `#py` interactive mode).

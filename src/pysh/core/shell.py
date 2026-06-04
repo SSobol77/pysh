@@ -104,6 +104,14 @@ from pysh.prompt.system_profile import (
     sys_info,
     which_all,
 )
+from pysh.prompt.terminal_style import (
+    format_key_hints,
+    frame_preview,
+    highlight_python_preview_line,
+    highlight_shell_preview_line,
+    style,
+    style_enabled,
+)
 from pysh.python_layer.runtime import (
     PythonRuntime,
     extract_block_body,
@@ -323,7 +331,8 @@ class PyShell:
                     print()
                     if self.pending_multiline_paste is not None:
                         self.pending_multiline_paste = None
-                        print("paste_cancel: pending multiline paste discarded")
+                        enabled = style_enabled()
+                        print(style("paste_cancel: pending multiline paste discarded", "warning", enabled=enabled))
                     self.last_status = ExitCode.SIGINT
                     continue
                 if self.pending_multiline_paste is not None:
@@ -341,7 +350,11 @@ class PyShell:
                             return exit_signal.code
                         continue
                     print(
-                        "pysh: pending multiline paste exists; use paste_run or paste_cancel first",
+                        style(
+                            "pysh: pending multiline paste exists; use paste_run or paste_cancel first",
+                            "error",
+                            enabled=style_enabled(),
+                        ),
                         file=sys.stderr,
                     )
                     self.last_status = ExitCode.BUILTIN_MISUSE
@@ -510,23 +523,40 @@ class PyShell:
 
     def _capture_multiline_paste(self, payload: str) -> list[str]:
         """Store sanitized bracketed multiline paste for explicit user action."""
+        enabled = style_enabled()
         diagnostics: list[str] = []
         if self.pending_multiline_paste is not None:
-            diagnostics.append("pysh: previous pending paste replaced")
+            diagnostics.append(
+                style("pysh: previous pending paste replaced", "warning", enabled=enabled)
+            )
         self.pending_multiline_paste = payload
+        count = self._pending_multiline_paste_line_count()
         diagnostics.append(
-            "pysh: multiline paste captured "
-            f"({self._pending_multiline_paste_line_count()} lines). Review below."
+            style(
+                f"pysh: multiline paste captured ({count} lines). Review below.",
+                "warning",
+                enabled=enabled,
+            )
         )
         diagnostics.extend(
             self._format_pending_paste_preview(
                 payload,
                 title="paste",
                 max_lines=20,
+                enabled=enabled,
+                highlighter=self._make_paste_line_highlighter(payload, enabled=enabled),
             )
         )
         diagnostics.append(
-            "Press Enter to run, Ctrl+C to cancel, or type paste_show/paste_cancel."
+            format_key_hints(
+                [
+                    ("Enter", "run"),
+                    ("Ctrl+C", "cancel"),
+                    ("paste_show", "inspect"),
+                    ("paste_cancel", "discard"),
+                ],
+                enabled=enabled,
+            )
         )
         return diagnostics
 
@@ -536,25 +566,72 @@ class PyShell:
         *,
         title: str,
         max_lines: int | None = 20,
+        enabled: bool = False,
+        highlighter: Callable[[str, int], str] | None = None,
     ) -> list[str]:
-        """Return a numbered, framed preview for sanitized paste payload."""
-        lines = payload.splitlines()
-        if not lines:
-            lines = [""]
-        visible_lines = lines if max_lines is None else lines[:max_lines]
-        formatted = [f"[{title}:begin]"]
-        formatted.extend(f"{index} | {line}" for index, line in enumerate(visible_lines, start=1))
-        if max_lines is not None and len(lines) > max_lines:
-            hidden = len(lines) - max_lines
-            formatted.append(f"... {hidden} more lines hidden; use paste_show to inspect all")
-        formatted.append(f"[{title}:end]")
-        return formatted
+        """Return a numbered, optionally styled and highlighted preview."""
+        return frame_preview(
+            payload,
+            title,
+            enabled=enabled,
+            max_lines=max_lines,
+            line_highlighter=highlighter,
+        )
 
     def _pending_multiline_paste_line_count(self) -> int:
         """Return the user-visible line count for the pending paste payload."""
         if self.pending_multiline_paste is None:
             return 0
         return len(self.pending_multiline_paste.splitlines()) or 1
+
+    def _make_paste_line_highlighter(
+        self,
+        payload: str,
+        *,
+        enabled: bool,
+    ) -> Callable[[str, int], str] | None:
+        """Return a per-line syntax highlighter for paste preview, or None.
+
+        Detects payload type (shell, Python block, heredoc) and returns a
+        closure that highlights each line accordingly.
+
+        Shell lines use the safe shell highlighter from terminal_style (not
+        the editor.highlight pipeline, which uses dark-blue for variables and
+        can render as black blocks on dark-theme terminals).  Python block
+        lines use the lightweight Python highlighter in terminal_style.
+        """
+        if not enabled:
+            return None
+        lines = payload.splitlines() or [""]
+        n = len(lines)
+        is_py = n >= 2 and is_block_opener(lines[0]) and is_block_closer(lines[-1])
+        has_heredoc = n >= 2 and "<<" in lines[0]
+        heredoc_term = self._heredoc_terminator_from_opener(lines[0]) if has_heredoc else ""
+
+        def highlighter(ln: str, idx: int) -> str:
+            if is_py:
+                if idx == 0 or idx == n - 1:
+                    return highlight_shell_preview_line(ln, enabled=True)
+                return highlight_python_preview_line(ln, enabled=True)
+            if has_heredoc:
+                if idx == 0:
+                    return highlight_shell_preview_line(ln, enabled=True)
+                if heredoc_term and ln.strip() == heredoc_term:
+                    return f"\033[90m{ln}\033[0m"  # muted gray terminator line
+                return ln  # heredoc body: plain text, no styling needed
+            return highlight_shell_preview_line(ln, enabled=True)
+
+        return highlighter
+
+    @staticmethod
+    def _heredoc_terminator_from_opener(opener: str) -> str:
+        """Extract the heredoc terminator word from an opener line.
+
+        Handles ``<<'EOF'``, ``<<EOF``, ``<<-EOF``, ``<<"EOF"``, and
+        ``<<< word`` forms.  Returns empty string if not parseable.
+        """
+        m = re.search(r"<<[-]?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?", opener)
+        return m.group(1) if m else ""
 
     @staticmethod
     def _pending_paste_command_allowed(line: str) -> bool:
@@ -1360,10 +1437,14 @@ class PyShell:
         if self.pending_multiline_paste is None:
             print("paste_show: no pending multiline paste")
             return 2
+        enabled = style_enabled()
+        payload = self.pending_multiline_paste
         for line in self._format_pending_paste_preview(
-            self.pending_multiline_paste,
+            payload,
             title="paste",
             max_lines=None,
+            enabled=enabled,
+            highlighter=self._make_paste_line_highlighter(payload, enabled=enabled),
         ):
             print(line)
         return 0
@@ -1376,7 +1457,8 @@ class PyShell:
             print("paste_cancel: no pending multiline paste")
             return 2
         self.pending_multiline_paste = None
-        print("paste_cancel: pending multiline paste discarded")
+        enabled = style_enabled()
+        print(style("paste_cancel: pending multiline paste discarded", "warning", enabled=enabled))
         return 0
 
     def _builtin_paste_run(self, args: list[str]) -> int:
@@ -1388,7 +1470,14 @@ class PyShell:
             return 2
         payload = self.pending_multiline_paste
         self.pending_multiline_paste = None
-        for line in self._format_pending_paste_preview(payload, title="paste_run", max_lines=None):
+        enabled = style_enabled()
+        for line in self._format_pending_paste_preview(
+            payload,
+            title="paste_run",
+            max_lines=None,
+            enabled=enabled,
+            highlighter=self._make_paste_line_highlighter(payload, enabled=enabled),
+        ):
             print(line)
         previous_context = self._script_context
         self._script_context = None
@@ -2067,6 +2156,7 @@ class PyShell:
                     options=options,
                     on_multiline_paste=self._capture_multiline_paste,
                     completer=self.completer,
+                    paste_pending=self.pending_multiline_paste is not None,
                 )
             except (OSError, termios.error):
                 return input(self._prompt())
@@ -2078,6 +2168,11 @@ class PyShell:
         Returns False in Midnight Commander environments (mc-safe mode) so
         that PySH uses ``input()`` instead of the ANSI-repainting raw editor.
         This prevents cursor-placement corruption when MC manages the terminal.
+
+        Crucially, this check is intentionally independent of colors_enabled()
+        and NO_COLOR.  Color preferences must never affect bracketed-paste mode,
+        paste staging, or execution behaviour.  Only terminal capability (TERM
+        not dumb/empty, stdin/stdout are TTYs) determines raw-editor eligibility.
         """
         mode = str(self.editor_options.get("line_editor", "auto"))
         if mode == "readline":
@@ -2086,9 +2181,20 @@ class PyShell:
             return False
         if is_mc_environment():
             return False
-        if mode == "auto" and not colors_enabled():
+        if mode == "auto" and not self._raw_editor_terminal_capable():
             return False
         return mode in {"auto", "basic"}
+
+    @staticmethod
+    def _raw_editor_terminal_capable() -> bool:
+        """Return True when TERM indicates a VT-style capable terminal.
+
+        Dumb terminals and unset TERM cannot handle the ANSI cursor sequences
+        the raw editor emits.  NO_COLOR and color-related variables are
+        intentionally not consulted here.
+        """
+        term = os.environ.get("TERM", "")
+        return bool(term) and term != "dumb"
 
     def _resolved_editor_options(self) -> SimpleNamespace:
         mode = str(self.editor_options.get("line_editor", "auto"))

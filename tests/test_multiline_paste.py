@@ -620,6 +620,158 @@ def test_ctrl_r_opens_visible_reverse_search_mode() -> None:
         os.close(slave)
 
 
+def test_ctrl_r_typing_query_displays_match_and_enter_accepts() -> None:
+    """Reverse search must show matches and submit the selected command on Enter."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(input_fd=slave, output_fd=slave)
+    result: dict[str, str] = {}
+
+    def target() -> None:
+        result["line"] = reader.read_line(
+            "> ",
+            history=["echo old-command"],
+            suggester=AutoSuggester(),
+            highlighter=LineHighlighter(()),
+            scheme=DEFAULT_SCHEME,
+            options=_make_options(),
+        )
+
+    thread = threading.Thread(target=target)
+    try:
+        thread.start()
+        _read_until(master, b"\x1b[?2004h")
+        os.write(master, b"\x12")
+        output = _read_until(master, b"reverse-i-search")
+        assert b"reverse-i-search" in output
+        os.write(master, b"old")
+        output += _read_until(master, b"echo old-command")
+        assert b"echo old-command" in output
+        os.write(master, b"\n")
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert result["line"] == "echo old-command"
+    finally:
+        if thread.is_alive():
+            os.write(master, b"\x04")
+            thread.join(timeout=1)
+        os.close(master)
+        os.close(slave)
+
+
+def test_ctrl_r_ctrl_c_cancels_reverse_search() -> None:
+    """Ctrl+C in reverse search must raise KeyboardInterrupt cleanly."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(input_fd=slave, output_fd=slave)
+    result: dict[str, bool] = {}
+
+    def target() -> None:
+        try:
+            reader.read_line(
+                "> ",
+                history=["echo old-command"],
+                suggester=AutoSuggester(),
+                highlighter=LineHighlighter(()),
+                scheme=DEFAULT_SCHEME,
+                options=_make_options(),
+            )
+        except KeyboardInterrupt:
+            result["interrupted"] = True
+
+    thread = threading.Thread(target=target)
+    try:
+        thread.start()
+        _read_until(master, b"\x1b[?2004h")
+        os.write(master, b"\x12")
+        output = _read_until(master, b"reverse-i-search")
+        assert b"reverse-i-search" in output
+        os.write(master, b"\x03")
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert result == {"interrupted": True}
+    finally:
+        if thread.is_alive():
+            os.write(master, b"\x04")
+            thread.join(timeout=1)
+        os.close(master)
+        os.close(slave)
+
+
+def test_ctrl_r_backspace_updates_query_and_match() -> None:
+    """Backspace in reverse search must update no-match state back to a match."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(input_fd=slave, output_fd=slave)
+    result: dict[str, str] = {}
+
+    def target() -> None:
+        result["line"] = reader.read_line(
+            "> ",
+            history=["echo old-command"],
+            suggester=AutoSuggester(),
+            highlighter=LineHighlighter(()),
+            scheme=DEFAULT_SCHEME,
+            options=_make_options(),
+        )
+
+    thread = threading.Thread(target=target)
+    try:
+        thread.start()
+        _read_until(master, b"\x1b[?2004h")
+        os.write(master, b"\x12oldx")
+        output = _read_until(master, b"<no match>")
+        assert b"<no match>" in output
+        os.write(master, b"\x7f")
+        output += _read_until(master, b"echo old-command")
+        assert b"echo old-command" in output
+        os.write(master, b"\n")
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert result["line"] == "echo old-command"
+    finally:
+        if thread.is_alive():
+            os.write(master, b"\x04")
+            thread.join(timeout=1)
+        os.close(master)
+        os.close(slave)
+
+
+def test_ctrl_r_no_match_state_is_visible() -> None:
+    """Reverse search with no match must render an explicit no-match state."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(input_fd=slave, output_fd=slave)
+    result: dict[str, str] = {}
+
+    def target() -> None:
+        result["line"] = reader.read_line(
+            "> ",
+            history=["echo old-command"],
+            suggester=AutoSuggester(),
+            highlighter=LineHighlighter(()),
+            scheme=DEFAULT_SCHEME,
+            options=_make_options(),
+        )
+
+    thread = threading.Thread(target=target)
+    try:
+        thread.start()
+        _read_until(master, b"\x1b[?2004h")
+        os.write(master, b"\x12missing")
+        output = _read_until(master, b"<no match>")
+        assert b"<no match>" in output
+        os.write(master, b"\x1b")
+        thread.join(timeout=3)
+        assert thread.is_alive()
+        os.write(master, b"echo after\n")
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert result["line"] == "echo after"
+    finally:
+        if thread.is_alive():
+            os.write(master, b"\x04")
+            thread.join(timeout=1)
+        os.close(master)
+        os.close(slave)
+
+
 def test_no_unrelated_commands_concatenated() -> None:
     """Each pasted line must become a separate queued command."""
     reader = _make_reader()
@@ -667,3 +819,70 @@ def test_export_semicolon_mc_u_chain_splits_correctly() -> None:
     assert chain[0].command == 'export SHELL="$(command -v pysh)"'
     assert chain[0].operator is ChainOp.SEMI
     assert chain[1].command == "mc -u"
+
+
+# ---------------------------------------------------------------- Ctrl+R blocked when paste is pending
+
+
+def test_ctrl_r_blocked_when_paste_pending_shows_diagnostic() -> None:
+    """When paste_pending=True, Ctrl+R must write a diagnostic and not enter search."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(output_fd=slave)
+    buffer = LineBuffer()
+    try:
+        result = reader._handle_event(
+            KeyEvent(Key.CTRL_R),
+            "> ",
+            buffer,
+            ["echo old-command"],
+            AutoSuggester(),
+            LineHighlighter(()),
+            DEFAULT_SCHEME,
+            False,
+            _make_options(),
+            None,
+            None,
+            None,
+            paste_pending=True,
+        )
+        output = _read_until(master, b"paste_run", timeout=0.3)
+        assert not isinstance(result, str), "Ctrl+R with paste_pending returned a command"
+        assert b"paste_run" in output or b"paste_cancel" in output, (
+            "Ctrl+R with paste_pending did not write the expected diagnostic.\n"
+            f"Raw output: {output!r}"
+        )
+    finally:
+        os.close(master)
+        os.close(slave)
+
+
+def test_ctrl_r_not_blocked_when_no_paste_pending() -> None:
+    """When paste_pending=False (default), Ctrl+R enters reverse search normally."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(output_fd=slave)
+    buffer = LineBuffer()
+    try:
+        result = reader._handle_event(
+            KeyEvent(Key.CTRL_R),
+            "> ",
+            buffer,
+            ["echo old-command"],
+            AutoSuggester(),
+            LineHighlighter(()),
+            DEFAULT_SCHEME,
+            False,
+            _make_options(),
+            None,
+            None,
+            None,
+            paste_pending=False,
+        )
+        output = _read_until(master, b"search", timeout=0.3)
+        assert not isinstance(result, str)
+        assert b"search" in output.lower(), (
+            "Ctrl+R without pending paste did not show search UI.\n"
+            f"Raw output: {output!r}"
+        )
+    finally:
+        os.close(master)
+        os.close(slave)

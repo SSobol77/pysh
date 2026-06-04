@@ -161,6 +161,7 @@ def _run_pty_session(
     prompt_timeout: float = _PROMPT_TIMEOUT,
     collect_timeout: float = _COLLECT_TIMEOUT,
     settle: float = _SETTLE,
+    env: dict[str, str] | None = None,
 ) -> bytes:
     """Launch PySH in a fresh PTY, send *commands* to its input after the
     initial prompt appears, collect all output until the process exits or
@@ -168,6 +169,7 @@ def _run_pty_session(
 
     The caller should include ``b"exit\\n"`` at the end of *commands* so that
     PySH terminates cleanly.  A SIGTERM is sent unconditionally on teardown.
+    Pass *env* to override the default ``_PTY_ENV``.
     """
     master_fd, slave_fd = pty.openpty()
     _set_winsize(slave_fd)
@@ -176,7 +178,7 @@ def _run_pty_session(
         stdin=slave_fd,
         stdout=slave_fd,
         stderr=slave_fd,
-        env=_PTY_ENV,
+        env=env if env is not None else _PTY_ENV,
         close_fds=True,
     )
     os.close(slave_fd)
@@ -230,6 +232,7 @@ def _run_pty_session_phased(
     prompt_timeout: float = _PROMPT_TIMEOUT,
     collect_timeout: float = _COLLECT_TIMEOUT,
     settle: float = _SETTLE,
+    env: dict[str, str] | None = None,
 ) -> bytes:
     """Run PySH in a PTY and write input chunks with output drains between them."""
     master_fd, slave_fd = pty.openpty()
@@ -239,7 +242,7 @@ def _run_pty_session_phased(
         stdin=slave_fd,
         stdout=slave_fd,
         stderr=slave_fd,
-        env=_PTY_ENV,
+        env=env if env is not None else _PTY_ENV,
         close_fds=True,
     )
     os.close(slave_fd)
@@ -821,5 +824,184 @@ def test_pty_py_block_collects_body_once() -> None:
     )
     assert b"nested py { ... } blocks are not supported" not in stripped, (
         "The py block opener was replayed into the collected Python body.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# NO_COLOR / PYSH_NO_COLOR paste safety
+# ---------------------------------------------------------------------------
+
+
+def _make_no_color_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Return _PTY_ENV with NO_COLOR added (and any *extra* overrides)."""
+    env = dict(_PTY_ENV)
+    env["NO_COLOR"] = "1"
+    if extra:
+        env.update(extra)
+    return env
+
+
+def _make_pysh_no_color_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Return _PTY_ENV with PYSH_NO_COLOR=1 added."""
+    env = dict(_PTY_ENV)
+    env["PYSH_NO_COLOR"] = "1"
+    if extra:
+        env.update(extra)
+    return env
+
+
+def test_pty_no_color_bracketed_paste_is_staged() -> None:
+    """NO_COLOR=1 must not change paste behaviour — multiline paste is staged."""
+    output = _run_pty_session(
+        b"\x1b[200~echo one\necho two\x1b[201~paste_cancel\nexit\n",
+        env=_make_no_color_env(),
+    )
+    stripped = _strip_ansi(output)
+    assert b"pysh: multiline paste captured (2 lines). Review below." in stripped, (
+        "NO_COLOR=1: multiline paste was not staged.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+    assert b"[paste:begin]" in stripped
+    assert b"1 | echo one" in stripped
+    assert b"2 | echo two" in stripped
+    assert b"[paste:end]" in stripped
+    assert b"one\n" not in stripped, (
+        "NO_COLOR=1: 'echo one' executed immediately instead of being staged.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+    assert b"two\n" not in stripped, (
+        "NO_COLOR=1: 'echo two' executed before staged paste was confirmed.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+
+
+def test_pty_no_color_staged_paste_executes_on_enter() -> None:
+    """Under NO_COLOR=1, staged paste must execute normally after Enter."""
+    output = _run_pty_session(
+        b"\x1b[200~echo one\necho two\x1b[201~\nexit\n",
+        env=_make_no_color_env(),
+    )
+    stripped = _strip_ansi(output)
+    assert b"one" in stripped, (
+        "NO_COLOR=1: 'echo one' did not produce output after Enter.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+    assert b"two" in stripped, (
+        "NO_COLOR=1: 'echo two' did not produce output after Enter.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+
+
+def test_pty_pysh_no_color_bracketed_paste_is_staged() -> None:
+    """PYSH_NO_COLOR=1 must not change paste behaviour — multiline paste is staged."""
+    output = _run_pty_session(
+        b"\x1b[200~echo one\necho two\x1b[201~paste_cancel\nexit\n",
+        env=_make_pysh_no_color_env(),
+    )
+    stripped = _strip_ansi(output)
+    assert b"pysh: multiline paste captured (2 lines). Review below." in stripped, (
+        "PYSH_NO_COLOR=1: multiline paste was not staged.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+    assert b"[paste:begin]" in stripped
+    assert b"1 | echo one" in stripped
+    assert b"2 | echo two" in stripped
+    assert b"[paste:end]" in stripped
+    assert b"one\n" not in stripped, (
+        "PYSH_NO_COLOR=1: 'echo one' executed immediately instead of being staged.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+    assert b"two\n" not in stripped, (
+        "PYSH_NO_COLOR=1: 'echo two' executed before staged paste was confirmed.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+
+
+def test_pty_no_color_paste_preview_content_has_no_ansi() -> None:
+    """Under NO_COLOR=1, the paste preview content lines must not contain SGR color codes.
+
+    The raw editor always emits cursor-positioning CSI sequences (e.g. ESC[J)
+    regardless of NO_COLOR — those are operational, not colour-related.  Only
+    the paste-preview diagnostic content (paste header, frame markers, line
+    numbers, hints) must be free of colour SGR codes.
+    """
+    output = _run_pty_session(
+        b"\x1b[200~echo hello\necho world\x1b[201~paste_cancel\nexit\n",
+        env=_make_no_color_env(),
+    )
+    text = _strip_ansi(output).decode("utf-8", errors="replace")
+    # Verify the expected plain markers are present.
+    assert "pysh: multiline paste captured (2 lines). Review below." in text
+    assert "[paste:begin]" in text
+    assert "1 | echo hello" in text
+    assert "2 | echo world" in text
+    assert "[paste:end]" in text
+    # Verify the paste preview lines are free of SGR color codes.
+    # Extract the section between [paste:begin] and [paste:end].
+    begin = text.find("[paste:begin]")
+    end = text.find("[paste:end]")
+    assert begin >= 0 and end > begin, "paste frame markers not found"
+    preview_section = output[
+        output.find(b"[paste:begin]") : output.find(b"[paste:end]") + len(b"[paste:end]")
+    ]
+    # SGR sequences have the form ESC [ ... m — verify none appear.
+    import re as _re_local
+    sgr_re = _re_local.compile(rb"\x1b\[[0-9;]*m")
+    assert not sgr_re.search(preview_section), (
+        "NO_COLOR=1: SGR colour codes found in paste preview content.\n"
+        f"Preview section: {preview_section!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Ctrl+R blocked when paste is pending
+# ---------------------------------------------------------------------------
+
+
+def test_pty_ctrl_r_blocked_when_paste_pending() -> None:
+    """Ctrl+R must show a diagnostic and not enter reverse search when paste is pending."""
+    output = _run_pty_session_phased(
+        [
+            b"\x1b[200~echo first-command\necho second-command\x1b[201~",
+            b"\x12",  # Ctrl+R
+            b"paste_show\npaste_cancel\nexit\n",
+        ],
+        settle=0.5,
+    )
+    lines = _visible_lines(output)
+    full_text = _strip_ansi(output).decode("utf-8", errors="replace")
+    assert "pending multiline paste" in full_text, (
+        "Ctrl+R with pending paste did not show the expected diagnostic.\n"
+        f"Visible lines:\n{lines!r}"
+    )
+    assert "paste_run or paste_cancel" in full_text, (
+        "Ctrl+R with pending paste diagnostic missing paste_run/paste_cancel hint.\n"
+        f"Visible lines:\n{lines!r}"
+    )
+    assert not any("reverse-i-search" in ln for ln in lines), (
+        "Ctrl+R with pending paste entered reverse-search mode.\n"
+        f"Visible lines:\n{lines!r}"
+    )
+    assert "[paste:begin]" in lines, (
+        "Pending paste was lost after Ctrl+R was blocked.\n"
+        f"Visible lines:\n{lines!r}"
+    )
+
+
+def test_pty_ctrl_r_works_normally_without_pending_paste() -> None:
+    """Ctrl+R must still open reverse search when no paste is pending."""
+    output = _run_pty_session_phased(
+        [
+            b"echo history-sentinel\n",
+            b"\x12old",   # Ctrl+R then type search query
+            b"\x1b",      # ESC to cancel search and return to prompt
+            b"exit\n",
+        ],
+        settle=0.4,
+    )
+    stripped = _strip_ansi(output)
+    assert b"reverse-i-search" in stripped, (
+        "Ctrl+R did not open reverse search when no paste was pending.\n"
         f"Raw PTY output:\n{output!r}"
     )

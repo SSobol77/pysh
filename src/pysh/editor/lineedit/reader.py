@@ -67,6 +67,15 @@ _BRACKETED_PASTE_DISABLE = b"\x1b[?2004l"
 _PASTE_DEBUG_ENV = "PYSH_PASTE_DEBUG"
 _PASTE_DEBUG_PATH = Path("logs") / "pysh-paste-debug.log"
 
+# ANSI SGR constants for reverse-search display.  Applied only when
+# colors_enabled() returns True so dumb/no-color terminals stay readable.
+# \033[2;37m (dim+white) is intentionally absent — it renders as black on
+# dark-background terminals.  \033[90m (bright-black / gray) is used instead.
+_SGR_SEARCH_LABEL = "\033[35m"   # magenta — (reverse-i-search) label
+_SGR_SEARCH_QUERY = "\033[36m"   # cyan    — typed query text
+_SGR_LABEL       = "\033[90m"    # gray    — field labels (match:, query:)
+_SGR_RESET = "\033[0m"
+
 
 @dataclass(frozen=True)
 class QueuedCommand:
@@ -140,6 +149,7 @@ class RawLineReader:
         on_multiline_paste: Callable[[str], Sequence[str] | None] | None = None,
         initial_text: str = "",
         echo_queued: bool = True,
+        paste_pending: bool = False,
     ) -> str:
         """Read a command line, raising EOF/KeyboardInterrupt for Ctrl-D/C.
 
@@ -177,9 +187,14 @@ class RawLineReader:
         history_list = list(history)
         suggestion = ""
 
-        # Bracketed paste state
+        # Bracketed paste state.
+        # _local_paste_pending is seeded from the caller's paste_pending flag
+        # and is updated to True when on_multiline_paste captures a paste
+        # mid-session.  This ensures Ctrl+R blocking works even when paste
+        # arrives after read_line has started.
         in_paste = False
         paste_buf: list[str] = []
+        _local_paste_pending = paste_pending
 
         try:
             self._enable_bracketed_paste(out_fd)
@@ -233,6 +248,7 @@ class RawLineReader:
                                 diagnostics: Sequence[str] | None = None
                                 if on_multiline_paste is not None:
                                     diagnostics = on_multiline_paste(paste_text)
+                                _local_paste_pending = True
                                 buffer.set("")
                                 suggestion = ""
                                 if diagnostics:
@@ -279,6 +295,10 @@ class RawLineReader:
                         continue
 
                     # --- normal interactive key processing ---
+                    search_initial_events: list[KeyEvent] = []
+                    if event.key is Key.CTRL_R:
+                        search_initial_events = events[idx:]
+                        idx = len(events)
                     result = self._handle_event(
                         event,
                         prompt,
@@ -292,6 +312,10 @@ class RawLineReader:
                         nav_index,
                         completer,
                         tab_handler,
+                        search_input_fd=in_fd,
+                        search_decoder=decoder,
+                        search_initial_events=search_initial_events,
+                        paste_pending=_local_paste_pending,
                     )
                     if isinstance(result, str):
                         # First complete command: queue any remaining events.
@@ -457,8 +481,13 @@ class RawLineReader:
         nav_index: int | None,
         completer: Completer | None,
         tab_handler: Callable[[LineBuffer], bool] | None,
+        *,
+        search_input_fd: int | None = None,
+        search_decoder: KeyDecoder | None = None,
+        search_initial_events: Sequence[KeyEvent] = (),
+        paste_pending: bool = False,
     ) -> tuple[int | None, str] | str:
-        del prompt, highlighter, scheme, enabled
+        del highlighter, scheme, enabled
         suggestion = self._suggest(buffer, history, suggester, options)
         if event.key is Key.ENTER:
             return buffer.text
@@ -495,7 +524,30 @@ class RawLineReader:
         elif event.key is Key.DOWN:
             nav_index = self._history_down(buffer, history, nav_index)
         elif event.key is Key.CTRL_R:
-            self._reverse_search(buffer, history)
+            if paste_pending:
+                if colors_enabled():
+                    msg = (
+                        "\r\n\033[1;33mpysh: pending multiline paste; "
+                        "use paste_run or paste_cancel\033[0m\r\n"
+                    )
+                else:
+                    msg = (
+                        "\r\npysh: pending multiline paste; "
+                        "use paste_run or paste_cancel\r\n"
+                    )
+                self._write(msg, self.output_fd)
+                self._start_rows = 0
+            else:
+                result = self._reverse_search(
+                    buffer,
+                    history,
+                    prompt,
+                    input_fd=search_input_fd,
+                    decoder=search_decoder,
+                    initial_events=search_initial_events,
+                )
+                if isinstance(result, str):
+                    return result
         elif event.key is Key.CTRL_L:
             self._write("\033[2J\033[H", self.output_fd)
         elif event.key is Key.TAB and tab_handler is not None and tab_handler(buffer):
@@ -534,15 +586,151 @@ class RawLineReader:
         buffer.set(history[index])
         return index
 
+    def _reverse_search(
+        self,
+        buffer: LineBuffer,
+        history: Sequence[str],
+        prompt: str,
+        *,
+        input_fd: int | None,
+        decoder: KeyDecoder | None,
+        initial_events: Sequence[KeyEvent] = (),
+    ) -> str | None:
+        """Run reverse incremental history search.
+
+        Enter submits the selected match immediately.  Escape or Ctrl+G cancels
+        back to the original buffer.  Ctrl+C follows normal prompt interrupt
+        semantics by raising ``KeyboardInterrupt``.
+        """
+        original = buffer.text
+        query = ""
+        cycle_offset = 0
+        out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
+
+        def current_match() -> str | None:
+            matches = self._reverse_search_matches(history, query)
+            if not matches:
+                return None
+            return matches[min(cycle_offset, len(matches) - 1)]
+
+        match = current_match()
+        self._render_reverse_search(query, match, out_fd)
+
+        def process_event(event: KeyEvent) -> str | None:
+            nonlocal query, cycle_offset, match
+            if event.key is Key.PRINTABLE and event.text:
+                query += event.text
+                cycle_offset = 0
+            elif event.key is Key.BACKSPACE:
+                query = query[:-1]
+                cycle_offset = 0
+            elif event.key is Key.CTRL_R:
+                matches = self._reverse_search_matches(history, query)
+                if matches:
+                    cycle_offset = (cycle_offset + 1) % len(matches)
+            elif event.key is Key.ENTER:
+                match = current_match()
+                if match is None:
+                    buffer.set(original)
+                    self._write("\r\n", out_fd)
+                    return ""
+                buffer.set(match)
+                self._write("\r\n", out_fd)
+                return match
+            elif event.key is Key.CTRL_C:
+                buffer.set(original)
+                raise KeyboardInterrupt
+            elif event.key in {Key.ESC, Key.CTRL_G}:
+                buffer.set(original)
+                self._write("\r\n", out_fd)
+                return ""
+            else:
+                return None
+            match = current_match()
+            self._render_reverse_search(query, match, out_fd)
+            return None
+
+        for event in initial_events:
+            outcome = process_event(event)
+            if outcome is not None:
+                return outcome or None
+
+        if input_fd is None or decoder is None:
+            return None
+
+        while True:
+            data = os.read(input_fd, 512)
+            if not data:
+                raise EOFError
+            events = decoder.feed(data)
+            if data == b"\x1b":
+                ready, _, _ = select.select([input_fd], [], [], 0.005)
+                if not ready:
+                    events.extend(decoder.flush_pending())
+
+            for event in events:
+                outcome = process_event(event)
+                if outcome is not None:
+                    return outcome or None
+
     @staticmethod
-    def _reverse_search(buffer: LineBuffer, history: Sequence[str]) -> None:
-        needle = buffer.text
-        if not needle:
-            return
-        for entry in reversed(history):
-            if needle in entry:
-                buffer.set(entry)
-                return
+    def _reverse_search_matches(history: Sequence[str], query: str) -> list[str]:
+        """Return newest-first history entries matching ``query``."""
+        entries = [entry for entry in reversed(history) if entry]
+        if not query:
+            return entries
+        return [entry for entry in entries if query in entry]
+
+    def _render_reverse_search(self, query: str, match: str | None, out_fd: int) -> None:
+        """Render reverse-search state on the current terminal line.
+
+        Layout — query is placed LAST so the cursor lands after the query
+        text, making it visually clear that typing changes the query, not the
+        matched command.
+
+        Color format:
+          (reverse-i-search) match: <match>  |  query: <query>_
+        Plain format:
+          (reverse-i-search) match: <match> | query: <query>
+
+        The substring ``reverse-i-search`` is preserved in both modes so
+        existing test assertions that check for that literal remain valid.
+        """
+        shown_query = self._search_display_text(query)
+        shown_match = self._search_display_text(match) if match is not None else "<no match>"
+        if colors_enabled():
+            lbl   = f"{_SGR_SEARCH_LABEL}(reverse-i-search){_SGR_RESET}"
+            m_lbl = f"{_SGR_LABEL}match:{_SGR_RESET}"
+            sep   = f"  {_SGR_LABEL}|{_SGR_RESET}  "
+            q_lbl = f"{_SGR_LABEL}query:{_SGR_RESET}"
+            q_txt = f"{_SGR_SEARCH_QUERY}{shown_query}{_SGR_RESET}"
+            line  = f"\r\033[J{lbl} {m_lbl} {shown_match}{sep}{q_lbl} {q_txt}\033[K"
+        else:
+            line = (
+                f"\r\033[J(reverse-i-search) match: {shown_match}"
+                f" | query: {shown_query}\033[K"
+            )
+        self._write(line, out_fd)
+
+    @staticmethod
+    def _search_display_text(text: str | None) -> str:
+        """Return text safe for one-line terminal search display."""
+        if text is None:
+            return ""
+        visible: list[str] = []
+        for char in text:
+            code = ord(char)
+            if char == "\n":
+                visible.append("\\n")
+            elif char == "\r":
+                visible.append("\\r")
+            elif char == "\t":
+                visible.append("\\t")
+            elif code < 0x20 or code == 0x7F:
+                visible.append("?")
+            else:
+                visible.append(char)
+        return "".join(visible)
 
     def _complete(self, buffer: LineBuffer, completer: Completer) -> None:
         result = completer.raw_completion(buffer.text, buffer.cursor)

@@ -373,5 +373,5 @@ replacement for systemd.
 ## History
 
 Persistent history is written to `~/.pysh_history`. Length is capped at
-10,000 entries. When GNU readline is available, **Ctrl+R** opens
-Bash-like reverse incremental search.
+10,000 entries. **Ctrl+R** opens reverse incremental search in the raw editor
+and through GNU readline when the readline fallback editor is active.

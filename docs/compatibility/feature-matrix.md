@@ -243,7 +243,7 @@ shell feature area in PySH 0.6.x. Category definitions are in
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
 | History | Persistent history (`~/.pysh_history`) | Supported | Native | `tests/test_history.py` | — |
-| History | Ctrl+R incremental search (with readline) | Supported | Native | `tests/test_history.py` | — |
+| History | Ctrl+R incremental search | Supported | Native | `tests/test_multiline_paste.py`, `tests/test_history.py` | — |
 | History | Deduplication of consecutive entries | Supported | Native | `tests/test_history.py` | — |
 | History | `history` builtin / `fc` | Unsupported | Planned | — | — |
 

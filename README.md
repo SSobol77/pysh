@@ -61,8 +61,8 @@ validated primarily on **Debian 13** and Unix-like systems.
 ## Features
 
 - Interactive REPL with persistent history (`~/.pysh_history`).
-- Bash-like reverse incremental search bound to **Ctrl+R** when GNU readline
-  is available; degrades silently on other backends.
+- Bash-like reverse incremental search bound to **Ctrl+R** in the raw editor
+  and through GNU readline when that fallback editor is active.
 - Welcome banner and two-line configurable prompt with user, host, CWD, Git,
   tool version, virtualenv, and last-status segments.
 - Robust quote-aware parser:

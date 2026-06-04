@@ -29,8 +29,10 @@ pysh -V                     # short form
 ```
 
 `Ctrl+C` cancels the line being typed and keeps the shell alive.
-`Ctrl+D` exits the shell. When GNU readline is available, **Ctrl+R**
-opens Bash-like reverse incremental search.
+`Ctrl+D` exits the shell. **Ctrl+R** opens reverse incremental history search.
+In the raw editor, typing filters history, Backspace edits the query, Ctrl+R
+cycles to older matches, Enter submits the visible match, and Ctrl+C cancels
+back to a clean prompt.
 
 `--debug` and `--trace` are explicit diagnostics modes. They write
 `[PYSH_DEBUG]` trace lines to stderr, never to normal command stdout, and do

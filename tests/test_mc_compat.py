@@ -76,15 +76,15 @@ def test_mc_env_disables_raw_editor(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_no_mc_env_allows_raw_editor(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without MC environment vars the raw editor is enabled when TTY is available."""
+    """Without MC environment vars the raw editor is enabled when TTY and capable TERM are available."""
     for var in ("MC_TMPDIR", "MC_SID", "MC_CONTROL_FILE", "MC_CONTROL_FILE_NAME"):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
     shell = PyShell()
     import unittest.mock as mock
 
     with mock.patch.object(PyShell, "_stdio_is_tty", return_value=True):
-        with mock.patch("pysh.core.shell.colors_enabled", return_value=True):
-            assert shell._should_use_raw_editor()
+        assert shell._should_use_raw_editor()
 
 
 def test_mc_safe_prompt_leaves_cursor_after_prompt(monkeypatch: pytest.MonkeyPatch) -> None:

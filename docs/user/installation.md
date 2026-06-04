@@ -20,7 +20,8 @@ single console command, `pysh`, and can also be run as a module with
 
 - Python **3.13 or newer**.
 - A POSIX-like operating system (primary validation target is Debian 13).
-- A working `readline` (optional, but required for history and Ctrl+R).
+- A working `readline` is optional; PySH's raw editor provides native history
+  navigation and Ctrl+R reverse search on capable terminals.
 
 ## Install from PyPI
 
@@ -107,7 +108,7 @@ python3.13 -m pip uninstall pysh-shell
 
 - If `pysh: command not found` after install, ensure the Python user-bin
   directory (e.g. `~/.local/bin`) is on your `PATH`.
-- If readline-based features such as **Ctrl+R reverse search** do not work,
+- If readline-mode history search does not work when the raw editor is disabled,
   your interpreter may have been built against `libedit` instead of GNU
   readline. PySH degrades silently in that case; install a build with GNU
-  readline if you need Bash-like history search.
+  readline if you need Bash-like history search in readline fallback mode.
