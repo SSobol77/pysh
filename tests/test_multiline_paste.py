@@ -20,6 +20,7 @@ import time
 from types import SimpleNamespace
 
 from pysh.editor.lineedit.autosuggest import AutoSuggester
+from pysh.editor.lineedit.buffer import LineBuffer
 from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
 from pysh.editor.lineedit.keys import Key, KeyDecoder, KeyEvent
 from pysh.editor.lineedit.reader import QueuedCommand, RawLineReader
@@ -341,6 +342,76 @@ def test_read_line_enables_and_disables_bracketed_paste() -> None:
         if thread.is_alive():
             os.write(master, b"\x04")
             thread.join(timeout=1)
+        os.close(master)
+        os.close(slave)
+
+
+def test_bracketed_paste_waits_for_explicit_enter() -> None:
+    """Bracketed paste must edit the buffer, not execute on paste-end alone."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(input_fd=slave, output_fd=slave)
+    result: dict[str, str] = {}
+
+    def target() -> None:
+        result["line"] = reader.read_line(
+            "> ",
+            history=[],
+            suggester=AutoSuggester(),
+            highlighter=LineHighlighter(()),
+            scheme=DEFAULT_SCHEME,
+            options=_make_options(),
+        )
+
+    thread = threading.Thread(target=target)
+    try:
+        thread.start()
+        _read_until(master, b"\x1b[?2004h")
+        os.write(master, b"\x1b[200~echo SAFE\x1b[201~")
+        time.sleep(0.2)
+        assert thread.is_alive(), (
+            "Bracketed paste returned a command before explicit Enter; pasted "
+            "text must remain in the editable buffer until Enter is pressed."
+        )
+
+        os.write(master, b"\n")
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert result["line"] == "echo SAFE"
+    finally:
+        if thread.is_alive():
+            os.write(master, b"\x04")
+            thread.join(timeout=1)
+        os.close(master)
+        os.close(slave)
+
+
+def test_ctrl_r_opens_visible_reverse_search_mode() -> None:
+    """Ctrl+R on an empty prompt must display a reverse-search UI."""
+    master, slave = pty.openpty()
+    reader = RawLineReader(output_fd=slave)
+    buffer = LineBuffer()
+    try:
+        result = reader._handle_event(
+            KeyEvent(Key.CTRL_R),
+            "> ",
+            buffer,
+            ["echo old-command"],
+            AutoSuggester(),
+            LineHighlighter(()),
+            DEFAULT_SCHEME,
+            False,
+            _make_options(),
+            None,
+            None,
+            None,
+        )
+        output = _read_until(master, b"search", timeout=0.2)
+        assert not isinstance(result, str)
+        assert b"search" in output.lower(), (
+            "Ctrl+R did not render a visible reverse-search prompt.\n"
+            f"Raw PTY output: {output!r}"
+        )
+    finally:
         os.close(master)
         os.close(slave)
 

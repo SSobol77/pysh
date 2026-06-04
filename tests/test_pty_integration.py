@@ -464,3 +464,53 @@ def test_pty_command_builtin_resolves_pysh_and_cd() -> None:
         "command -V cd did not describe the cd builtin.\n"
         f"Raw PTY output:\n{output!r}"
     )
+
+
+def test_pty_heredoc_ctrl_c_resets_state() -> None:
+    """Ctrl+C during interactive heredoc must not replay body into the shell."""
+    output = _run_pty_session(
+        b"cat > /tmp/pysh-heredoc-regression.pysh <<'EOF'\n"
+        b"echo SHOULD_NOT_REPLAY\n"
+        b"\x03"
+        b"echo AFTER_CANCEL\n"
+        b"exit\n",
+        collect_timeout=4.0,
+    )
+    stripped = _strip_ansi(output)
+    assert b"AFTER_CANCEL" in stripped, (
+        "Shell did not recover to normal command mode after heredoc Ctrl+C.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+    assert b"SHOULD_NOT_REPLAY" not in stripped, (
+        "Heredoc body leaked or replayed into normal command execution after Ctrl+C.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+    assert stripped.count(b"heredoc>") <= 1, (
+        "Heredoc prompt/state persisted after cancellation.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+
+
+def test_pty_py_block_collects_body_once() -> None:
+    """Interactive py block must not replay the opener into its own body."""
+    output = _run_pty_session(
+        b"py {\n"
+        b"print('PY_BLOCK_OK')\n"
+        b"}\n"
+        b"echo AFTER_PY_BLOCK\n"
+        b"exit\n",
+        collect_timeout=4.0,
+    )
+    stripped = _strip_ansi(output)
+    assert b"PY_BLOCK_OK" in stripped, (
+        "Interactive py block body was not executed.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+    assert b"AFTER_PY_BLOCK" in stripped, (
+        "Shell did not return to normal command mode after py block.\n"
+        f"Raw PTY output:\n{output!r}"
+    )
+    assert b"nested py { ... } blocks are not supported" not in stripped, (
+        "The py block opener was replayed into the collected Python body.\n"
+        f"Raw PTY output:\n{output!r}"
+    )

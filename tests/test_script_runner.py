@@ -130,6 +130,18 @@ def test_run_script_no_shebang_runs_native_lines(tmp_path: Path) -> None:
     assert executed == ["ONE=1", "echo ok"]
 
 
+def test_run_script_without_filename_is_usage_error(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    shell = PyShell()
+
+    assert shell.execute("run_script") == 2
+
+    captured = capfd.readouterr()
+    assert captured.out == ""
+    assert captured.err == "run_script: filename argument required\n"
+
+
 def test_run_script_no_shebang_returns_last_status_by_default(tmp_path: Path) -> None:
     script = tmp_path / "pysh-script"
     script.write_text("false\nfinal\n", encoding="utf-8")

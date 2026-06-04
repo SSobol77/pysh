@@ -173,6 +173,39 @@ def test_stderr_redirection(shell: PyShell, in_tmp_cwd: Path) -> None:
     assert target.read_text().strip() == "err"
 
 
+def test_internal_command_not_found_stderr_redirection(
+    shell: PyShell,
+    in_tmp_cwd: Path,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """Internal diagnostics must honor command-level stderr redirection."""
+    target = in_tmp_cwd / "pysh-error.txt"
+
+    status = shell.execute(f"missing-command-xyz 2> {target}")
+
+    captured = capfd.readouterr()
+    assert status == 127
+    assert captured.err == ""
+    assert target.read_text(encoding="utf-8") == "pysh: missing-command-xyz: command not found\n"
+
+
+def test_internal_command_not_found_combined_redirection(
+    shell: PyShell,
+    in_tmp_cwd: Path,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """Combined redirection must capture PySH-owned stderr diagnostics."""
+    target = in_tmp_cwd / "pysh-all.txt"
+
+    status = shell.execute(f"missing-command-xyz &> {target}")
+
+    captured = capfd.readouterr()
+    assert status == 127
+    assert captured.out == ""
+    assert captured.err == ""
+    assert target.read_text(encoding="utf-8") == "pysh: missing-command-xyz: command not found\n"
+
+
 def test_variable_expansion_in_command(
     shell: PyShell, capfd: pytest.CaptureFixture[str]
 ) -> None:

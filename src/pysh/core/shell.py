@@ -187,6 +187,26 @@ def _tilde_expand_spec(spec: RedirectionSpec) -> RedirectionSpec:
     )
 
 
+def _write_execution_stderr(
+    message: str,
+    spec: RedirectionSpec,
+    *,
+    stdout_stream: IO[bytes] | None = None,
+    stderr_stream: IO[bytes] | None = None,
+) -> None:
+    """Write an in-process execution diagnostic through command redirection."""
+    data = f"{message}\n".encode()
+    if spec.stderr_to_stdout and stdout_stream is not None:
+        stdout_stream.write(data)
+        stdout_stream.flush()
+        return
+    if stderr_stream is not None:
+        stderr_stream.write(data)
+        stderr_stream.flush()
+        return
+    print(message, file=sys.stderr)
+
+
 class PyShell:
     """Python-first interactive shell with full Unix command support."""
 
@@ -732,12 +752,16 @@ class PyShell:
                     stdout_arg = subprocess.PIPE
 
                 stderr_arg: IO[bytes] | int | None
+                diagnostic_stdout: IO[bytes] | None = None
+                diagnostic_stderr: IO[bytes] | None = None
                 if spec.stderr_to_stdout:
                     stderr_arg = subprocess.STDOUT
+                    diagnostic_stdout = stdout_arg if hasattr(stdout_arg, "write") else None
                 elif spec.stderr_path:
                     f = open(spec.stderr_path, "ab" if spec.stderr_append else "wb")
                     opened.append(f)
                     stderr_arg = f
+                    diagnostic_stderr = f
                 else:
                     stderr_arg = None
 
@@ -776,7 +800,12 @@ class PyShell:
                         command=argv[0],
                         code=ExitCode.COMMAND_NOT_FOUND,
                     )
-                    print(f"pysh: {argv[0]}: command not found", file=sys.stderr)
+                    _write_execution_stderr(
+                        f"pysh: {argv[0]}: command not found",
+                        spec,
+                        stdout_stream=diagnostic_stdout,
+                        stderr_stream=diagnostic_stderr,
+                    )
                     if prev_out is not None:
                         prev_out.close()
                     for p in procs:
@@ -900,7 +929,12 @@ class PyShell:
                     command=argv[0],
                     code=ExitCode.COMMAND_NOT_FOUND,
                 )
-                print(f"pysh: {argv[0]}: command not found", file=sys.stderr)
+                _write_execution_stderr(
+                    f"pysh: {argv[0]}: command not found",
+                    spec,
+                    stdout_stream=stdout_f,
+                    stderr_stream=stderr_f,
+                )
                 return ExitCode.COMMAND_NOT_FOUND
             except PermissionError as exc:
                 self.trace.error(
