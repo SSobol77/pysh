@@ -16,7 +16,7 @@ This directory is the authoritative source for all PySH compatibility claims.
 
 ---
 
-## Current compatibility status (PySH 0.5.x)
+## Current compatibility status (PySH 0.6.x)
 
 | Target | Claim | Status |
 | ------ | ----- | ------ |
@@ -24,7 +24,7 @@ This directory is the authoritative source for all PySH compatibility claims.
 | zsh | PySH is **not** a zsh clone | Confirmed — see [zsh-scope.md](zsh-scope.md) |
 | bash | PySH is **not** bash | Confirmed — see [bash-scope.md](bash-scope.md) |
 | Interactive shell | PySH targets interactive use with documented constructs | Partial — see [feature-matrix.md](feature-matrix.md) |
-| Script interpreter | PySH targets documented `.pysh` scripts; full contract pending Issue #14 | Partial — see [feature-matrix.md](feature-matrix.md) |
+| Script interpreter | PySH targets documented `.pysh` scripts with the Script Mode v1 contract | Supported — see [feature-matrix.md](feature-matrix.md) |
 
 **Core principle:** all PySH compatibility claims are explicit, scoped, and
 test-backed. Aspirational claims are not permitted in this documentation.

@@ -13,7 +13,7 @@ Copyright (C) 2026 Siergej Sobolewski
 # Unsupported Constructs
 
 This document lists shell constructs that are not yet implemented natively in
-PySH 0.5.x, their current behavior when attempted, and the required user
+PySH 0.6.x, their current behavior when attempted, and the required user
 action.
 
 Constructs marked **Planned** have an owner issue and will be implemented.

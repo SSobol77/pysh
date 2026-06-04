@@ -14,8 +14,8 @@ Highlighting is **rendering-only**:
 * ANSI escape sequences are never written to files;
 * code passed to the Python runtime is always clean source text.
 
-Pygments is a normal runtime dependency for PySH v0.5.0 and later. A defensive
-plain-text fallback remains so terminal rendering can never crash the shell.
+Pygments is a normal runtime dependency for PySH. A defensive plain-text
+fallback remains so terminal rendering can never crash the shell.
 """
 from __future__ import annotations
 

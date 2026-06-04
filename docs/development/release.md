@@ -65,12 +65,12 @@ the `pypi` GitHub environment.
 
 1. Commit any pending documentation / metadata changes:
    ```bash
-   git add README.md pyproject.toml src tests docs .github/workflows/ci.yml
-   git commit -m "feat: add PySH script transition runner"
+   git add README.md CHANGELOG.md pyproject.toml src tests docs
+   git commit -m "chore(release): prepare vX.Y.Z"
    ```
 2. Create the version tag manually:
    ```bash
-   git tag vX.Y.Z
+   git tag -a vX.Y.Z -m "PySH vX.Y.Z"
    ```
 3. Push the branch and the tag:
    ```bash

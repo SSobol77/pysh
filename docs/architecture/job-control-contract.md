@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Job-Control Contract (Issue #11)
 
-This document defines the job-control model for PySH 0.5.x.
+This document defines the job-control model for PySH 0.6.x.
 All claims are backed by tests in `tests/test_job_control.py`.
 
 ---

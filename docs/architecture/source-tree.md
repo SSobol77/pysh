@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # PySH source-tree architecture
 
-This document describes the post-Issue #2 source tree of PySH 0.5.x.
+This document describes the post-Issue #2 source tree of PySH 0.6.x.
 Issue #2 relocated all runtime source from a flat `src/pysh/` layout into
 domain-oriented subpackages. This document records the resulting structure,
 each package's responsibility, the dependency direction, and the boundaries

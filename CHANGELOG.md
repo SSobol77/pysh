@@ -14,6 +14,43 @@ Copyright (C) 2026 Siergej Sobolewski
 
 All notable changes to PySH are documented in this file.
 
+## 0.6.0 - 2026-06-04
+
+- Added the parser, expansion and multiline grammar foundation:
+  - Quote-aware parser primitives now provide a stronger contract for command
+    chains, pipelines, continuations, unsupported syntax and parse errors.
+  - Expansion behavior is documented and tested for the supported PySH-native
+    subset.
+- Added native glob and path expansion:
+  - Tilde, relative path and glob expansion are handled inside PySH without
+    shell delegation.
+  - Dotfile and no-match behavior are documented and test-backed.
+- Added here-documents and here-strings for PySH command execution.
+- Added job control and process-group handling:
+  - Background execution, `jobs`, `fg` and `bg` are implemented for the
+    documented POSIX job-control subset.
+- Added Completion Engine v1:
+  - Completion covers builtins, aliases, PATH commands, filesystem paths,
+    variables and jobs.
+- Added observability and diagnostics:
+  - `--debug` and `--trace` emit structured stderr diagnostics.
+  - Diagnostic output applies redaction for sensitive values.
+- Added Script Mode v1:
+  - `pysh script.pysh [args...]` and `python -m pysh script.pysh [args...]`
+    execute explicit PySH-native scripts.
+  - Script mode supports positional parameters, heredocs, glob expansion,
+    Python blocks and deterministic exit-status behavior.
+- Migrated project licensing metadata and headers to GPL-2.0-only.
+- Reorganized architecture, compatibility, user and development documentation
+  around explicit contracts and validation evidence.
+
+### Compatibility boundary
+
+- PySH remains PySH-native.
+- PySH is not a POSIX `/bin/sh` replacement.
+- PySH is not zsh-compatible or bash-compatible.
+- Foreign-shell migration and delegation paths remain explicit and scoped.
+
 ## 0.5.0
 
 - Added Python-native `~/.pyshrc.py` generation on first launch.

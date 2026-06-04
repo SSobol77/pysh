@@ -53,7 +53,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current development baseline: **PySH 0.5.x**. PySH targets **Python 3.13+** and is
+Current release baseline: **PySH 0.6.x**. PySH targets **Python 3.13+** and is
 validated primarily on **Debian 13** and Unix-like systems.
 
 ---
@@ -70,6 +70,9 @@ validated primarily on **Debian 13** and Unix-like systems.
   - Splits pipelines on `|` only outside of quotes.
 - Pipelines with correctly managed file-descriptor handover.
 - Redirection: `<`, `>`, `>>`, `2>`, `2>>`, `&>`, `&>>`.
+- Native glob and path expansion for documented unquoted path words.
+- Here-documents and here-strings for command input.
+- Job control foundation with background execution, `jobs`, `fg`, and `bg`.
 - **Command substitution**: `$(command)` and `` `command` ``. Quote-aware:
   evaluated inside double quotes, suppressed inside single quotes.
   Bounded by a 5-second timeout by default.
@@ -93,6 +96,8 @@ validated primarily on **Debian 13** and Unix-like systems.
   `python -m pysh script.pysh [args...]` execute explicit local PySH scripts
   with `$0`, `$1`, `$#`, `$@`, heredocs, glob expansion and `py { ... }`
   blocks. PySH scripts are not POSIX sh scripts.
+- **Observability and diagnostics**: `--debug` and `--trace` emit structured,
+  redacted stderr diagnostics without changing command stdout.
 - **Debian/system profile helpers**: `sys_info`, `env_audit`, `path_audit`,
   `which_all`, `apt_check`, `apt_search` — non-mutating, never call `sudo`.
 - **Command planning**: `plan <command...>` previews how PySH would classify

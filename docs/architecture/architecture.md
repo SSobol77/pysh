@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # PySH Architecture Contracts
 
-This document is the architecture contract for PySH 0.5.x, established by
+This document is the architecture contract for PySH 0.6.x, established by
 GitHub Issue #3. It describes package responsibilities, dependency direction,
 the contract protocol layer, boundary rules, known violations, and shim
 lifecycle policy.

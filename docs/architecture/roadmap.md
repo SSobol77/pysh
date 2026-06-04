@@ -34,9 +34,16 @@ vehicle for feature changes unless the issue explicitly authorizes them.
 
 ## Current Baseline
 
-The v0.5.x stabilization baseline includes:
+The v0.6.x release baseline includes:
 
 - core interactive `PyShell` runtime,
+- parser, expansion and multiline grammar foundation,
+- native glob and path expansion,
+- here-documents and here-strings,
+- job control and process groups,
+- Completion Engine v1,
+- observability and diagnostics,
+- Script Mode v1,
 - Python command execution layer,
 - raw line editor with prompt rendering, autosuggest, syntax highlighting,
   plain paste, bracketed paste and compact paste replay,
@@ -148,7 +155,7 @@ verification.
 
 Goal: make the source tree reflect the architecture without changing behavior.
 
-Depends on: current v0.5.x baseline.
+Depends on: the original pre-refactor baseline.
 
 Scope:
 

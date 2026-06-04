@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Signal-Handling Architecture (Issue #6)
 
-This document defines the signal-handling contract for PySH version 0.5.x.
+This document defines the signal-handling contract for PySH version 0.6.x.
 It covers the three current execution contexts and the future job-control
 scaffold. All claims are backed by tests in `tests/test_signal_handling.py`.
 

@@ -80,7 +80,7 @@ Every PySH feature or shell construct falls into exactly one category:
 
 ## Scope boundaries
 
-### Native scope (PySH 0.5.x)
+### Native scope (PySH 0.6.x)
 
 PySH implements the following natively:
 
@@ -98,8 +98,13 @@ PySH implements the following natively:
 - Aliases (definition, expansion, `unalias`).
 - Directory stack (`pushd`, `popd`, `dirs`).
 - History (persistent, `~/.pysh_history`, Ctrl+R when readline available).
-- Tab completion (aliases, builtins, filesystem paths).
+- Tab completion (aliases, builtins, PATH commands, filesystem paths,
+  variables, and jobs).
 - Python execution (`py`, `py { ... }`, `#py` interactive mode).
+- Native glob and path expansion.
+- Here-documents and here-strings.
+- Job control (`jobs`, `fg`, `bg`, background execution).
+- Script Mode v1 (`pysh script.pysh [args...]`) for PySH-native scripts.
 - Startup files (`~/.pyshrc`, `~/.pyshrc.d/*.pysh` plugins).
 - Multiline paste (bracketed paste, compact paste replay).
 - Raw-mode line editor with live syntax highlighting and autosuggestion.
@@ -125,9 +130,8 @@ PySH delegates the following explicitly:
 
 ### Out of scope (Unsupported / Planned)
 
-The following are not natively implemented in PySH 0.5.x:
+The following are not natively implemented in PySH 0.6.x:
 
-- Job control — planned in Issue #11.
 - Shell functions.
 - Shell arrays.
 - Arithmetic expansion (`$((expr))`).

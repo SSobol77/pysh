@@ -13,7 +13,7 @@ Copyright (C) 2026 Siergej Sobolewski
 # Path and Glob Expansion Contract (Issue #9)
 
 This document defines the native path and glob expansion contract for
-PySH 0.5.x.  All claims are backed by tests in `tests/test_path_expansion.py`.
+PySH 0.6.x.  All claims are backed by tests in `tests/test_path_expansion.py`.
 
 ---
 
