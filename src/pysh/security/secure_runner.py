@@ -13,10 +13,12 @@ expose password length.
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import pty
 import select
 import signal
+import subprocess
 import sys
 import termios
 import time
@@ -25,6 +27,9 @@ from dataclasses import dataclass
 from typing import IO
 
 from pysh.prompt.colors import colorize, parse_color
+
+_HELPER_ENV = "PYSH_SECURE_RUNNER_HELPER"
+_HELPER_CONFIG_ENV = "PYSH_SECURE_RUNNER_CONFIG"
 
 
 @dataclass(frozen=True)
@@ -164,17 +169,27 @@ class SecureRunner:
         output_fd: int | None = None,
         env: dict[str, str] | None = None,
         blink_delay: float = 0.03,
+        _direct_fork: bool = False,
+        _colors_override: bool | None = None,
     ) -> None:
         self.config = config
         self.input_fd = input_fd
         self.output_fd = output_fd
         self.env = env
         self.blink_delay = blink_delay
+        self._direct_fork = _direct_fork
+        self._colors_override = _colors_override
 
     def run(self, argv: list[str]) -> int:
         """Run ``argv`` behind a PTY and return the child exit status."""
         if not argv:
             return 2
+        if not self._direct_fork and os.environ.get(_HELPER_ENV) != "1":
+            return self._run_via_helper(argv)
+        return self._run_direct(argv)
+
+    def _run_via_helper(self, argv: list[str]) -> int:
+        """Run the PTY bridge in a helper process to isolate fork from PySH."""
         fallback_input: IO[bytes] | None = None
         if self.input_fd is not None:
             in_fd = self.input_fd
@@ -185,7 +200,58 @@ class SecureRunner:
                 fallback_input = open(os.devnull, "rb")
                 in_fd = fallback_input.fileno()
         out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
-        colors = colors_enabled_for_fd(out_fd, self.env)
+        helper_env = dict(os.environ)
+        helper_env[_HELPER_ENV] = "1"
+        helper_env[_HELPER_CONFIG_ENV] = json.dumps(
+            {
+                "config": {
+                    "enabled": self.config.enabled,
+                    "symbol": self.config.symbol,
+                    "idle_color": self.config.idle_color,
+                    "active_color": self.config.active_color,
+                    "mode": self.config.mode,
+                    "slots": self.config.slots,
+                    "vga": self.config.vga,
+                },
+                "input_fd": in_fd,
+                "output_fd": out_fd,
+                "blink_delay": self.blink_delay,
+                "colors": colors_enabled_for_fd(out_fd, self.env),
+                "env": self.env,
+            },
+        )
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "pysh.security.secure_runner", "--", *argv],
+                env=helper_env,
+                pass_fds=(in_fd, out_fd),
+                close_fds=True,
+            )
+            try:
+                return proc.wait()
+            except KeyboardInterrupt:
+                proc.send_signal(signal.SIGINT)
+                return proc.wait()
+        finally:
+            if fallback_input is not None:
+                fallback_input.close()
+
+    def _run_direct(self, argv: list[str]) -> int:
+        fallback_input: IO[bytes] | None = None
+        if self.input_fd is not None:
+            in_fd = self.input_fd
+        else:
+            try:
+                in_fd = sys.stdin.fileno()
+            except (AttributeError, OSError):
+                fallback_input = open(os.devnull, "rb")
+                in_fd = fallback_input.fileno()
+        out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
+        colors = (
+            self._colors_override
+            if self._colors_override is not None
+            else colors_enabled_for_fd(out_fd, self.env)
+        )
         indicator = KeypressIndicator(self.config, colors=colors)
         master_fd, slave_fd = pty.openpty()
         pid = os.fork()
@@ -418,3 +484,48 @@ class SecureRunner:
     def _write_text(fd: int, text: str) -> None:
         if text:
             os.write(fd, text.encode("utf-8", errors="replace"))
+
+
+def _run_helper(argv: list[str]) -> int:
+    """Entry point used by the isolated secure-runner helper subprocess."""
+    try:
+        raw = os.environ[_HELPER_CONFIG_ENV]
+        payload = json.loads(raw)
+        config_values = payload["config"]
+        config = SensitiveIndicatorConfig(
+            enabled=bool(config_values["enabled"]),
+            symbol=str(config_values["symbol"]),
+            idle_color=str(config_values["idle_color"]),
+            active_color=str(config_values["active_color"]),
+            mode=str(config_values["mode"]),
+            slots=int(config_values["slots"]),
+            vga=bool(config_values["vga"]),
+        )
+        runner = SecureRunner(
+            config,
+            input_fd=int(payload["input_fd"]),
+            output_fd=int(payload["output_fd"]),
+            env=payload.get("env"),
+            blink_delay=float(payload["blink_delay"]),
+            _direct_fork=True,
+            _colors_override=bool(payload["colors"]),
+        )
+        return runner.run(argv)
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        print("secure: helper configuration error", file=sys.stderr)
+        return 126
+
+
+def main() -> int:
+    """Run the secure-runner helper process."""
+    args = sys.argv[1:]
+    if args and args[0] == "--":
+        args = args[1:]
+    if os.environ.get(_HELPER_ENV) != "1":
+        print("secure: helper mode required", file=sys.stderr)
+        return 126
+    return _run_helper(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

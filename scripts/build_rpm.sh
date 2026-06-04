@@ -41,7 +41,10 @@ mkdir -p \
     "${BUILD_ROOT}/SPECS" \
     "${BUILD_ROOT}/BUILD" \
     "${BUILD_ROOT}/RPMS" \
-    "${BUILD_ROOT}/SRPMS"
+    "${BUILD_ROOT}/SRPMS" \
+    "${BUILD_ROOT}/rpmdb"
+
+RPM_DB="${BUILD_ROOT}/rpmdb"
 
 SRC_STAGE="$(mktemp -d -t pysh-rpm-src.XXXXXXXX)"
 trap 'rm -rf "${BUILD_ROOT}" "${SRC_STAGE}"' EXIT
@@ -70,6 +73,7 @@ mkdir -p "${OUT_DIR}"
 
 rpmbuild \
     --define "_topdir ${BUILD_ROOT}" \
+    --define "_dbpath ${RPM_DB}" \
     --define "pysh_version ${VERSION}" \
     --define "dist %{nil}" \
     -bb "${BUILD_ROOT}/SPECS/${PKG_NAME}.spec"
@@ -96,8 +100,8 @@ done
 
 if command -v rpm >/dev/null 2>&1; then
     echo "==> Validating ${EXPECTED_PATH}"
-    rpm -qip "${EXPECTED_PATH}"
-    rpm -qlp "${EXPECTED_PATH}"
+    rpm --dbpath "${RPM_DB}" -qip "${EXPECTED_PATH}"
+    rpm --dbpath "${RPM_DB}" -qlp "${EXPECTED_PATH}"
 else
     echo "build_rpm.sh: rpm CLI not found; skipping rpm -qip/-qlp validation." >&2
 fi

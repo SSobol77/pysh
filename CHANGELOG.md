@@ -43,6 +43,12 @@ Fixed:
   editor. Queries and matches are visibly separated, Enter executes the selected
   match, Ctrl+C cancels cleanly and pending staged paste blocks reverse search
   until the paste is run or cancelled.
+- Secure runner PTY execution now isolates the direct fork/PTY bridge in a
+  helper process, removing the Python 3.13 multi-threaded `os.fork()`
+  deprecation warning from the release test gate while preserving terminal-state
+  restoration and secure input behavior.
+- RPM build validation now uses a temporary private rpmdb path, avoiding host
+  `/var/lib/rpm` permission diagnostics during local release builds.
 
 Terminal UX hardening:
 
@@ -56,13 +62,9 @@ Terminal UX hardening:
 Validation:
 
 - `uv run ruff check src tests` passed.
-- Full pytest passed: `1513 passed, 2 skipped, 3 warnings`.
-
-Known non-blocking warning:
-
-- `tests/test_secure_runner.py` still emits a Python 3.13
-  `DeprecationWarning` for `os.fork()` from a multi-threaded pytest process.
-  This is tracked for later secure-runner hardening and does not block v0.6.1.
+- `PYTHONWARNINGS=error::DeprecationWarning uv run pytest -q tests/test_secure_runner.py`
+  passed.
+- Full pytest passed: `1513 passed, 2 skipped`.
 
 ## 0.6.0 - 2026-06-04
 
