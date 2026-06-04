@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pysh-shell"
-version = "0.6.0"
+version = "0.6.1"
 description = "PySH — fast, Python-first universal interactive shell for Debian and Unix-like systems."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -56,7 +56,7 @@ pythonpath = ["src"]
 packages = ["src/pysh"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/tests", "/README.md", "/LICENSE", "/pyproject.toml"]
+include = ["/src", "/tests", "/README.md", "/CHANGELOG.md", "/LICENSE", "/pyproject.toml"]
 
 [dependency-groups]
 dev = [

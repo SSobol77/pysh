@@ -14,6 +14,56 @@ Copyright (C) 2026 Siergej Sobolewski
 
 All notable changes to PySH are documented in this file.
 
+## 0.6.1 - 2026-06-04
+
+Release type: bugfix and terminal UX hardening.
+
+Compatibility:
+
+- No external runtime dependency was added for this bugfix release.
+- PySH remains a Python-first shell with the existing documented compatibility
+  boundaries.
+
+Fixed:
+
+- BUG #1: internal command-not-found diagnostics now respect command-level
+  stderr and combined-output redirection, including `2>`, `2>>`, `&>` and
+  `&>>`.
+- BUG #2: interactive heredoc cancellation no longer leaks or replays stale
+  delimiter/body state; Ctrl+C returns to a clean prompt and `exit` works after
+  cancellation.
+- BUG #3: interactive `py { ... }` block collection executes the block once,
+  without replaying body lines as shell commands.
+- BUG #4: bracketed multiline paste is staged safely. Paste capture shows a
+  numbered preview, Enter explicitly runs the staged payload, Ctrl+C cancels it,
+  and `paste_show`, `paste_run` and `paste_cancel` manage the pending payload.
+  Python block paste and heredoc paste execute through the native PySH
+  script/logical-line path after explicit confirmation.
+- BUG #5: Ctrl+R reverse history search is visible and usable in the raw line
+  editor. Queries and matches are visibly separated, Enter executes the selected
+  match, Ctrl+C cancels cleanly and pending staged paste blocks reverse search
+  until the paste is run or cancelled.
+
+Terminal UX hardening:
+
+- Paste preview, paste-run preview, reverse-search UI, hints, warnings and
+  prompt state were made more readable.
+- Unsafe ANSI color combinations that could render black or invisible glyphs
+  were removed from terminal UI paths.
+- `NO_COLOR=1` and `PYSH_NO_COLOR=1` disable ANSI colors only; they do not
+  disable raw-editor safety behavior or bracketed-paste protection.
+
+Validation:
+
+- `uv run ruff check src tests` passed.
+- Full pytest passed: `1513 passed, 2 skipped, 3 warnings`.
+
+Known non-blocking warning:
+
+- `tests/test_secure_runner.py` still emits a Python 3.13
+  `DeprecationWarning` for `os.fork()` from a multi-threaded pytest process.
+  This is tracked for later secure-runner hardening and does not block v0.6.1.
+
 ## 0.6.0 - 2026-06-04
 
 - Added the parser, expansion and multiline grammar foundation:
