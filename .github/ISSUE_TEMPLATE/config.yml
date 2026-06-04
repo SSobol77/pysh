@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: "PySH Documentation"
+    url: "https://github.com/SSobol77/pysh"
+    about: "Read the PySH documentation, installation notes, and usage examples."
+
+  - name: "Security-sensitive report"
+    url: "https://github.com/SSobol77/pysh/security/advisories/new"
+    about: "Report security-sensitive issues privately using GitHub Security Advisories."
+    

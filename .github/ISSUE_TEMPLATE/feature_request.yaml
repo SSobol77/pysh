@@ -1,0 +1,157 @@
+name: "🚀 Feature Request"
+description: "Suggest a new PySH feature or improvement."
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an improvement for PySH.
+
+        Please describe the problem, the proposed behavior, and the expected user experience.
+        PySH is a Python-first shell, so compatibility, safety, and interactive UX matter.
+
+  - type: checkboxes
+    id: existing_issue
+    attributes:
+      label: "Is there an existing issue for this?"
+      description: "Please search existing issues before opening a new feature request."
+      options:
+        - label: "I searched the existing issues and did not find a duplicate."
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem"
+      description: "Describe the problem or limitation this feature would solve."
+      placeholder: |
+        Example:
+        When TAB completion shows multiple candidates, the prompt is visually confusing
+        because candidates, hints, and typed input have the same color.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: "Proposed Solution"
+      description: "Describe the behavior you want PySH to implement."
+      placeholder: |
+        Example:
+        Add a visually separated completion menu with clear colors for:
+        - prompt
+        - typed input
+        - completion candidates
+        - hints
+        - diagnostics
+    validations:
+      required: true
+
+  - type: dropdown
+    id: feature_area
+    attributes:
+      label: "Feature Area"
+      description: "Select the main PySH area affected by this request."
+      multiple: true
+      options:
+        - "Interactive line editor"
+        - "Prompt design"
+        - "TAB completion"
+        - "History"
+        - "Ctrl+R reverse search"
+        - "Paste safety"
+        - "Heredoc / multiline input"
+        - "Python execution mode"
+        - "Builtins"
+        - "Aliases"
+        - "Configuration / .pyshrc"
+        - "Plugin system"
+        - "Packaging"
+        - "Documentation"
+        - "Security"
+        - "Performance"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: compatibility_target
+    attributes:
+      label: "Compatibility Target"
+      description: "Should this feature follow another shell or be PySH-native?"
+      multiple: true
+      options:
+        - "PySH-native behavior"
+        - "Bash-compatible behavior"
+        - "Zsh-compatible behavior"
+        - "POSIX-like behavior"
+        - "Python-first behavior"
+        - "Not sure"
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives Considered"
+      description: "Describe other approaches you considered."
+      placeholder: |
+        Example:
+        An alternative is to keep plain candidate listing, but that does not solve
+        the readability problem in long terminal sessions.
+    validations:
+      required: false
+
+  - type: textarea
+    id: safety_ux_impact
+    attributes:
+      label: "Safety and UX Impact"
+      description: |
+        Explain whether this feature affects command safety, interactive editing,
+        terminal rendering, paste behavior, or user trust.
+      placeholder: |
+        Example:
+        This improves safety because pasted commands remain visible and editable
+        before execution. It also reduces confusion during multiline input.
+    validations:
+      required: false
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: "Examples"
+      description: "Show examples of desired syntax, terminal behavior, or command output."
+      placeholder: |
+        Example desired behavior:
+
+        ```text
+        > ec<TAB>
+
+        Candidates:
+          echo
+          ecli
+
+        > ec█
+        ```
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: "Additional Context"
+      description: |
+        Add screenshots, references, terminal recordings, or related issues.
+
+        Tip: You can attach images or log files by clicking this area and dragging files into it.
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        Good feature requests explain the user problem first, then the technical solution.
+        

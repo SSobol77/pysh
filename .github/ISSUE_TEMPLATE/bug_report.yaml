@@ -1,0 +1,176 @@
+name: "🐞 Bug Report"
+description: "Report a reproducible PySH bug."
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a PySH bug.
+
+        Please provide as much technical detail as possible. PySH is an interactive shell,
+        so terminal, TTY, Python version, installation method, and exact reproduction
+        steps are very important.
+
+  - type: checkboxes
+    id: existing_issue
+    attributes:
+      label: "Is there an existing issue for this?"
+      description: "Please search existing issues before opening a new bug report."
+      options:
+        - label: "I searched the existing issues and did not find a duplicate."
+          required: true
+
+  - type: textarea
+    id: current_behavior
+    attributes:
+      label: "Current Behavior"
+      description: "Describe what PySH currently does."
+      placeholder: |
+        Example:
+        When I paste a command into the PySH prompt, it executes immediately without pressing Enter.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: "Expected Behavior"
+      description: "Describe what you expected PySH to do."
+      placeholder: |
+        Example:
+        Pasted text should only be inserted into the editable prompt buffer.
+        The command should run only after I explicitly press Enter.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps_to_reproduce
+    attributes:
+      label: "Steps to Reproduce"
+      description: "Write exact commands and key presses needed to reproduce the bug."
+      placeholder: |
+        1. Install PySH version 0.6.0 from the .deb package.
+        2. Run:
+           pysh
+        3. Paste:
+           echo hello
+        4. Observe that the command runs immediately without pressing Enter.
+      render: markdown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected_area
+    attributes:
+      label: "Affected Area"
+      description: "Select the main PySH subsystem affected by this bug."
+      multiple: true
+      options:
+        - "Interactive line editor"
+        - "Prompt rendering"
+        - "TAB completion"
+        - "History navigation"
+        - "Ctrl+R reverse search"
+        - "Ctrl+C / interrupt handling"
+        - "Ctrl+D / EOF handling"
+        - "Paste handling"
+        - "Heredoc / multiline input"
+        - "Redirection"
+        - "Pipelines"
+        - "Builtins"
+        - "Python execution mode"
+        - "Configuration / .pyshrc"
+        - "Packaging"
+        - "Documentation"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: "Diagnostics"
+      description: |
+        Please paste the output of the following commands.
+
+        These commands help us identify the PySH version, Python version,
+        operating system, terminal type, and installation context.
+
+        Run them from your normal terminal, not from inside PySH if PySH cannot start.
+      value: |
+        ```bash
+        pysh --version
+        python -m pysh --version
+        python --version
+        which pysh
+        uname -a
+        cat /etc/os-release
+        echo "$SHELL"
+        echo "$TERM"
+        locale
+        ```
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: debug_logs
+    attributes:
+      label: "Debug Logs or Terminal Output"
+      description: |
+        Paste the relevant terminal output here.
+
+        If the bug is related to interactive behavior, please include the full visible
+        terminal session from starting PySH until the bug appears.
+
+        Before posting logs publicly, remove private information such as usernames,
+        paths, tokens, SSH hosts, API keys, or business-sensitive data.
+      value: |
+        <details>
+          <summary>Expand logs</summary>
+
+          ```text
+          REPLACE THIS LINE WITH TERMINAL OUTPUT.
+          ```
+
+        </details>
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: "Environment"
+      description: "Provide environment details if they are not already visible in diagnostics."
+      placeholder: |
+        PySH version: 0.6.0
+        Installation method: .deb / PyPI / source / uv / other
+        Operating system: Debian 13
+        Python version: 3.13.5
+        Terminal emulator: GNOME Terminal / Konsole / Alacritty / TTY / SSH / other
+        Shell used to launch PySH: bash / zsh / fish / other
+        Virtual environment active: yes / no
+        Package manager: apt / pip / uv / other
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: "Additional Context"
+      description: |
+        Add screenshots, screen recordings, files, logs, or any other context.
+
+        Tip: You can attach images or log files by clicking this area and dragging files into it.
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        Please keep the report precise and reproducible. Bugs with exact commands,
+        terminal output, and environment details are much easier to fix.
