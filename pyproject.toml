@@ -14,7 +14,10 @@ readme = "README.md"
 requires-python = ">=3.13"
 license = "GPL-2.0-only"
 authors = [{ name = "Siergej Sobolewski" }]
-dependencies = ["pygments>=2.0"]
+dependencies = [
+    "pygments>=2.0",
+    "pyyaml>=6.0.3",
+]
 keywords = ["shell", "python", "terminal", "cli", "debian"]
 classifiers = [
     "Development Status :: 3 - Alpha",
