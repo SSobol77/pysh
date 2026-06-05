@@ -18,6 +18,12 @@ PySH publishes three artifact families per release:
 2. **Debian `.deb`** — attached to the matching GitHub Release.
 3. **Red Hat / Fedora `.rpm`** — attached to the matching GitHub Release.
 
+A PySH release is incomplete unless all current mandatory artifact families
+are built and validated: PyPI wheel + sdist, Debian `.deb`, and RPM `.rpm`.
+The release quality gate must fail rather than skip `.deb` or `.rpm`
+validation when local packaging tools are missing. FreeBSD `.pkg` support is
+deferred to Issue #18 and is not part of the current mandatory release gate.
+
 > The `.deb` and `.rpm` packages are **GitHub Release artifacts**. They
 > are **not** yet published to official Debian, Ubuntu, Fedora or
 > RHEL/EPEL repositories.
@@ -111,6 +117,22 @@ only) so the packages are architecture-independent
 
 ## Local packaging commands
 
+Run the release quality gate before final release validation:
+
+```bash
+scripts/check_release_quality.sh
+```
+
+The gate runs linting, tests, header checks, whitespace checks, mandatory
+release artifact builds, `twine check`, package metadata inspection,
+wheel/sdist hygiene checks, `.deb` / `.rpm` filename checks, checksum checks,
+OS package content checks for `/usr/bin/pysh` and
+`/opt/pysh-shell/lib/pysh/`, documentation link checks, and a clean temporary
+virtualenv install smoke test. It does not publish artifacts, upload files,
+create tags, create GitHub releases or require credentials. FreeBSD `.pkg`
+validation is intentionally performed after this gate in Issue #18, against
+the final packaging/release state.
+
 Build every artifact locally and verify naming + sha256 sums:
 
 ```bash
@@ -154,3 +176,15 @@ contract. The contract is enforced by:
 - `scripts/build_rpm.sh` — fails on `.rpm` filename drift.
 - `scripts/check_release_artifacts.sh` — fails when any expected
   artifact is missing or any sibling artifact filename drifts.
+- `scripts/check_release_quality.sh` — verifies mandatory release artifacts,
+  metadata, artifact hygiene, documentation consistency and install smoke
+  behavior before release.
+
+## System shell packaging policy
+
+PySH packages install the explicit `pysh` command only. Packaging must not
+replace `/bin/sh`, divert `/bin/sh`, register PySH as a POSIX sh provider,
+rewrite system scripts to PySH or configure package-manager hooks to run under
+PySH. System scripts must continue to use the distribution's real system
+shell. See
+[system-shell-integration-policy.md](../compatibility/system-shell-integration-policy.md).

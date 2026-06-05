@@ -14,6 +14,63 @@ Copyright (C) 2026 Siergej Sobolewski
 
 All notable changes to PySH are documented in this file.
 
+## 0.7.0 - 2026-06-05
+
+Release type: feature release — migration analysis, zsh transition hardening,
+system shell integration policy, and packaging release quality gate.
+
+### Python script migration analysis layer
+
+- Added `migrate FILE` and `migrate --text TEXT` builtins.
+- Static, non-executing shell-script analysis: detects shebangs, assignments,
+  exports, pipelines, redirections, command substitution, simple conditionals,
+  simple loops, heredocs and unsafe `eval`/`exec` patterns.
+- Severity-based migration report with `info`, `warning`, `unsafe` and
+  `unsupported` finding categories.
+- `migrate` does not execute, source, expand or automatically convert analyzed
+  shell content.
+
+### Zsh transition hardening
+
+- Unsupported zsh syntax diagnostics: reports constructs PySH cannot execute.
+- Source-file rejection: the plain `source` builtin now rejects
+  `.zshrc`, `.zprofile`, `.zshenv`, `.zlogin`, and `.zlogout` startup files
+  with explicit guidance to use the safe static importer or PySH-native
+  configuration instead.
+- `.pyshrc` is the canonical PySH configuration file. Zsh startup files are
+  not sourced automatically by PySH.
+
+### System shell integration policy
+
+- Documented and enforced: PySH is not `/bin/sh` and must not replace the
+  distribution system shell.
+- `sh`, `dash`, `ash`, and `busybox sh` invocation diagnostics: PySH detects
+  and reports when the user attempts to invoke PySH as a POSIX system shell.
+- No system shell replacement policy: packages must not divert `/bin/sh` or
+  register PySH as a POSIX sh provider.
+
+### Packaging release quality gate
+
+- Mandatory release artifacts: PyPI wheel + sdist, Debian `.deb`, RPM `.rpm`,
+  and `SHA256SUMS`. A release is incomplete unless all four artifact families
+  are built and validated.
+- Package metadata checks: name, version, license, description, entry points,
+  Python requirement.
+- Artifact hygiene checks: wheel and sdist must not include `.git/`, `.venv/`,
+  `__pycache__/` or other development-time directories.
+- OS package content checks: both `.deb` and `.rpm` must contain
+  `/usr/bin/pysh` and `/opt/pysh-shell/lib/pysh`.
+- Clean temporary venv install smoke: wheel is installed into an isolated venv
+  and `pysh --version` / `pysh -c "echo release-smoke"` are executed.
+- SHA256SUMS coverage check: all four artifact families must have checksum lines.
+- FreeBSD `.pkg` support remains deferred to Issue #18.
+
+Validation:
+
+- `uv run ruff check src tests` passed.
+- `uv run pytest -q` passed.
+- `scripts/check_release_quality.sh` passed.
+
 ## 0.6.1 - 2026-06-04
 
 Release type: bugfix and terminal UX hardening.

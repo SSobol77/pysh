@@ -53,7 +53,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current release baseline: **PySH 0.6.x**. PySH targets **Python 3.13+** and is
+Current release: **PySH 0.7.0**. PySH targets **Python 3.13+** and is
 validated primarily on **Debian 13** and Unix-like systems.
 
 ---
@@ -180,6 +180,7 @@ py import platform; print(platform.platform())
 uv sync
 uv run pytest -q
 uv run ruff check src tests
+scripts/check_release_quality.sh
 
 # Classic venv alternative
 python3.13 -m venv .venv

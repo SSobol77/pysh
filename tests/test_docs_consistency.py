@@ -71,6 +71,60 @@ def test_root_readme_uses_github_urls_for_docs_links() -> None:
     )
 
 
+def test_release_quality_gate_is_documented_and_executable() -> None:
+    """The local release quality gate must be present, executable and documented."""
+    script = REPO_ROOT / "scripts" / "check_release_quality.sh"
+    assert script.exists()
+    assert script.stat().st_mode & 0o111
+    text = script.read_text(encoding="utf-8")
+    assert "SPDX-License-Identifier: GPL-2.0-only" in text
+    assert "Copyright (C) 2026 Siergej Sobolewski" in text
+
+    release_doc = (DOCS / "development" / "release.md").read_text(encoding="utf-8")
+    packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
+    assert "scripts/check_release_quality.sh" in release_doc
+    assert "scripts/check_release_quality.sh" in packaging_doc
+
+
+def test_release_quality_gate_enforces_mandatory_artifact_families() -> None:
+    """The release quality gate must require PyPI, Debian and RPM artifacts."""
+    script = REPO_ROOT / "scripts" / "check_release_quality.sh"
+    text = script.read_text(encoding="utf-8")
+
+    assert "scripts/build_release_artifacts.sh" in text
+    assert "scripts/check_release_artifacts.sh" in text
+    assert "dist/*.whl" in text
+    assert "dist/*.tar.gz" in text
+    assert "dist/os/deb/pysh-shell_*-1_all.deb" in text
+    assert "dist/os/rpm/pysh-shell-*-1.noarch.rpm" in text
+    assert "dist/SHA256SUMS" in text
+
+
+def test_release_quality_gate_enforces_os_package_contents() -> None:
+    """The release quality gate must inspect mandatory OS package contents."""
+    script = REPO_ROOT / "scripts" / "check_release_quality.sh"
+    text = script.read_text(encoding="utf-8")
+
+    assert "dpkg-deb --contents" in text
+    assert "rpm -qpl" in text
+    assert "/usr/bin/pysh" in text
+    assert "/opt/pysh-shell/lib/pysh" in text
+    assert "missing required path" in text
+
+
+def test_release_docs_state_current_mandatory_artifact_policy() -> None:
+    """Release docs must not treat OS package artifacts as optional."""
+    packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
+    release_doc = (DOCS / "development" / "release.md").read_text(encoding="utf-8")
+
+    for text in (packaging_doc, release_doc):
+        assert "PyPI wheel + sdist" in text
+        assert "Debian `.deb`" in text
+        assert "RPM `.rpm`" in text
+        assert "FreeBSD `.pkg`" in text
+        assert "Issue #18" in text
+
+
 def test_public_docs_do_not_link_to_agent_instruction_files() -> None:
     """Public docs must not link to ignored or untracked agent/rules files."""
     violations: list[str] = []
@@ -199,3 +253,100 @@ def test_no_affirmative_broad_compatibility_claims_in_public_docs() -> None:
         "Avoid broad compatibility phrases even in explanatory prose; use scoped wording:\n"
         + "\n".join(f"  - {item}" for item in violations)
     )
+
+
+# ---------------------------------------------------------------------------
+# Version gate tests — prevent stale release metadata from surviving a bump
+# ---------------------------------------------------------------------------
+
+CURRENT_VERSION = "0.7.0"
+PYPROJECT = REPO_ROOT / "pyproject.toml"
+INIT_PY = REPO_ROOT / "src" / "pysh" / "__init__.py"
+CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+
+
+def test_pyproject_toml_version_is_current() -> None:
+    """pyproject.toml must declare the current release version."""
+    import tomllib
+
+    data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    actual = data["project"]["version"]
+    assert actual == CURRENT_VERSION, (
+        f"pyproject.toml version must be {CURRENT_VERSION!r}, got {actual!r}"
+    )
+
+
+def test_init_py_version_is_current() -> None:
+    """src/pysh/__init__.py __version__ must match the current release."""
+    text = INIT_PY.read_text(encoding="utf-8")
+    import re
+
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
+    assert match, "__version__ not found in src/pysh/__init__.py"
+    actual = match.group(1)
+    assert actual == CURRENT_VERSION, (
+        f"__version__ must be {CURRENT_VERSION!r}, got {actual!r}"
+    )
+
+
+def test_readme_does_not_present_stale_version_as_current() -> None:
+    """README.md must not claim 0.6.1 or 0.6.0 as the current release."""
+    text = README.read_text(encoding="utf-8")
+    stale = re.compile(r"\b0\.6\.[01]\b")
+    matches = [(m.start(), m.group()) for m in stale.finditer(text)]
+    assert not matches, (
+        "README.md references stale version as current release: "
+        + ", ".join(v for _, v in matches)
+    )
+
+
+def test_changelog_has_current_version_section() -> None:
+    """CHANGELOG.md must contain a section for the current release."""
+    text = CHANGELOG.read_text(encoding="utf-8")
+    assert f"## {CURRENT_VERSION}" in text, (
+        f"CHANGELOG.md must contain a '## {CURRENT_VERSION}' section"
+    )
+
+
+def test_changelog_v070_covers_mandatory_features() -> None:
+    """CHANGELOG v0.7.0 section must document all mandatory v0.7.0 features."""
+    text = CHANGELOG.read_text(encoding="utf-8")
+
+    start = text.find(f"## {CURRENT_VERSION}")
+    assert start != -1, f"CHANGELOG.md missing ## {CURRENT_VERSION} section"
+
+    # Find end of the 0.7.0 section (next ## header or EOF).
+    rest = text[start:]
+    next_section = rest.find("\n## ", 1)
+    section = rest[:next_section] if next_section != -1 else rest
+
+    required_phrases = (
+        "migrate",
+        "migration",
+        "zsh",
+        "/bin/sh",
+        "SHA256SUMS",
+        "Issue #18",
+    )
+    missing = [p for p in required_phrases if p.lower() not in section.lower()]
+    assert not missing, (
+        f"CHANGELOG v{CURRENT_VERSION} section missing coverage of: "
+        + ", ".join(missing)
+    )
+
+
+def test_docs_system_shell_policy_present() -> None:
+    """System shell integration policy doc must exist and assert PySH is not /bin/sh."""
+    policy_doc = DOCS / "compatibility" / "system-shell-integration-policy.md"
+    assert policy_doc.exists(), "Missing system-shell-integration-policy.md"
+    text = policy_doc.read_text(encoding="utf-8")
+    assert "/bin/sh" in text, "system-shell-integration-policy.md must mention /bin/sh"
+
+
+def test_docs_freebsd_pkg_is_deferred() -> None:
+    """Packaging and release docs must defer FreeBSD .pkg to Issue #18."""
+    packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
+    release_doc = (DOCS / "development" / "release.md").read_text(encoding="utf-8")
+    for name, text in (("packaging.md", packaging_doc), ("release.md", release_doc)):
+        assert "FreeBSD" in text, f"{name} must mention FreeBSD .pkg deferral"
+        assert "Issue #18" in text, f"{name} must reference Issue #18 for FreeBSD .pkg"
