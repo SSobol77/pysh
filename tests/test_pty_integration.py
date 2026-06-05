@@ -333,11 +333,11 @@ def test_pty_plain_paste_replays_each_command_before_output() -> None:
     output = _run_pty_session(b"echo FIRST\necho SECOND\necho THIRD\nexit\n")
     lines = _visible_lines(output)
     expected = [
-        "> echo FIRST",
+        "└─❯ echo FIRST",
         "FIRST",
-        "> echo SECOND",
+        "└─❯ echo SECOND",
         "SECOND",
-        "> echo THIRD",
+        "└─❯ echo THIRD",
         "THIRD",
     ]
     positions = []

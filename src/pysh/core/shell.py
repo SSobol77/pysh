@@ -2341,25 +2341,113 @@ class PyShell:
         return " ".join(segments)
 
     def _prompt_info_line(self) -> str:
-        """Return the two-line prompt informational line, or ``""`` for single."""
+        """Return the framed info block for the two_line layout, or ``""`` for single.
+
+        For ``two_line`` returns two lines joined by ``\\n``; the caller writes
+        both before passing the command-line prompt to readline.
+        """
         options = self.prompt_options
         if options.get("prompt_layout", "two_line") != "two_line":
             return ""
-        return self._prompt_body(options)
+        return self._build_framed_info_lines(options)
+
+    def _build_framed_info_lines(self, options: dict[str, object]) -> str:
+        """Build the framed two-line info block for the two_line prompt layout.
+
+        Line 1: ``┌─{venv} {icon} {user@host} ─ [{cwd}] ─ {git} ─ {status}``
+        Line 2: ``│  {py} · {uv} · ...``  (omitted when no tool segments active)
+
+        ASCII fallback (non-UTF-8 locale): ``+-`` / ``|`` / `` · `` separators.
+        """
+        use_unicode = self._unicode_capable()
+        sep = " ─ " if use_unicode else " - "       # ─
+        prefix1 = "┌─" if use_unicode else "+-"  # ┌─
+        prefix2 = "│  " if use_unicode else "|  "     # │
+
+        # Identity group: venv + icon + user@host, space-joined.
+        id_parts: list[str] = []
+        if bool(options.get("show_virtualenv", False)):
+            venv = self._prompt_virtualenv()
+            if venv:
+                id_parts.append(self._color_prompt_segment(f"({venv})", "venv"))
+        id_parts.append(self._color_prompt_segment(self._prompt_icon(), "icon"))
+        identity_segs = self._prompt_identity_segments(options)
+        if identity_segs:
+            id_parts.append(
+                "".join(
+                    self._color_prompt_segment(text, role)
+                    for text, role in identity_segs
+                )
+            )
+
+        # Line 1: identity ─ [cwd] ─ git ─ status
+        line1_segs: list[str] = [" ".join(id_parts)]
+
+        if bool(options.get("show_cwd", True)):
+            cwd_str = self._prompt_cwd_with_style(options)
+            if cwd_str:
+                line1_segs.append(
+                    self._color_prompt_segment(f"[{cwd_str}]", "cwd")
+                )
+
+        git_seg = self._prompt_git_segment(options)
+        if git_seg:
+            line1_segs.append(self._color_prompt_segment(git_seg, "git"))
+
+        if bool(options.get("show_last_status", False)) and self.last_status != 0:
+            line1_segs.append(
+                self._color_prompt_segment(f"[{self.last_status}]", "status")
+            )
+
+        if self.pending_multiline_paste is not None:
+            count = self._pending_multiline_paste_line_count()
+            line1_segs.append(
+                self._color_prompt_segment(f"[paste:{count}]", "status")
+            )
+
+        line1 = prefix1 + sep.join(line1_segs)
+
+        # Line 2: tool versions, dot-separated (omitted if none are active).
+        tool_parts: list[str] = []
+
+        if bool(options.get("show_python_version", False)):
+            py = ".".join(str(p) for p in sys.version_info[:2])
+            tool_parts.append(self._color_prompt_segment(f"py{py}", "python"))
+
+        for spec in TOOL_VERSION_SPECS:
+            if bool(options.get(spec.option, False)):
+                version = self._detect_tool_version(spec)
+                if version:
+                    tool_parts.append(
+                        self._color_prompt_segment(version, spec.label_prefix)
+                    )
+
+        if tool_parts:
+            line2 = prefix2 + " · ".join(tool_parts)  # ·
+            return f"{line1}\n{line2}"
+
+        return line1
 
     def _prompt(self) -> str:
         """Return the newline-free prompt string passed to ``input()``.
 
         ``single`` renders the full historical inline prompt body followed by
-        the configured symbol. ``two_line`` returns only the command-line
-        prompt; the informational line is printed separately before readline.
+        the configured symbol. ``two_line`` returns the framed closing line
+        (``└─❯ `` / ``└─> `` / `` `- > ``); the informational block is
+        printed separately before readline.
         """
         options = self.prompt_options
         symbol = str(options.get("symbol", ">"))
         rendered_symbol = self._color_prompt_segment(symbol, "symbol")
         if options.get("prompt_layout", "two_line") == "single":
             return self._prompt_body(options) + rendered_symbol + " "
-        return rendered_symbol + " "
+        # two_line: framed closing line
+        use_unicode = self._unicode_capable()
+        if use_unicode:
+            close_prefix = "└─"  # └─
+            cmd_char = "❯" if symbol == ">" else symbol  # ❯
+            return f"{close_prefix}{self._color_prompt_segment(cmd_char, 'symbol')} "
+        return f"`- {rendered_symbol} "
 
     @staticmethod
     def _prompt_identity(options: dict[str, object]) -> str:
@@ -2572,6 +2660,12 @@ class PyShell:
         if "utf" in encoding:
             return "\U0001f40d"  # snake emoji
         return "$"
+
+    @staticmethod
+    def _unicode_capable() -> bool:
+        """Return True when the locale encoding supports Unicode output."""
+        encoding = (locale.getpreferredencoding(False) or "").lower()
+        return "utf" in encoding
 
     def _print_banner(self) -> None:
         from pysh.diagnostics.system_info import get_system_summary  # noqa: PLC0415
