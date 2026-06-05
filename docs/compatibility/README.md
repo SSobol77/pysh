@@ -38,6 +38,7 @@ test-backed. Aspirational claims are not permitted in this documentation.
 | [shell-compatibility-contract.md](shell-compatibility-contract.md) | Contract language, categories, and governing rules |
 | [feature-matrix.md](feature-matrix.md) | Per-feature matrix: status, category, evidence, owner issue |
 | [posix-sh-scope.md](posix-sh-scope.md) | POSIX sh scope: what PySH supports, what it does not |
+| [system-shell-integration-policy.md](system-shell-integration-policy.md) | Safe/unsafe system shell integration modes and `/bin/sh` provider prohibition |
 | [zsh-scope.md](zsh-scope.md) | zsh scope: transition layer, static import, delegation |
 | [bash-scope.md](bash-scope.md) | bash scope: static import, explicit delegation only |
 | [unsupported-constructs.md](unsupported-constructs.md) | Complete list of unsupported shell constructs |
@@ -93,6 +94,11 @@ a migration aid, not a compatibility guarantee.
 from the file. It does not load plugins, run `compinit`, evaluate `eval`
 expressions, or execute shell functions. Unsupported constructs are skipped
 and counted.
+
+**System shell integration** is explicit and bounded. PySH may be launched as
+`pysh` for interactive use or PySH-native scripts, but it must not replace the
+operating-system `/bin/sh` provider. See
+[system-shell-integration-policy.md](system-shell-integration-policy.md).
 
 ---
 

@@ -153,6 +153,7 @@ All compatibility claims are explicit, scoped, and test-backed.
 | [shell-compatibility-contract.md](compatibility/shell-compatibility-contract.md) | Contract language, categories, governing rules, forbidden claim patterns |
 | [feature-matrix.md](compatibility/feature-matrix.md) | Per-feature matrix: status, category, evidence, owner issue |
 | [posix-sh-scope.md](compatibility/posix-sh-scope.md) | POSIX sh scope: what PySH supports, what it does not, `/bin/sh` prohibition |
+| [system-shell-integration-policy.md](compatibility/system-shell-integration-policy.md) | System shell integration policy: safe modes, unsupported modes, `/bin/sh` provider prohibition |
 | [zsh-scope.md](compatibility/zsh-scope.md) | zsh scope: transition layer, static import, explicit delegation |
 | [bash-scope.md](compatibility/bash-scope.md) | bash scope: static import, shebang delegation, no broad compatibility claim |
 | [unsupported-constructs.md](compatibility/unsupported-constructs.md) | Complete list of unsupported constructs with user actions and owner issues |

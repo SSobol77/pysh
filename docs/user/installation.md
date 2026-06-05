@@ -23,6 +23,10 @@ single console command, `pysh`, and can also be run as a module with
 - A working `readline` is optional; PySH's raw editor provides native history
   navigation and Ctrl+R reverse search on capable terminals.
 
+PySH installs the explicit `pysh` command. It is not a `/bin/sh` provider and
+packages must not replace the operating-system shell used by system scripts or
+package-manager hooks.
+
 ## Install from PyPI
 
 ```bash

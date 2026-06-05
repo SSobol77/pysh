@@ -9,7 +9,7 @@ matches the expected snapshot.  Any change to pysh.__all__ (additions or
 removals) will fail this test, making accidental API drift visible in review.
 
 Policy:
-- The pysh public API is intentionally small (metadata only in 0.6.x).
+- The pysh public API is intentionally small (metadata only in 0.7.x).
 - Internal packages (pysh.core, pysh.editor, …) are not blessed as public API.
 - pysh.contracts is the extension-point surface for config/plugin authors.
   It is imported separately and has its own __all__; this test covers the

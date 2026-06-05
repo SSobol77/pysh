@@ -31,6 +31,11 @@ from pysh.compat.profile_importer import (
 )
 from pysh.compat.zsh_aliases import parse_zsh_aliases
 from pysh.compat.zsh_bridge import ZshBridge
+from pysh.compat.zsh_diagnostics import (
+    detect_unsupported_zsh_syntax,
+    is_zsh_config_path,
+    zsh_config_file_diagnostic,
+)
 from pysh.config.api import (
     DEFAULT_CURSOR_OPTIONS,
     DEFAULT_EDITOR_OPTIONS,
@@ -74,6 +79,11 @@ from pysh.editor.history import DEFAULT_HISTORY_PATH, HistoryManager
 from pysh.editor.lineedit.autosuggest import AutoSuggester
 from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
 from pysh.editor.lineedit.reader import RawLineReader
+from pysh.migration.script import (
+    analyze_migration,
+    analyze_migration_file,
+    render_migration_report,
+)
 from pysh.parsing.heredoc import (
     HereDocBody,
     collect_heredoc_bodies,
@@ -658,6 +668,9 @@ class PyShell:
             return self._enter_python_mode()
         if self._is_python_block_text(line):
             return self._run_python_block(line)
+        direct_migration_status = self._execute_inline_migrate_if_needed(line)
+        if direct_migration_status is not None:
+            return direct_migration_status
         try:
             line, heredoc_bodies = collect_heredoc_bodies(
                 line,
@@ -676,6 +689,11 @@ class PyShell:
         line = strip_comments(line)
         if not line.strip():
             return 0
+        zsh_diagnostic = detect_unsupported_zsh_syntax(line)
+        if zsh_diagnostic is not None:
+            print(zsh_diagnostic.message, file=sys.stderr)
+            print(zsh_diagnostic.hint, file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
         try:
             validate_unsupported_syntax(line)
         except ParseError as exc:
@@ -1255,6 +1273,7 @@ class PyShell:
             "secure": self._builtin_secure,
             "mc": self._builtin_mc,
             "command": self._builtin_command,
+            "migrate": self._builtin_migrate,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -1385,6 +1404,11 @@ class PyShell:
             print("source: filename argument required", file=sys.stderr)
             return 2
         target = Path(os.path.expanduser(args[0]))
+        if is_zsh_config_path(str(target)):
+            diagnostic_info = zsh_config_file_diagnostic(str(target))
+            print(diagnostic_info.message, file=sys.stderr)
+            print(diagnostic_info.hint, file=sys.stderr)
+            return 2
         return execute_rc(target, self.execute, quiet_missing=False)
 
     def _builtin_source_zsh(self, args: list[str]) -> int:
@@ -1513,6 +1537,52 @@ class PyShell:
                 f"action={finding.action.value}"
             )
         return 2 if report.risky else 0
+
+    def _execute_inline_migrate_if_needed(self, line: str) -> int | None:
+        """Run ``migrate`` before normal shell expansion can execute input."""
+        stripped = line.strip()
+        if not (stripped == "migrate" or stripped.startswith("migrate ")):
+            return None
+        try:
+            argv = shlex.split(stripped, posix=True)
+        except ValueError as exc:
+            print(f"migrate: parse error: {exc}", file=sys.stderr)
+            return 2
+        if not argv or argv[0] != "migrate":
+            return None
+        return self._builtin_migrate(argv[1:])
+
+    def _builtin_migrate(self, args: list[str]) -> int:
+        if not args:
+            print("migrate: usage: migrate FILE | migrate --text TEXT", file=sys.stderr)
+            return 2
+        if args[0] in {"--text", "-c"}:
+            if len(args) < 2:
+                print("migrate: --text requires shell content", file=sys.stderr)
+                return 2
+            text = " ".join(args[1:])
+            report = analyze_migration(text, source="<inline>")
+            print(render_migration_report(report))
+            return 0
+        if args[0].startswith("-"):
+            print(f"migrate: unsupported option: {args[0]}", file=sys.stderr)
+            return 2
+        if len(args) != 1 and args[0].startswith("$("):
+            args = [" ".join(args)]
+        if len(args) != 1:
+            print("migrate: usage: migrate FILE | migrate --text TEXT", file=sys.stderr)
+            return 2
+        target = Path(os.path.expanduser(args[0]))
+        try:
+            report = analyze_migration_file(target)
+        except FileNotFoundError:
+            print(f"migrate: {target}: file not found", file=sys.stderr)
+            return 1
+        except OSError as exc:
+            print(f"migrate: {target}: {exc}", file=sys.stderr)
+            return 1
+        print(render_migration_report(report))
+        return 0
 
     def _builtin_zsh(self, args: list[str]) -> int:
         if not args:

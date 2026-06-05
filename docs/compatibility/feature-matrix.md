@@ -433,4 +433,4 @@ shell feature area in PySH 0.6.x. Category definitions are in
 | `/bin/sh` | PySH as `/bin/sh` symlink target | Unsupported | Unsupported | — | #17 |
 | `/bin/sh` | System script compatibility | Unsupported | Unsupported | — | #17 |
 | `/bin/sh` | POSIX sh grammar compliance | Unsupported | Unsupported | — | — |
-| `/bin/sh` | System shell integration policy | Planned | Planned | — | #17 |
+| `/bin/sh` | System shell integration policy | Supported | Forbidden by default | `tests/test_cli.py`, `docs/compatibility/system-shell-integration-policy.md` | #17 |

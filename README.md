@@ -53,7 +53,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current release baseline: **PySH 0.6.x**. PySH targets **Python 3.13+** and is
+Current release: **PySH 0.7.0**. PySH targets **Python 3.13+** and is
 validated primarily on **Debian 13** and Unix-like systems.
 
 ---
@@ -82,7 +82,8 @@ validated primarily on **Debian 13** and Unix-like systems.
 - **Migration layer for zsh/bash/sh**: `source_zsh <file>` preserves the
   existing alias importer, `source_zsh_profile <file>` and
   `source_sh_aliases <file>` statically import simple aliases, exports and
-  assignments without executing profile code, `run_script <file> [args...]`
+  assignments without executing profile code, `migrate <file>` produces
+  Python-first script migration guidance, `run_script <file> [args...]`
   delegates shebang scripts to their real interpreter, and `compat_check
   <file>` reports migration risk before execution.
 - **Zsh Transition Layer** for explicit delegation: `zsh <command>` delegates
@@ -179,6 +180,7 @@ py import platform; print(platform.platform())
 uv sync
 uv run pytest -q
 uv run ruff check src tests
+scripts/check_release_quality.sh
 
 # Classic venv alternative
 python3.13 -m venv .venv
@@ -232,6 +234,7 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 
 - [Compatibility overview](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/README.md) — PySH is not a `/bin/sh` replacement, not a zsh clone, not bash. All claims are test-backed.
 - [Feature matrix](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/feature-matrix.md) — per-feature status, category, evidence, and owner issue.
+- [System shell integration policy](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/system-shell-integration-policy.md) — safe use as `pysh`, unsupported `/bin/sh` provider mode, and system-script boundaries.
 - [Unsupported constructs](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/unsupported-constructs.md) — what PySH does not support and what to do instead.
 
 **Development and release**
@@ -276,6 +279,7 @@ documented.
 | `run_script` | Run a script through a shebang interpreter or native PySH lines. |
 | `paste_show` / `paste_run` / `paste_cancel` | Manage captured bracketed multiline paste. |
 | `compat_check` | Produce a static migration report for a shell file. |
+| `migrate`  | Produce Python-first shell-script migration guidance. |
 | `zsh`      | Execute one command through real `zsh -lc`.              |
 | `zsh_fallback` | Enable or disable explicit zsh fallback mode.       |
 | `py`       | Execute Python code in the persistent PySH runtime.      |
@@ -385,12 +389,17 @@ suppress expansion; double quotes do not.
 PySH is Python-first, not a full zsh clone. The zsh compatibility bridge is
 for transition: it lets users move aliases and selected legacy commands into
 PySH without pretending that every zsh grammar feature is native.
+`.pyshrc` is the canonical PySH configuration file; `.zshrc` is not sourced
+automatically and the plain `source` builtin rejects zsh startup/profile
+files with guidance to use PySH-native configuration or the safe static
+importer.
 
 ```sh
 source_zsh ~/.zsh_aliases
 source_zsh_profile ~/.zshrc
 source_sh_aliases ~/.bash_aliases
 compat_check ~/scripts/maintenance.sh
+migrate ~/scripts/maintenance.sh
 run_script ~/scripts/maintenance.sh --dry-run
 zsh 'source ~/.zshrc; my_old_alias'
 zsh 'print -r -- hello'
@@ -410,6 +419,14 @@ skipped=M file=<path>`.
 `compat_check <file>` produces a static report with `supported`,
 `delegated`, `skipped` and `risky` counts. Risky constructs such as `eval`,
 command substitution, `source` and shell functions cause exit status 2.
+
+`migrate <file>` or `migrate --text TEXT` produces a Python-first migration
+report with `info`, `warning`, `unsafe` and `unsupported` findings. It detects
+common shell-script patterns such as shebangs, assignments, exports,
+pipelines, redirections, command substitution, simple conditionals, simple
+loops, heredocs and unsafe `eval`/`exec` behavior. It is analysis only: it
+does not execute, source, expand, or automatically convert analyzed shell
+content.
 
 `run_script <file> [args...]` is an explicit transition runner. Scripts with
 `zsh`, `bash` or `sh` shebangs are delegated to the real interpreter through
@@ -685,6 +702,8 @@ Architecture contract:
 ## Limitations
 
 - No full POSIX shell grammar — only the constructs documented above.
+- No system `/bin/sh` provider role. Keep the distribution `/bin/sh`
+  unchanged and run PySH explicitly as `pysh`.
 - Native glob expansion is supported for unquoted `*`, `?`, character classes
   and `**`; brace expansion remains unsupported.
 - No full zsh compatibility. The zsh compatibility bridge is a transition

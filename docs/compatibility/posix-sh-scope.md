@@ -38,9 +38,10 @@ This document defines PySH's relationship to the POSIX shell standard
 5. **Script mode is PySH-native.** `.pysh` script semantics do not imply POSIX
    sh compatibility.
 
-6. **System shell integration policy is owned by Issue #17.** Until Issue #17
-   is resolved, PySH makes no claim about integration with system tooling that
-   expects a POSIX sh.
+6. **System shell integration is explicit and bounded.** PySH may be launched
+   as `pysh` for interactive use or PySH-native scripts, but it must not be
+   installed or invoked as the system `/bin/sh` provider. See
+   [system-shell-integration-policy.md](system-shell-integration-policy.md).
 
 ---
 
@@ -75,6 +76,7 @@ This document defines PySH's relationship to the POSIX shell standard
 | Job control (`&`, `jobs`, `bg`, `fg`) | Supported for documented native policy | Native | #11 |
 | Process substitution (`<(cmd)`) | **Not supported** | Not planned | — |
 | `/bin/sh` provider status | **Not supported** | Hard prohibition | #17 |
+| System shell integration policy | Supported | Explicit policy and argv0 diagnostic | #17 |
 
 ---
 
