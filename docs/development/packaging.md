@@ -55,11 +55,21 @@ filenames drift from the canonical names above.
 
 ## Output directories
 
+The local build layout keeps PyPI artifacts at `dist/` and OS packages under
+`dist/os/`. GitHub Release upload uses a separate flat staging directory so
+checksums work after a normal `gh release download`.
+
 ```
 dist/
 ├── pysh_shell-X.Y.Z-py3-none-any.whl
 ├── pysh_shell-X.Y.Z.tar.gz
 ├── SHA256SUMS
+├── release-assets/
+│   ├── pysh_shell-X.Y.Z-py3-none-any.whl
+│   ├── pysh_shell-X.Y.Z.tar.gz
+│   ├── pysh-shell_X.Y.Z-1_all.deb
+│   ├── pysh-shell-X.Y.Z-1.noarch.rpm
+│   └── SHA256SUMS
 └── os/
     ├── deb/
     │   └── pysh-shell_X.Y.Z-1_all.deb
@@ -80,7 +90,7 @@ pysh --version
 ### From the GitHub Release `.deb`
 
 ```bash
-sudo apt install ./pysh-shell-X.Y.Z-1_all.deb
+sudo apt install ./pysh-shell_X.Y.Z-1_all.deb
 pysh --version
 ```
 
@@ -96,7 +106,14 @@ pysh --version
 
 ### Verify checksums
 
+GitHub Release assets are uploaded from `dist/release-assets/` as flat files:
+wheel, sdist, `.deb`, `.rpm`, and `SHA256SUMS`. The release-facing
+`SHA256SUMS` contains flat filenames only. After downloading all release
+assets into one directory, checksum verification requires no directory
+reconstruction:
+
 ```bash
+gh release download vX.Y.Z
 sha256sum -c SHA256SUMS
 ```
 
@@ -145,7 +162,7 @@ Or run each stage individually:
 bash scripts/build_pysh_package.sh    # dist/*.whl + dist/*.tar.gz
 bash scripts/build_deb.sh             # dist/os/deb/pysh-shell_*-1_all.deb
 bash scripts/build_rpm.sh             # dist/os/rpm/pysh-shell-*-1.noarch.rpm
-bash scripts/check_release_artifacts.sh   # naming + SHA256SUMS
+bash scripts/check_release_artifacts.sh   # naming + local and flat SHA256SUMS
 ```
 
 `scripts/build_rpm.sh` requires `rpmbuild` (Debian package: `rpm`).
@@ -157,7 +174,7 @@ If it is missing, the script fails fast with a deterministic message.
 | ----------------------------------------- | --------------------------------------------- |
 | `.github/workflows/ci.yml`                | Tests, lint, build, twine, packaging scripts  |
 | `.github/workflows/publish.yml`           | **Only** path that publishes to PyPI (Trusted Publishing) |
-| `.github/workflows/release-artifacts.yml` | Builds `.deb` + `.rpm` + `SHA256SUMS` and attaches them to the GitHub Release |
+| `.github/workflows/release-artifacts.yml` | Builds wheel, sdist, `.deb`, `.rpm`, and flat `SHA256SUMS`, then attaches `dist/release-assets/*` to the GitHub Release |
 
 There is exactly one PyPI publish path; the OS-packages workflow does
 not publish to PyPI.
@@ -175,7 +192,8 @@ contract. The contract is enforced by:
 - `scripts/build_deb.sh` — fails on `.deb` filename drift.
 - `scripts/build_rpm.sh` — fails on `.rpm` filename drift.
 - `scripts/check_release_artifacts.sh` — fails when any expected
-  artifact is missing or any sibling artifact filename drifts.
+  artifact is missing or any sibling artifact filename drifts, and stages flat
+  GitHub Release assets in `dist/release-assets/`.
 - `scripts/check_release_quality.sh` — verifies mandatory release artifacts,
   metadata, artifact hygiene, documentation consistency and install smoke
   behavior before release.

@@ -98,6 +98,57 @@ def test_release_quality_gate_enforces_mandatory_artifact_families() -> None:
     assert "dist/os/deb/pysh-shell_*-1_all.deb" in text
     assert "dist/os/rpm/pysh-shell-*-1.noarch.rpm" in text
     assert "dist/SHA256SUMS" in text
+    assert "dist/release-assets/SHA256SUMS" in text
+
+
+def test_release_artifact_script_stages_flat_github_release_assets() -> None:
+    """Release artifacts must be staged flat without weakening nested package checks."""
+    script = REPO_ROOT / "scripts" / "check_release_artifacts.sh"
+    text = script.read_text(encoding="utf-8")
+
+    assert 'RELEASE_ASSETS_DIR="${REPO_ROOT}/dist/release-assets"' in text
+    assert 'rm -rf "${RELEASE_ASSETS_DIR}"' in text
+    assert 'cp "${DEB_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_DEB}"' in text
+    assert 'cp "${RPM_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_RPM}"' in text
+    assert '"os/deb/${EXPECTED_DEB}"' in text
+    assert '"os/rpm/${EXPECTED_RPM}"' in text
+    assert '"${EXPECTED_DEB}"' in text
+    assert '"${EXPECTED_RPM}"' in text
+
+
+def test_release_workflow_uploads_flat_staged_assets() -> None:
+    """GitHub Release upload must use flat staged assets and include all families."""
+    workflow = REPO_ROOT / ".github" / "workflows" / "release-artifacts.yml"
+    text = workflow.read_text(encoding="utf-8")
+
+    assert "bash scripts/build_pysh_package.sh" in text
+    assert "bash scripts/build_deb.sh" in text
+    assert "bash scripts/build_rpm.sh" in text
+    assert "bash scripts/check_release_artifacts.sh" in text
+    assert "dist/release-assets/*" in text
+    assert "dist/os/deb/pysh-shell_*-1_all.deb" not in text
+    assert "dist/os/rpm/pysh-shell-*-1.noarch.rpm" not in text
+    assert "dist/SHA256SUMS" not in text
+
+
+def test_release_docs_define_flat_assets_and_nested_local_layout() -> None:
+    """Docs must distinguish flat GitHub assets from nested local build internals."""
+    packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
+    release_doc = (DOCS / "development" / "release.md").read_text(encoding="utf-8")
+    installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
+
+    for text in (packaging_doc, release_doc, installation_doc):
+        assert "gh release download vX.Y.Z" in text
+        assert "sha256sum -c SHA256SUMS" in text
+
+    assert "dist/release-assets/" in packaging_doc
+    assert "flat filenames only" in packaging_doc
+    assert "dist/os/deb/" in packaging_doc
+    assert "dist/os/rpm/" in packaging_doc
+    assert "dist/release-assets/" in release_doc
+    assert "dist/os/deb/" in release_doc
+    assert "dist/os/rpm/" in release_doc
+    assert "local `dist/os/`" in installation_doc
 
 
 def test_release_quality_gate_enforces_os_package_contents() -> None:

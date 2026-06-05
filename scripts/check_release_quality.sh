@@ -121,6 +121,7 @@ if [ "${#rpms[@]}" -ne 1 ]; then
     fail "expected exactly one RPM artifact matching dist/os/rpm/pysh-shell-*-1.noarch.rpm, found ${#rpms[@]}"
 fi
 require_file dist/SHA256SUMS
+require_file dist/release-assets/SHA256SUMS
 
 log "[8/12] twine metadata check"
 uv run --with twine python -m twine check "${wheels[0]}" "${sdists[0]}"
@@ -174,6 +175,8 @@ sdist = one(sorted(dist.glob("*.tar.gz")), "sdist")
 deb = one(sorted((dist / "os" / "deb").glob("pysh-shell_*-1_all.deb")), "Debian .deb")
 rpm = one(sorted((dist / "os" / "rpm").glob("pysh-shell-*-1.noarch.rpm")), "RPM .rpm")
 checksums = dist / "SHA256SUMS"
+release_assets = dist / "release-assets"
+release_checksums = release_assets / "SHA256SUMS"
 
 expected_wheel_name = f"pysh_shell-{expected_version}-py3-none-any.whl"
 expected_sdist_names = {
@@ -197,6 +200,8 @@ if rpm.name != expected_rpm_name:
     fail(f"RPM filename must be {expected_rpm_name}, got {rpm.name}")
 if not checksums.is_file():
     fail("dist/SHA256SUMS is required")
+if not release_checksums.is_file():
+    fail("dist/release-assets/SHA256SUMS is required")
 
 checksum_text = checksums.read_text(encoding="utf-8")
 for artifact in (wheel, sdist, deb, rpm):
@@ -205,6 +210,36 @@ for artifact in (wheel, sdist, deb, rpm):
     expected_line = f"{digest}  {relative}"
     if expected_line not in checksum_text:
         fail(f"dist/SHA256SUMS missing checksum line for {relative}")
+
+expected_release_asset_names = {
+    wheel.name,
+    sdist.name,
+    deb.name,
+    rpm.name,
+    "SHA256SUMS",
+}
+actual_release_asset_names = {path.name for path in release_assets.iterdir() if path.is_file()}
+if actual_release_asset_names != expected_release_asset_names:
+    fail(
+        "dist/release-assets must contain exactly: "
+        + ", ".join(sorted(expected_release_asset_names))
+    )
+
+release_checksum_text = release_checksums.read_text(encoding="utf-8")
+for artifact in (wheel, sdist, deb, rpm):
+    staged = release_assets / artifact.name
+    digest = hashlib.sha256(staged.read_bytes()).hexdigest()
+    expected_line = f"{digest}  {artifact.name}"
+    if expected_line not in release_checksum_text:
+        fail(f"dist/release-assets/SHA256SUMS missing flat line for {artifact.name}")
+
+for line in release_checksum_text.splitlines():
+    parts = line.split()
+    if len(parts) != 2:
+        fail(f"dist/release-assets/SHA256SUMS has malformed line: {line!r}")
+    filename = parts[1]
+    if "/" in filename or filename.startswith("."):
+        fail(f"dist/release-assets/SHA256SUMS must use flat filenames, got {filename!r}")
 
 bad_parts = (
     ".git/",

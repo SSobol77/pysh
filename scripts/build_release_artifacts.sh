@@ -28,4 +28,5 @@ bash "${REPO_ROOT}/scripts/build_rpm.sh"
 echo "==> [6/6] check release artifacts + SHA256SUMS"
 bash "${REPO_ROOT}/scripts/check_release_artifacts.sh"
 
-echo "==> Done. All release artifacts are under dist/ and dist/os/."
+echo "==> Done. Local artifacts are under dist/ and dist/os/."
+echo "==> Flat GitHub Release assets are under dist/release-assets/."

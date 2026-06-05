@@ -81,11 +81,13 @@ requires `python3 >= 3.13`.
 
 ## Verify GitHub Release artifacts
 
-Each GitHub Release also publishes a `SHA256SUMS` file covering the
-wheel, sdist, `.deb` and `.rpm`. Download all artifacts to the same
-directory and run:
+Each GitHub Release publishes flat assets: wheel, sdist, `.deb`, `.rpm`, and
+`SHA256SUMS`. The checksum file uses flat filenames only, so a normal
+download can be verified without recreating the repository's local `dist/os/`
+layout:
 
 ```bash
+gh release download vX.Y.Z
 sha256sum -c SHA256SUMS
 ```
 
