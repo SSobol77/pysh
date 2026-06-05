@@ -163,3 +163,110 @@ def test_zsh_fallback_does_not_delegate_pysh_builtins(
     assert fake.commands == []
     captured = capsys.readouterr()
     assert "No such file or directory" in captured.err
+
+
+def test_zsh_parameter_expansion_reports_actionable_diagnostic(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = PyShell()
+
+    assert shell.execute("${(f)PATH}") == 2
+
+    captured = capsys.readouterr()
+    assert "pysh: unsupported zsh syntax: ${( ... )}" in captured.err
+    assert "PySH does not evaluate zsh parameter expansion" in captured.err
+
+
+def test_zsh_glob_qualifier_reports_actionable_diagnostic(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = PyShell()
+
+    assert shell.execute("ls *(.)") == 2
+
+    captured = capsys.readouterr()
+    assert "pysh: unsupported zsh syntax: glob qualifier" in captured.err
+    assert "not zsh glob qualifiers" in captured.err
+
+
+def test_zsh_array_assignment_reports_actionable_diagnostic(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = PyShell()
+
+    assert shell.execute("array=(one two)") == 2
+
+    captured = capsys.readouterr()
+    assert "pysh: unsupported zsh syntax: array" in captured.err
+    assert "PySH does not evaluate zsh arrays" in captured.err
+
+
+def test_compinit_reports_actionable_diagnostic(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = PyShell()
+
+    assert shell.execute("compinit") == 2
+
+    captured = capsys.readouterr()
+    assert "pysh: unsupported zsh config command: compinit" in captured.err
+    assert "Use PySH-native completion" in captured.err
+
+
+@pytest.mark.parametrize("command", ["setopt autocd", "unsetopt autocd"])
+def test_zsh_option_commands_report_actionable_diagnostic(
+    command: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = PyShell()
+
+    assert shell.execute(command) == 2
+
+    captured = capsys.readouterr()
+    assert f"pysh: unsupported zsh config command: {command.split()[0]}" in captured.err
+    assert "Use PySH-native configuration in ~/.pyshrc" in captured.err
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"],
+)
+def test_source_zsh_startup_file_is_rejected_without_execution(
+    filename: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    marker = tmp_path / f"executed-{filename[1:]}"
+    zsh_startup = tmp_path / filename
+    zsh_startup.write_text(f"touch {marker}\n", encoding="utf-8")
+
+    assert PyShell().execute(f"source {zsh_startup}") == 2
+
+    captured = capsys.readouterr()
+    assert "pysh: unsupported zsh configuration file:" in captured.err
+    assert "PySH does not source zsh startup files" in captured.err
+    assert not marker.exists()
+
+
+def test_alias_and_export_remain_stable_after_zsh_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PYSH_ZSH_HARDENING_EXPORT", raising=False)
+    shell = PyShell()
+
+    assert shell.execute("alias zz='echo zsh-hardening'") == 0
+    assert shell.execute("export PYSH_ZSH_HARDENING_EXPORT=ok") == 0
+
+    assert shell.aliases["zz"] == "echo zsh-hardening"
+    assert shell.local_vars["PYSH_ZSH_HARDENING_EXPORT"] == "ok"
+
+
+def test_command_not_found_diagnostic_remains_stable(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = PyShell()
+
+    assert shell.execute("__pysh_missing_after_zsh_hardening__") == 127
+
+    captured = capsys.readouterr()
+    assert "pysh: __pysh_missing_after_zsh_hardening__: command not found" in captured.err

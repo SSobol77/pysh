@@ -57,6 +57,30 @@ def test_source_reads_rc_file_lines(
     assert shell.aliases["greet"] == "echo hello"
 
 
+def test_pyshrc_is_canonical_default_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pysh.config import rc as rc_module
+
+    zshrc = tmp_path / ".zshrc"
+    zshrc.write_text("SHOULD_NOT_RUN=1\n", encoding="utf-8")
+    pyshrc = tmp_path / ".pyshrc"
+    calls: list[str] = []
+
+    def record(line: str) -> int:
+        calls.append(line)
+        return 0
+
+    monkeypatch.setattr(rc_module, "RC_PATH", pyshrc)
+    assert rc_module.load_default_rc(record) == 0
+    assert calls == []
+
+    pyshrc.write_text("PYSH_CANONICAL=1\n", encoding="utf-8")
+    assert rc_module.load_default_rc(record) == 0
+    assert calls == ["PYSH_CANONICAL=1"]
+
+
 def test_execute_rc_continues_on_error(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
