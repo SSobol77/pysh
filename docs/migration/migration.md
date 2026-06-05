@@ -103,6 +103,67 @@ Common risky patterns include `eval`, command substitution, shell functions
 and `source` statements. The command returns 0 when no risky constructs are
 found, 2 when risky constructs are present, and 1 for file read errors.
 
+## Python script migration analysis
+
+Use `migrate` when the target is not temporary compatibility, but a
+Python-first rewrite plan:
+
+```sh
+migrate ~/scripts/maintenance.sh
+migrate --text 'export NAME=value; echo "$(hostname)" | wc -c'
+```
+
+`migrate` reads shell-script-like content and produces a deterministic
+migration report with:
+
+- detected script type from common `sh` and `bash` shebangs;
+- summary counts for `info`, `warning`, `unsafe` and `unsupported` findings;
+- line-level findings for assignments, exports, command invocations,
+  pipelines, redirections, command substitution, simple `if` blocks, simple
+  `for` loops, heredocs and unsafe `eval`/`exec` behavior;
+- Python-first migration notes for replacing shell patterns with Python
+  variables, `os.environ`, `subprocess`, `pathlib`, explicit control flow and
+  template strings.
+
+The analyzer is static. It does not execute the inspected script, source
+startup files, expand variables, run command substitution, or invoke a shell
+interpreter. Inline text is intended for quoted content passed with
+`migrate --text`; PySH intercepts that form before normal command substitution
+can run.
+
+Example report:
+
+```text
+PySH Migration Report
+Source: script.sh
+Detected shell: bash
+
+Summary:
+  info: 2
+  warning: 1
+  unsafe: 1
+  unsupported: 0
+
+Findings:
+  [info] line 1: detected bash shebang
+  [info] line 3: exported variable should become an os.environ assignment
+  [warning] line 8: pipeline should be migrated to Python subprocess composition
+  [unsafe] line 12: eval is unsafe and must be rewritten manually
+
+Suggested migration notes:
+  - Replace exported environment variables with os.environ assignments.
+  - Replace pipelines with explicit subprocess.Popen chains or Python-native file processing.
+  - Rewrite eval/exec-style dynamic behavior manually with explicit validation boundaries.
+
+Unsupported constructs:
+  none
+```
+
+Limitations: `migrate` is an analysis and guidance layer, not an automatic
+shell-to-Python converter. Unsupported constructs require manual review, and
+the report is deliberately conservative when shell semantics depend on dynamic
+expansion, interpreter state, traps, functions or non-trivial shell grammar.
+
 ## Script transition runner
 
 Use `run_script <file> [args...]` as an explicit bridge for legacy scripts:

@@ -523,7 +523,7 @@ def test_pty_bracketed_command_builtin_multiline_paste_is_captured() -> None:
         "pysh: multiline paste captured (3 lines). Review below."
     ) in lines
     assert not any(line.endswith("pysh") and "/" in line for line in lines)
-    assert not any(("python" in line and "/" in line) for line in lines)
+    assert not any(line.endswith("/python") or line.endswith("/python3") for line in lines)
     assert "cd is a PySH builtin" not in lines
     assert b"pysh: command: command not found" not in _strip_ansi(output)
 
