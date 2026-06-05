@@ -233,6 +233,7 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 
 - [Compatibility overview](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/README.md) — PySH is not a `/bin/sh` replacement, not a zsh clone, not bash. All claims are test-backed.
 - [Feature matrix](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/feature-matrix.md) — per-feature status, category, evidence, and owner issue.
+- [System shell integration policy](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/system-shell-integration-policy.md) — safe use as `pysh`, unsupported `/bin/sh` provider mode, and system-script boundaries.
 - [Unsupported constructs](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/unsupported-constructs.md) — what PySH does not support and what to do instead.
 
 **Development and release**
@@ -700,6 +701,8 @@ Architecture contract:
 ## Limitations
 
 - No full POSIX shell grammar — only the constructs documented above.
+- No system `/bin/sh` provider role. Keep the distribution `/bin/sh`
+  unchanged and run PySH explicitly as `pysh`.
 - Native glob expansion is supported for unquoted `*`, `?`, character classes
   and `**`; brace expansion remains unsupported.
 - No full zsh compatibility. The zsh compatibility bridge is a transition
