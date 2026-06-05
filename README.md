@@ -82,7 +82,8 @@ validated primarily on **Debian 13** and Unix-like systems.
 - **Migration layer for zsh/bash/sh**: `source_zsh <file>` preserves the
   existing alias importer, `source_zsh_profile <file>` and
   `source_sh_aliases <file>` statically import simple aliases, exports and
-  assignments without executing profile code, `run_script <file> [args...]`
+  assignments without executing profile code, `migrate <file>` produces
+  Python-first script migration guidance, `run_script <file> [args...]`
   delegates shebang scripts to their real interpreter, and `compat_check
   <file>` reports migration risk before execution.
 - **Zsh Transition Layer** for explicit delegation: `zsh <command>` delegates
@@ -276,6 +277,7 @@ documented.
 | `run_script` | Run a script through a shebang interpreter or native PySH lines. |
 | `paste_show` / `paste_run` / `paste_cancel` | Manage captured bracketed multiline paste. |
 | `compat_check` | Produce a static migration report for a shell file. |
+| `migrate`  | Produce Python-first shell-script migration guidance. |
 | `zsh`      | Execute one command through real `zsh -lc`.              |
 | `zsh_fallback` | Enable or disable explicit zsh fallback mode.       |
 | `py`       | Execute Python code in the persistent PySH runtime.      |
@@ -391,6 +393,7 @@ source_zsh ~/.zsh_aliases
 source_zsh_profile ~/.zshrc
 source_sh_aliases ~/.bash_aliases
 compat_check ~/scripts/maintenance.sh
+migrate ~/scripts/maintenance.sh
 run_script ~/scripts/maintenance.sh --dry-run
 zsh 'source ~/.zshrc; my_old_alias'
 zsh 'print -r -- hello'
@@ -410,6 +413,14 @@ skipped=M file=<path>`.
 `compat_check <file>` produces a static report with `supported`,
 `delegated`, `skipped` and `risky` counts. Risky constructs such as `eval`,
 command substitution, `source` and shell functions cause exit status 2.
+
+`migrate <file>` or `migrate --text TEXT` produces a Python-first migration
+report with `info`, `warning`, `unsafe` and `unsupported` findings. It detects
+common shell-script patterns such as shebangs, assignments, exports,
+pipelines, redirections, command substitution, simple conditionals, simple
+loops, heredocs and unsafe `eval`/`exec` behavior. It is analysis only: it
+does not execute, source, expand, or automatically convert analyzed shell
+content.
 
 `run_script <file> [args...]` is an explicit transition runner. Scripts with
 `zsh`, `bash` or `sh` shebangs are delegated to the real interpreter through

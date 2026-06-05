@@ -221,6 +221,8 @@ environment values are redacted by name-based policy.
 - `apt_search QUERY` runs read-only `apt search QUERY`; it never uses `sudo`.
 - `compat_check FILE` reads a shell file as text and never sources startup
   files or executes shell code.
+- `migrate FILE` and `migrate --text TEXT` produce Python-first shell-script
+  migration guidance without executing analyzed content.
 
 ## `.`
 
@@ -521,6 +523,33 @@ constructs are present and 1 for file read errors.
 
 Limitations: the checker is conservative. A `delegated` line may still need
 manual review before production migration.
+
+## `migrate`
+
+Syntax: `migrate FILE` or `migrate --text TEXT`
+
+Purpose: Analyze shell-script-like content and print Python-first migration
+guidance. The report includes detected shell type, severity counts, findings,
+suggested replacement patterns and unsupported constructs.
+
+Examples:
+
+```sh
+migrate ~/scripts/maintenance.sh
+migrate --text 'export NAME=value; echo "$(hostname)" | wc -c'
+```
+
+Return behavior: returns 0 when analysis succeeds, 1 for file read errors and
+2 for invalid usage.
+
+Safety guarantees: `migrate` does not execute the analyzed script, source any
+file, expand user-provided shell code, run command substitution, or invoke
+shell interpreters. The `migrate --text` form is intercepted before PySH's
+normal command substitution phase.
+
+Limitations: `migrate` provides deterministic analysis and guidance. It does
+not automatically convert shell scripts to Python and does not claim complete
+POSIX, bash or zsh grammar coverage.
 
 ## `zsh`
 
