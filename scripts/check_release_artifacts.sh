@@ -29,6 +29,7 @@ EXPECTED_RPM="${PKG_NAME}-${VERSION}-${PKG_RELEASE}.noarch.rpm"
 WHEEL_PATH="${REPO_ROOT}/dist/${EXPECTED_WHEEL_NAME}"
 DEB_PATH="${REPO_ROOT}/dist/os/deb/${EXPECTED_DEB}"
 RPM_PATH="${REPO_ROOT}/dist/os/rpm/${EXPECTED_RPM}"
+RELEASE_ASSETS_DIR="${REPO_ROOT}/dist/release-assets"
 
 missing=0
 
@@ -80,7 +81,7 @@ for f in "${REPO_ROOT}/dist/os/rpm"/*.rpm; do
 done
 
 SUM_FILE="${REPO_ROOT}/dist/SHA256SUMS"
-echo "==> Generating SHA256SUMS"
+echo "==> Generating local SHA256SUMS"
 (
     cd "${REPO_ROOT}/dist"
     : >"${SUM_FILE}"
@@ -99,11 +100,43 @@ echo "==> Verifying SHA256SUMS"
     sha256sum -c SHA256SUMS
 )
 
+echo "==> Staging flat GitHub Release assets"
+rm -rf "${RELEASE_ASSETS_DIR}"
+mkdir -p "${RELEASE_ASSETS_DIR}"
+cp "${WHEEL_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_WHEEL_NAME}"
+cp "${SDIST_PATH}" "${RELEASE_ASSETS_DIR}/$(basename "${SDIST_PATH}")"
+cp "${DEB_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_DEB}"
+cp "${RPM_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_RPM}"
+
+RELEASE_SUM_FILE="${RELEASE_ASSETS_DIR}/SHA256SUMS"
+echo "==> Generating flat GitHub Release SHA256SUMS"
+(
+    cd "${RELEASE_ASSETS_DIR}"
+    sha256sum \
+        "${EXPECTED_WHEEL_NAME}" \
+        "$(basename "${SDIST_PATH}")" \
+        "${EXPECTED_DEB}" \
+        "${EXPECTED_RPM}" \
+        >"${RELEASE_SUM_FILE}"
+)
+
+echo "==> Verifying flat GitHub Release SHA256SUMS"
+(
+    cd "${RELEASE_ASSETS_DIR}"
+    sha256sum -c SHA256SUMS
+)
+
 echo "==> Release artifacts:"
 ls -1 "${REPO_ROOT}/dist"
 echo "----"
 ls -1 "${REPO_ROOT}/dist/os/deb"
 ls -1 "${REPO_ROOT}/dist/os/rpm"
 echo "----"
-echo "SHA256SUMS:"
+echo "Local SHA256SUMS:"
 cat "${SUM_FILE}"
+echo "----"
+echo "Flat GitHub Release assets:"
+ls -1 "${RELEASE_ASSETS_DIR}"
+echo "----"
+echo "Flat GitHub Release SHA256SUMS:"
+cat "${RELEASE_SUM_FILE}"

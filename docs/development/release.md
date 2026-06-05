@@ -55,6 +55,9 @@ the `pypi` GitHub environment.
    RPM `.rpm`, and `SHA256SUMS` before a release can proceed. It does not tag,
    publish, upload or create GitHub releases. FreeBSD `.pkg` validation is
    performed after this gate as a separate Issue #18 platform validation step.
+   Local build internals keep OS packages under `dist/os/deb/` and
+   `dist/os/rpm/`; GitHub Release upload uses flat files staged under
+   `dist/release-assets/`.
 
 ## Release checklist
 
@@ -86,10 +89,20 @@ the `pypi` GitHub environment.
    ```
 4. The `publish.yml` workflow runs on tag push, builds artifacts in an
    isolated CI environment, and uploads to PyPI using Trusted Publishing.
-5. Verify the release on
+5. The `release-artifacts.yml` workflow attaches all mandatory GitHub Release
+   assets from `dist/release-assets/`: wheel, sdist, Debian `.deb`, RPM `.rpm`,
+   and flat `SHA256SUMS`.
+6. Verify the release on
    [PyPI](https://pypi.org/project/pysh-shell/) and that the GitHub
    release page lists `vX.Y.Z` under
    [Releases](https://github.com/SSobol77/pysh/releases).
+7. Verify downloaded GitHub Release assets:
+   ```bash
+   mkdir -p /tmp/pysh-release-vX.Y.Z
+   cd /tmp/pysh-release-vX.Y.Z
+   gh release download vX.Y.Z
+   sha256sum -c SHA256SUMS
+   ```
 
 ## Post-release
 

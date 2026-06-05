@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
-name: Release artifacts (deb + rpm)
+name: Release artifacts
 
 on:
   release:
@@ -13,8 +13,8 @@ permissions:
   contents: write
 
 jobs:
-  os-packages:
-    name: Build & attach .deb and .rpm
+  release-assets:
+    name: Build & attach release assets
     runs-on: ubuntu-latest
 
     steps:
@@ -36,7 +36,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build twine
 
-      - name: Build PyPI artifacts (for SHA256SUMS, not published here)
+      - name: Build PyPI artifacts
         run: bash scripts/build_pysh_package.sh
 
       - name: Build Debian .deb
@@ -45,7 +45,7 @@ jobs:
       - name: Build RPM .rpm
         run: bash scripts/build_rpm.sh
 
-      - name: Verify canonical artifact names + generate SHA256SUMS
+      - name: Verify canonical artifact names + stage flat release assets
         run: bash scripts/check_release_artifacts.sh
 
       - name: Attach artifacts to GitHub Release
@@ -55,11 +55,6 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ github.event.release.tag_name }}"
-          DEB_FILE=$(ls dist/os/deb/pysh-shell_*-1_all.deb)
-          RPM_FILE=$(ls dist/os/rpm/pysh-shell-*-1.noarch.rpm)
-          SHA_FILE=dist/SHA256SUMS
           gh release upload "${TAG}" \
-            "${DEB_FILE}" \
-            "${RPM_FILE}" \
-            "${SHA_FILE}" \
+            dist/release-assets/* \
             --clobber
