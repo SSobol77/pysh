@@ -576,9 +576,12 @@ def test_pty_bracketed_heredoc_paste_is_captured(tmp_path) -> None:
 
 
 def test_pty_paste_show_and_cancel_for_pending_multiline_paste() -> None:
-    output = _run_pty_session(
-        b"\x1b[200~git diff --stat\ngit status --short\x1b[201~"
-        b"paste_show\npaste_cancel\npaste_show\nexit\n"
+    output = _run_pty_session_phased(
+        [
+            b"\x1b[200~git diff --stat\ngit status --short\x1b[201~"
+            b"paste_show\npaste_cancel\n",
+            b"paste_show\nexit\n",
+        ]
     )
     lines = _visible_lines(output)
     assert (
@@ -641,7 +644,7 @@ def test_pty_ctrl_c_cancels_pending_multiline_paste() -> None:
         [
             b"\x1b[200~echo one\necho two\x1b[201~",
             b"\x03",
-            b"paste_show\nexit\n",
+            b"paste_show\necho clean\nexit\n",
         ]
     )
     lines = _visible_lines(output)
@@ -650,8 +653,62 @@ def test_pty_ctrl_c_cancels_pending_multiline_paste() -> None:
     ) in lines
     assert "paste_cancel: pending multiline paste discarded" in lines
     assert "paste_show: no pending multiline paste" in lines
+    assert "clean" in lines
     assert "one" not in lines
     assert "two" not in lines
+
+
+def test_pty_paste_cancel_clears_same_batch_stale_commands() -> None:
+    output = _run_pty_session_phased(
+        [
+            b"\x1b[200~echo stale-paste-cancel\necho stale-paste-cancel-2\x1b[201~"
+            b"paste_cancel\n"
+            b"echo stale-after-cancel\n",
+            b"echo clean\nexit\n",
+        ]
+    )
+    lines = _visible_lines(output)
+    assert "paste_cancel: pending multiline paste discarded" in lines
+    assert "clean" in lines
+    assert "stale-paste-cancel" not in lines
+    assert "stale-after-cancel" not in lines
+
+
+def test_pty_paste_run_clears_same_batch_stale_commands() -> None:
+    output = _run_pty_session_phased(
+        [
+            b"\x1b[200~echo staged-run\necho staged-run-2\x1b[201~paste_run\n"
+            b"echo stale-after-run\n",
+            b"echo clean\nexit\n",
+        ],
+        collect_timeout=4.0,
+    )
+    lines = _visible_lines(output)
+    assert "[paste_run:begin]" in lines
+    assert "staged-run" in lines
+    assert "clean" in lines
+    assert "stale-after-run" not in lines
+
+
+def test_pty_paste_run_parse_error_has_paste_attribution() -> None:
+    output = _run_pty_session_phased(
+        [
+            b'\x1b[200~echo "unterminated\necho second\x1b[201~paste_run\n',
+            b"exit\n",
+        ],
+        collect_timeout=4.0,
+    )
+    text = _strip_ansi(output).decode("utf-8", errors="replace")
+    assert "pysh: parse error (paste): unterminated double quote" in text
+    assert "pysh: parse error: pysh:" not in text
+
+
+def test_pty_direct_parse_error_has_no_paste_attribution() -> None:
+    output = _run_pty_session(b'echo "unterminated\nexit\n', collect_timeout=4.0)
+    text = _strip_ansi(output).decode("utf-8", errors="replace")
+    assert "pysh: parse error: unterminated double quote" in text
+    assert "pysh: parse error (paste):" not in text
+    assert "pysh: parse error: pysh:" not in text
 
 
 def test_pty_paste_run_executes_pending_python_block() -> None:
@@ -700,15 +757,15 @@ def test_pty_empty_enter_executes_pending_python_block() -> None:
 
 def test_pty_paste_run_executes_pending_heredoc(tmp_path) -> None:
     target = tmp_path / "paste-heredoc-test.txt"
-    payload = (
-        b"\x1b[200~cat > "
-        + str(target).encode("utf-8")
-        + b" <<'EOF'\nline one\nline two\nEOF\x1b[201~"
-        + b"paste_run\ncat "
-        + str(target).encode("utf-8")
-        + b"\nexit\n"
+    output = _run_pty_session_phased(
+        [
+            b"\x1b[200~cat > "
+            + str(target).encode("utf-8")
+            + b" <<'EOF'\nline one\nline two\nEOF\x1b[201~paste_run\n",
+            b"cat " + str(target).encode("utf-8") + b"\nexit\n",
+        ],
+        collect_timeout=4.0,
     )
-    output = _run_pty_session(payload, collect_timeout=4.0)
     stripped = _strip_ansi(output)
     lines = _visible_lines(output)
     assert b"heredoc>" not in stripped
@@ -726,14 +783,15 @@ def test_pty_paste_run_executes_pending_heredoc(tmp_path) -> None:
 
 def test_pty_empty_enter_executes_pending_heredoc(tmp_path) -> None:
     target = tmp_path / "paste-heredoc-test.txt"
-    payload = (
-        b"\x1b[200~cat > "
-        + str(target).encode("utf-8")
-        + b" <<'EOF'\nline one\nline two\nEOF\x1b[201~\ncat "
-        + str(target).encode("utf-8")
-        + b"\nexit\n"
+    output = _run_pty_session_phased(
+        [
+            b"\x1b[200~cat > "
+            + str(target).encode("utf-8")
+            + b" <<'EOF'\nline one\nline two\nEOF\x1b[201~\n",
+            b"cat " + str(target).encode("utf-8") + b"\nexit\n",
+        ],
+        collect_timeout=4.0,
     )
-    output = _run_pty_session(payload, collect_timeout=4.0)
     stripped = _strip_ansi(output)
     lines = _visible_lines(output)
     assert b"heredoc>" not in stripped

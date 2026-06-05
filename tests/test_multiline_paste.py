@@ -886,3 +886,35 @@ def test_ctrl_r_not_blocked_when_no_paste_pending() -> None:
     finally:
         os.close(master)
         os.close(slave)
+
+
+# ---------------------------------------------------------------- clear_command_queue
+
+
+def test_clear_command_queue_empties_non_empty_queue() -> None:
+    """clear_command_queue() must drain all queued commands."""
+    reader = _make_reader()
+    reader._command_queue = [
+        QueuedCommand("cmd1"),
+        QueuedCommand("cmd2"),
+        QueuedCommand("cmd3"),
+    ]
+    reader.clear_command_queue()
+    assert reader._command_queue == []
+
+
+def test_clear_command_queue_on_empty_queue_is_safe() -> None:
+    """clear_command_queue() on an already-empty queue must not raise."""
+    reader = _make_reader()
+    assert reader._command_queue == []
+    reader.clear_command_queue()
+    assert reader._command_queue == []
+
+
+def test_clear_command_queue_allows_fresh_queue_after_clear() -> None:
+    """After clear_command_queue(), new commands can be queued normally."""
+    reader = _make_reader()
+    reader._command_queue = [QueuedCommand("old")]
+    reader.clear_command_queue()
+    reader._queue_commands(["new"], echo=False)
+    assert [cmd.text for cmd in reader._command_queue] == ["new"]

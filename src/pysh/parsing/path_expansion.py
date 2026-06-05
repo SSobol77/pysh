@@ -295,9 +295,9 @@ def tokenize_and_glob_expand(
 
         # --- unterminated quote check ---
         if in_single:
-            raise ValueError("pysh: unterminated single quote")
+            raise ValueError("unterminated single quote")
         if in_double:
-            raise ValueError("pysh: unterminated double quote")
+            raise ValueError("unterminated double quote")
 
         if not chars:
             continue
