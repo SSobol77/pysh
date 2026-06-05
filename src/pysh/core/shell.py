@@ -31,6 +31,11 @@ from pysh.compat.profile_importer import (
 )
 from pysh.compat.zsh_aliases import parse_zsh_aliases
 from pysh.compat.zsh_bridge import ZshBridge
+from pysh.compat.zsh_diagnostics import (
+    detect_unsupported_zsh_syntax,
+    is_zsh_config_path,
+    zsh_config_file_diagnostic,
+)
 from pysh.config.api import (
     DEFAULT_CURSOR_OPTIONS,
     DEFAULT_EDITOR_OPTIONS,
@@ -684,6 +689,11 @@ class PyShell:
         line = strip_comments(line)
         if not line.strip():
             return 0
+        zsh_diagnostic = detect_unsupported_zsh_syntax(line)
+        if zsh_diagnostic is not None:
+            print(zsh_diagnostic.message, file=sys.stderr)
+            print(zsh_diagnostic.hint, file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
         try:
             validate_unsupported_syntax(line)
         except ParseError as exc:
@@ -1394,6 +1404,11 @@ class PyShell:
             print("source: filename argument required", file=sys.stderr)
             return 2
         target = Path(os.path.expanduser(args[0]))
+        if is_zsh_config_path(str(target)):
+            diagnostic_info = zsh_config_file_diagnostic(str(target))
+            print(diagnostic_info.message, file=sys.stderr)
+            print(diagnostic_info.hint, file=sys.stderr)
+            return 2
         return execute_rc(target, self.execute, quiet_missing=False)
 
     def _builtin_source_zsh(self, args: list[str]) -> int:

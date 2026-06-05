@@ -387,6 +387,10 @@ suppress expansion; double quotes do not.
 PySH is Python-first, not a full zsh clone. The zsh compatibility bridge is
 for transition: it lets users move aliases and selected legacy commands into
 PySH without pretending that every zsh grammar feature is native.
+`.pyshrc` is the canonical PySH configuration file; `.zshrc` is not sourced
+automatically and the plain `source` builtin rejects zsh startup/profile
+files with guidance to use PySH-native configuration or the safe static
+importer.
 
 ```sh
 source_zsh ~/.zsh_aliases

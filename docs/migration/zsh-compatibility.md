@@ -27,6 +27,83 @@ import path. The design goal is migration, not full zsh emulation:
 - Real zsh may be used as an optional bridge when it is installed.
 - Native PySH builtins and native command errors are not hidden by default.
 
+## Migrating from zsh to PySH
+
+PySH is Python-first, not a zsh clone. Treat migration as a configuration and
+workflow rewrite, not as an attempt to run `.zshrc` unchanged.
+
+Canonical PySH configuration lives in:
+
+```sh
+~/.pyshrc
+~/.pyshrc.d/*.pysh
+~/.pyshrc.py
+```
+
+PySH never automatically sources `.zshrc`, `.zprofile`, zsh completion
+scripts or zsh plugin manager files. The plain `source` builtin rejects
+standard zsh startup/profile files (`.zshenv`, `.zprofile`, `.zshrc`,
+`.zlogin`, `.zlogout`) with an explicit diagnostic; use
+`source_zsh_profile ~/.zshrc` only when you want the safe static importer for
+simple aliases, exports and local assignments.
+
+Common zsh user expectations map to PySH as follows:
+
+| zsh expectation | PySH migration path |
+| --- | --- |
+| simple aliases | `source_zsh <file>` or `alias NAME='command'` in `~/.pyshrc` |
+| `export NAME=value` | supported in `~/.pyshrc`; Python-native code may use `os.environ` |
+| `cd` | supported as a PySH builtin |
+| history | persistent PySH history; reverse search remains PySH-native |
+| command completion | PySH-native builtin, alias, command and path completion |
+| prompt virtualenv/git visibility | PySH prompt renders its own environment and git metadata |
+| legacy zsh-only command | explicit `zsh '<command>'` delegation when real zsh is installed |
+| shell-script rewrite | `migrate <file>` for Python-first analysis and guidance |
+
+Unsupported zsh-specific syntax is diagnosed where PySH can identify it
+conservatively:
+
+```sh
+${(f)PATH}
+${name:u}
+array=(one two)
+${array[1]}
+*(.)
+**/*(.)
+*(N)
+PROMPT='%F{red}%~%f'
+autoload -Uz compinit
+compinit
+setopt autocd
+unsetopt autocd
+```
+
+Example diagnostics:
+
+```text
+pysh: unsupported zsh syntax: ${( ... )}
+hint: PySH does not evaluate zsh parameter expansion. Use Python mode or explicit Python expressions.
+
+pysh: unsupported zsh config command: compinit
+hint: PySH does not run zsh completion initialization. Use PySH-native completion.
+
+pysh: unsupported zsh config command: setopt
+hint: PySH does not apply zsh shell options. Use PySH-native configuration in ~/.pyshrc.
+```
+
+Replacement guidance:
+
+- Move stable shell configuration into `~/.pyshrc` using PySH-supported
+  aliases, exports, variables and documented control flow.
+- Move zsh arrays, parameter modifiers and prompt logic into Python-native
+  code where possible.
+- Replace zsh completion initialization with PySH-native completion.
+- Use `source_zsh_profile` for static extraction from old profile files; it
+  reads text and never executes plugin managers, command substitution or
+  dynamic `source` lines.
+- Use explicit `zsh '<command>'` only as a temporary bridge for commands that
+  truly require zsh semantics.
+
 ## Safe alias import
 
 Use `source_zsh <file>` to import simple zsh-compatible aliases into the
