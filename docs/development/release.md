@@ -17,6 +17,12 @@ Copyright (C) 2026 Siergej Sobolewski
 > [`packaging.md`](packaging.md) for the canonical naming contract and
 > [`installation.md`](../user/installation.md) for end-user install commands.
 
+A release is incomplete unless all current mandatory artifact families are
+built and validated: PyPI wheel + sdist, Debian `.deb`, and RPM `.rpm`. The
+local release gate must fail if `.deb` or `.rpm` packaging tools are missing;
+those artifact families are not optional. FreeBSD `.pkg` validation is
+deferred to Issue #18 and is not part of the current release gate.
+
 PySH is published to PyPI as **`pysh-shell`** through GitHub Actions and
 **PyPI Trusted Publishing**. The workflow lives at
 [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) and
@@ -40,14 +46,15 @@ the `pypi` GitHub environment.
    - Any user-facing version strings in [`README.md`](../../README.md).
 3. Run the full quality gate locally:
    ```bash
-   uv sync
-   bash scripts/check_headers.sh
-   uv run pytest -q
-   uv run ruff check src tests
-   python -m build
-   twine check dist/*
+   scripts/check_release_quality.sh
    ```
    All steps must pass before tagging.
+   The gate builds local artifacts, inspects metadata and contents, installs
+   the wheel into a temporary virtual environment, and runs CLI smoke tests.
+   The gate must produce and validate PyPI wheel + sdist, Debian `.deb`,
+   RPM `.rpm`, and `SHA256SUMS` before a release can proceed. It does not tag,
+   publish, upload or create GitHub releases. FreeBSD `.pkg` validation is
+   performed after this gate as a separate Issue #18 platform validation step.
 
 ## Release checklist
 
@@ -57,8 +64,8 @@ the `pypi` GitHub environment.
 - Every builtin is documented in `docs/user/builtins.md`.
 - Tests updated for every new builtin or behavior change.
 - CI is green.
-- Local build passes.
-- `twine check dist/*` passes.
+- `scripts/check_release_quality.sh` passes.
+- `twine check dist/*.whl dist/*.tar.gz` passes.
 - `pysh --version` and `python -m pysh --version` print the target version.
 
 ## Cutting the release
@@ -105,3 +112,6 @@ the `pypi` GitHub environment.
 - Never run `twine upload` from a developer machine for production
   releases — Trusted Publishing in CI is the only sanctioned path.
 - Never push the tag before the local quality gates are green.
+- PySH packages must not replace `/bin/sh`, divert the system shell, or claim
+  POSIX sh, bash or zsh compatibility beyond the documented compatibility
+  matrix.
