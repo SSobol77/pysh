@@ -258,6 +258,7 @@ class PyShell:
         self.script_args: list[str] = []
         self._script_context: tuple[Path, int] | None = None
         self.pending_multiline_paste: str | None = None
+        self._executing_paste: bool = False
         self.dir_stack: list[Path] = []
         self.job_table: JobTable = JobTable()
         self._tty_fd: int | None = None
@@ -341,8 +342,12 @@ class PyShell:
                     print()
                     if self.pending_multiline_paste is not None:
                         self.pending_multiline_paste = None
+                        self.line_reader.clear_command_queue()
+                        self._executing_paste = False
                         enabled = style_enabled()
                         print(style("paste_cancel: pending multiline paste discarded", "warning", enabled=enabled))
+                    else:
+                        self.line_reader.clear_command_queue()
                     self.last_status = ExitCode.SIGINT
                     continue
                 if self.pending_multiline_paste is not None:
@@ -683,7 +688,7 @@ class PyShell:
                 detail=str(exc),
                 code=ExitCode.BUILTIN_MISUSE,
             )
-            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
         self.trace.emit(DiagnosticStage.HEREDOC, "collected heredocs", count=len(heredoc_bodies))
         line = strip_comments(line)
@@ -702,7 +707,7 @@ class PyShell:
                 detail=str(exc),
                 code=ExitCode.BUILTIN_MISUSE,
             )
-            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
 
         # Multi-line ``py { ... }`` block: execute its body in the persistent
@@ -738,7 +743,7 @@ class PyShell:
                 detail=str(exc),
                 code=ExitCode.BUILTIN_MISUSE,
             )
-            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
         self.trace.emit(DiagnosticStage.PARSE, "split chain", elements=len(chain))
         status = 0
@@ -775,7 +780,7 @@ class PyShell:
                 detail=str(exc),
                 code=ExitCode.BUILTIN_MISUSE,
             )
-            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
         if not stages:
             return 0
@@ -815,7 +820,7 @@ class PyShell:
                 detail=str(exc),
                 code=ExitCode.BUILTIN_MISUSE,
             )
-            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
         self.trace.emit(
             DiagnosticStage.REDIRECT,
@@ -837,7 +842,7 @@ class PyShell:
                 detail=str(exc),
                 code=ExitCode.BUILTIN_MISUSE,
             )
-            print(f"pysh: parse error: {exc}", file=sys.stderr)
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
             return 2
         if not argv:
             return 0
@@ -892,13 +897,13 @@ class PyShell:
             try:
                 clean, spec = parse_redirections(s, remaining_heredocs)
             except ParseError as exc:
-                print(f"pysh: parse error: {exc}", file=sys.stderr)
+                print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
                 return ExitCode.BUILTIN_MISUSE
             spec = _tilde_expand_spec(spec)
             try:
                 argv = tokenize_and_glob_expand(clean, cwd=Path(os.getcwd()))
             except ValueError as exc:
-                print(f"pysh: parse error: {exc}", file=sys.stderr)
+                print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
                 return 2
             if not argv:
                 print("pysh: syntax error near unexpected '|'", file=sys.stderr)
@@ -1481,6 +1486,8 @@ class PyShell:
             print("paste_cancel: no pending multiline paste")
             return 2
         self.pending_multiline_paste = None
+        self.line_reader.clear_command_queue()
+        self._executing_paste = False
         enabled = style_enabled()
         print(style("paste_cancel: pending multiline paste discarded", "warning", enabled=enabled))
         return 0
@@ -1505,11 +1512,15 @@ class PyShell:
             print(line)
         previous_context = self._script_context
         self._script_context = None
+        self._executing_paste = True
         try:
             status = self.script_runner.run_native_text(payload, name="<paste>")
             self.last_status = status
             return status
         finally:
+            self.pending_multiline_paste = None
+            self.line_reader.clear_command_queue()
+            self._executing_paste = False
             self._script_context = previous_context
 
     def _builtin_compat_check(self, args: list[str]) -> int:
@@ -2040,6 +2051,9 @@ class PyShell:
         if len(parts) == 1:
             return parts[0]
         return " ".join(parts)
+
+    def _paste_error_label(self) -> str:
+        return "parse error (paste)" if self._executing_paste else "parse error"
 
     def _expand_alias(self, command: str) -> str:
         leading_ws = len(command) - len(command.lstrip())
