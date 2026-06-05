@@ -16,6 +16,14 @@ from pysh.core.shell import PyShell
 from pysh.diagnostics.trace import DiagnosticTrace, TraceOptions
 from pysh.parsing.multiline import iter_logical_lines
 
+_UNSUPPORTED_SYSTEM_SHELL_NAMES: frozenset[str] = frozenset(
+    {
+        "sh",
+        "dash",
+        "ash",
+    }
+)
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -55,6 +63,29 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def is_unsupported_system_shell_invocation(
+    argv0: str,
+    argv: Sequence[str] | None = None,
+) -> bool:
+    """Return True when argv asks PySH to masquerade as a system sh."""
+    name = Path(argv0).name
+    if name in _UNSUPPORTED_SYSTEM_SHELL_NAMES:
+        return True
+    if name == "busybox":
+        args = list(argv or ())
+        return bool(args and args[0] == "sh")
+    return False
+
+
+def _print_unsupported_system_shell_invocation(argv0: str) -> None:
+    name = Path(argv0).name
+    print(f"pysh: unsupported invocation mode: {name}", file=sys.stderr)
+    print(
+        "hint: PySH is not a POSIX /bin/sh provider. Run PySH explicitly as `pysh`.",
+        file=sys.stderr,
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the interactive PySH shell. Returns the final exit status.
 
@@ -63,6 +94,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     and returned as a non-zero exit code.  This is the single boundary function
     for PySH top-level error handling (Issue #5).
     """
+    if argv is None and is_unsupported_system_shell_invocation(sys.argv[0], sys.argv[1:]):
+        _print_unsupported_system_shell_invocation(sys.argv[0])
+        return 2
+
     args = _build_parser().parse_args(argv if argv is not None else sys.argv[1:])
     shell = PyShell(trace=DiagnosticTrace(TraceOptions(enabled=bool(args.debug))))
     try:

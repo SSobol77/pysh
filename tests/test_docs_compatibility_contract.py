@@ -35,6 +35,7 @@ REQUIRED_COMPAT_DOCS: list[str] = [
     "shell-compatibility-contract.md",
     "feature-matrix.md",
     "posix-sh-scope.md",
+    "system-shell-integration-policy.md",
     "zsh-scope.md",
     "bash-scope.md",
     "unsupported-constructs.md",
@@ -95,6 +96,7 @@ REQUIRED_MATRIX_AREAS: list[str] = [
     "bash",
     "Fallback",
     "Script mode",
+    "`/bin/sh` provider status",
 ]
 
 
