@@ -93,13 +93,12 @@ jobs:
 
       - name: Verify release artifacts + SHA256SUMS
         run: |
-          if [ -f dist/os/deb/*.deb ] 2>/dev/null \
-              || ls dist/os/deb/*.deb >/dev/null 2>&1; then
-            if ls dist/os/rpm/*.rpm >/dev/null 2>&1; then
-              bash scripts/check_release_artifacts.sh
-            else
-              echo "Skipping check_release_artifacts.sh: .rpm missing."
-            fi
+          if ls dist/*.whl >/dev/null 2>&1 \
+              && ls dist/*.tar.gz >/dev/null 2>&1 \
+              && ls dist/os/deb/*.deb >/dev/null 2>&1 \
+              && ls dist/os/rpm/*.rpm >/dev/null 2>&1 \
+              && ls dist/os/freebsd/*.pkg >/dev/null 2>&1; then
+            bash scripts/check_release_artifacts.sh
           else
-            echo "Skipping check_release_artifacts.sh: .deb missing."
+            echo "Skipping check_release_artifacts.sh: full release artifact set not present (.whl/.tar.gz/.deb/.rpm/.pkg required)."
           fi
