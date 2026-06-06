@@ -26,12 +26,14 @@ PRESERVED_FREEBSD_PKG=""
 if [ -f "${FREEBSD_PKG_PATH}" ]; then
     PRESERVED_FREEBSD_PKG="$(mktemp -t pysh-freebsd-pkg.XXXXXXXX)"
     cp "${FREEBSD_PKG_PATH}" "${PRESERVED_FREEBSD_PKG}"
+    echo "==> Preserved prebuilt FreeBSD .pkg: ${FREEBSD_PKG_PATH}"
 fi
 
 restore_freebsd_pkg() {
     if [ -n "${PRESERVED_FREEBSD_PKG}" ] && [ -f "${PRESERVED_FREEBSD_PKG}" ]; then
         mkdir -p "${REPO_ROOT}/dist/os/freebsd"
         cp "${PRESERVED_FREEBSD_PKG}" "${FREEBSD_PKG_PATH}"
+        echo "==> Restored prebuilt FreeBSD .pkg: ${FREEBSD_PKG_PATH}"
     fi
 }
 trap 'rm -f "${PRESERVED_FREEBSD_PKG}"' EXIT HUP INT TERM
@@ -48,9 +50,11 @@ restore_freebsd_pkg
 
 echo "==> [4/7] Debian .deb"
 bash "${REPO_ROOT}/scripts/build_deb.sh"
+restore_freebsd_pkg
 
 echo "==> [5/7] RPM .rpm"
 bash "${REPO_ROOT}/scripts/build_rpm.sh"
+restore_freebsd_pkg
 
 echo "==> [6/7] FreeBSD .pkg"
 if [ "$(uname -s)" = "FreeBSD" ]; then
@@ -60,9 +64,11 @@ elif [ -f "${FREEBSD_PKG_PATH}" ]; then
 else
     echo "build_release_artifacts.sh: FreeBSD .pkg is mandatory but ${FREEBSD_PKG_PATH} is missing." >&2
     echo "build_release_artifacts.sh: build it on FreeBSD 14+ with scripts/build_freebsd_pkg.sh, then rerun this gate." >&2
+    exit 1
 fi
 
 echo "==> [7/7] check release artifacts + SHA256SUMS"
+restore_freebsd_pkg
 bash "${REPO_ROOT}/scripts/check_release_artifacts.sh"
 
 echo "==> Done. Local artifacts are under dist/ and dist/os/."

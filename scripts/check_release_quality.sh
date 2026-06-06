@@ -80,6 +80,7 @@ preserve_freebsd_pkg() {
     if [ -f "${FREEBSD_PKG_PATH}" ]; then
         PRESERVED_FREEBSD_PKG="$(mktemp -t pysh-freebsd-pkg.XXXXXXXX)"
         cp "${FREEBSD_PKG_PATH}" "${PRESERVED_FREEBSD_PKG}"
+        log "Preserved prebuilt FreeBSD .pkg: ${FREEBSD_PKG_PATH}"
     fi
 }
 
@@ -87,6 +88,7 @@ restore_freebsd_pkg() {
     if [ -n "${PRESERVED_FREEBSD_PKG}" ] && [ -f "${PRESERVED_FREEBSD_PKG}" ]; then
         mkdir -p "${REPO_ROOT}/dist/os/freebsd"
         cp "${PRESERVED_FREEBSD_PKG}" "${FREEBSD_PKG_PATH}"
+        log "Restored prebuilt FreeBSD .pkg: ${FREEBSD_PKG_PATH}"
     fi
 }
 

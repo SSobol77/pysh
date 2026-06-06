@@ -719,3 +719,73 @@ def test_release_quality_gate_validates_flat_sha256sums_entries() -> None:
         "check_release_quality.sh must emit a 'must use flat filenames' error "
         "when a path separator is found in release-assets/SHA256SUMS"
     )
+
+
+# ---------------------------------------------------------------------------
+# FreeBSD .pkg preservation chain — regression guard for the v0.8.0 gate
+# ---------------------------------------------------------------------------
+
+
+def test_build_release_artifacts_preserves_and_restores_freebsd_pkg_redundantly() -> None:
+    """build_release_artifacts.sh must preserve the prebuilt .pkg and restore it at multiple
+    points so that no individual build sub-script can cause it to go missing.
+
+    Regression guard: build_pysh_package.sh runs 'rm -rf dist', which removes
+    dist/os/freebsd/*.pkg.  A single restore call after that script is not
+    sufficient if build_deb.sh or build_rpm.sh also clean dist/.  Redundant
+    restore calls after every build sub-script and immediately before
+    check_release_artifacts.sh make the pipeline robust regardless of which
+    sub-script cleans dist/.
+    """
+    script = (REPO_ROOT / "scripts" / "build_release_artifacts.sh").read_text(encoding="utf-8")
+
+    # --- preserve block at script start ---
+    assert 'PRESERVED_FREEBSD_PKG="$(mktemp' in script
+    assert 'cp "${FREEBSD_PKG_PATH}" "${PRESERVED_FREEBSD_PKG}"' in script
+    assert "Preserved prebuilt FreeBSD .pkg" in script
+
+    # --- restore_freebsd_pkg function logs when it restores ---
+    assert "restore_freebsd_pkg()" in script
+    assert 'cp "${PRESERVED_FREEBSD_PKG}" "${FREEBSD_PKG_PATH}"' in script
+    assert "Restored prebuilt FreeBSD .pkg" in script
+
+    # --- restore order: after build_pysh_package.sh, after build_deb.sh,
+    #     after build_rpm.sh, and immediately before check_release_artifacts.sh ---
+    pysh_pkg_idx = script.index("build_pysh_package.sh")
+    restore_after_pysh = script.index("restore_freebsd_pkg", pysh_pkg_idx)
+
+    deb_idx = script.index("build_deb.sh")
+    restore_after_deb = script.index("restore_freebsd_pkg", deb_idx)
+    assert restore_after_pysh < deb_idx < restore_after_deb, (
+        "restore_freebsd_pkg must appear after build_deb.sh"
+    )
+
+    rpm_idx = script.index("build_rpm.sh")
+    restore_after_rpm = script.index("restore_freebsd_pkg", rpm_idx)
+    assert restore_after_deb < rpm_idx < restore_after_rpm, (
+        "restore_freebsd_pkg must appear after build_rpm.sh"
+    )
+
+    check_artifacts_idx = script.index("check_release_artifacts.sh")
+    restore_before_check = script.rindex("restore_freebsd_pkg", 0, check_artifacts_idx)
+    assert restore_after_rpm < restore_before_check < check_artifacts_idx, (
+        "restore_freebsd_pkg must appear immediately before check_release_artifacts.sh"
+    )
+
+    # --- missing .pkg on non-FreeBSD must be a hard release-blocking failure ---
+    mandatory_idx = script.index("FreeBSD .pkg is mandatory")
+    assert "exit 1" in script[mandatory_idx:mandatory_idx + 300], (
+        "Missing FreeBSD .pkg must cause exit 1, not silent continuation"
+    )
+
+
+def test_check_release_quality_logs_freebsd_pkg_preserve_and_restore() -> None:
+    """Quality gate must emit log lines when it preserves and restores the prebuilt .pkg."""
+    script = (REPO_ROOT / "scripts" / "check_release_quality.sh").read_text(encoding="utf-8")
+
+    assert "Preserved prebuilt FreeBSD .pkg" in script, (
+        "check_release_quality.sh must log when it preserves the prebuilt FreeBSD .pkg"
+    )
+    assert "Restored prebuilt FreeBSD .pkg" in script, (
+        "check_release_quality.sh must log when it restores the prebuilt FreeBSD .pkg"
+    )
