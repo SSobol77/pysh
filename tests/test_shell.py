@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from pysh.core.shell import PyShell
+from pysh.core.shell import PyShell, _ExitShell
+from pysh.editor.lineedit.reader import QueuedCommand
 
 
 @pytest.fixture
@@ -258,3 +259,130 @@ def test_command_substitution_suppressed_in_single_quotes(
     assert status == 0
     captured = capfd.readouterr()
     assert "literal $(printf x)" in captured.out
+
+
+@pytest.mark.parametrize("command", ["exit", "exit ", "exit   ", "quit", "quit ", "quit   "])
+def test_exit_and_quit_dispatch_through_exit_shell(command: str, shell: PyShell) -> None:
+    """exit/quit must dispatch as builtins after deterministic command-word trimming."""
+    with pytest.raises(_ExitShell) as exc:
+        shell.execute(command)
+    assert exc.value.code == 0
+
+
+def test_exit_preserves_numeric_status(shell: PyShell) -> None:
+    with pytest.raises(_ExitShell) as exc:
+        shell.execute("exit 7")
+    assert exc.value.code == 7
+
+
+def test_exit_and_quit_are_registered_builtins(shell: PyShell) -> None:
+    assert "exit" in shell.BUILTINS
+    assert "quit" in shell.BUILTINS
+
+
+# ---------------------------------------------------------------- Issue #22: paste state hardening
+
+
+def test_parse_error_has_single_prefix_not_double(
+    shell: PyShell, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """Direct parse error must not have an embedded pysh: prefix in the message."""
+    shell.execute('echo "unterminated')
+    captured = capfd.readouterr()
+    assert "parse error: unterminated double quote" in captured.err
+    assert "parse error: pysh:" not in captured.err
+
+
+def test_parse_error_from_paste_has_paste_attribution(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """paste_run with an unterminated quote must label the error as paste."""
+    shell = PyShell()
+    shell.pending_multiline_paste = 'echo "unterminated'
+    shell._builtin_paste_run([])
+    captured = capfd.readouterr()
+    assert "parse error (paste): unterminated double quote" in captured.err
+    assert "parse error: pysh:" not in captured.err
+
+
+def test_parse_error_from_normal_input_has_no_paste_attribution(
+    shell: PyShell, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """Direct command with unterminated quote must show normal parse error label."""
+    shell.execute('echo "unterminated')
+    captured = capfd.readouterr()
+    assert "parse error:" in captured.err
+    assert "parse error (paste)" not in captured.err
+
+
+def test_paste_cancel_clears_queued_commands(shell: PyShell) -> None:
+    """paste_cancel must clear queued commands that arrived in the same terminal batch."""
+    shell.pending_multiline_paste = "echo one\necho two"
+    shell.line_reader._command_queue = [QueuedCommand("after")]
+    shell._builtin_paste_cancel([])
+    assert shell.pending_multiline_paste is None
+    assert not shell.line_reader._command_queue
+
+
+def test_paste_cancel_resets_executing_paste_flag(shell: PyShell) -> None:
+    """paste_cancel must reset _executing_paste to False."""
+    shell.pending_multiline_paste = "echo one"
+    shell._executing_paste = True
+    shell._builtin_paste_cancel([])
+    assert not shell._executing_paste
+
+
+def test_paste_run_clears_queued_commands_after_success(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """paste_run must clear queued commands after successful paste execution."""
+    shell = PyShell()
+    shell.pending_multiline_paste = "echo ok"
+    shell.line_reader._command_queue = [QueuedCommand("after")]
+    shell._builtin_paste_run([])
+    assert shell.pending_multiline_paste is None
+    assert not shell.line_reader._command_queue
+
+
+def test_paste_run_clears_queued_commands_after_error(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """paste_run must clear queued commands even when paste parsing fails."""
+    shell = PyShell()
+    shell.pending_multiline_paste = 'echo "unterminated'
+    shell.line_reader._command_queue = [QueuedCommand("after")]
+    shell._builtin_paste_run([])
+    assert shell.pending_multiline_paste is None
+    assert not shell.line_reader._command_queue
+
+
+def test_paste_run_resets_executing_paste_flag_after_success(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """paste_run must reset _executing_paste to False after normal execution."""
+    shell = PyShell()
+    shell.pending_multiline_paste = "echo ok"
+    shell._builtin_paste_run([])
+    assert not shell._executing_paste
+
+
+def test_paste_run_resets_executing_paste_flag_after_error(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """paste_run must reset _executing_paste even when the payload has a parse error."""
+    shell = PyShell()
+    shell.pending_multiline_paste = 'echo "unterminated'
+    shell._builtin_paste_run([])
+    assert not shell._executing_paste
+
+
+def test_paste_run_clears_pending_paste_before_execution(shell: PyShell) -> None:
+    """pending_multiline_paste must be None before paste_run returns."""
+    shell.pending_multiline_paste = "echo ok"
+    shell._builtin_paste_run([])
+    assert shell.pending_multiline_paste is None
+
+
+def test_executing_paste_false_initially(shell: PyShell) -> None:
+    """_executing_paste must start as False."""
+    assert not shell._executing_paste

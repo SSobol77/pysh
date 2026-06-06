@@ -193,7 +193,7 @@ Documentation for contributors, maintainers, and the release process.
 | -------- | ----------- |
 | [development.md](development/development.md) | Test suite, linting, build commands, repository layout |
 | [release.md](development/release.md) | Release checklist, tagging, PyPI Trusted Publishing via GitHub Actions |
-| [packaging.md](development/packaging.md) | Canonical naming contract; PyPI / `.deb` / `.rpm` artifact filenames and build scripts |
+| [packaging.md](development/packaging.md) | Canonical naming contract; PyPI / `.deb` / `.rpm` / `.pkg` artifact filenames and build scripts |
 
 ---
 

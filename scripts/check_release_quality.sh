@@ -9,10 +9,14 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${REPO_ROOT}"
 
 TMPDIR=""
+PRESERVED_FREEBSD_PKG=""
 
 cleanup() {
     if [ -n "${TMPDIR}" ] && [ -d "${TMPDIR}" ]; then
         rm -rf "${TMPDIR}"
+    fi
+    if [ -n "${PRESERVED_FREEBSD_PKG}" ] && [ -f "${PRESERVED_FREEBSD_PKG}" ]; then
+        rm -f "${PRESERVED_FREEBSD_PKG}"
     fi
 }
 trap cleanup EXIT HUP INT TERM
@@ -61,6 +65,35 @@ require_listed_path() {
     fi
 }
 
+# shellcheck source=scripts/_pysh_version.sh
+. "${REPO_ROOT}/scripts/_pysh_version.sh"
+
+VERSION="$(pysh_read_version "${REPO_ROOT}/pyproject.toml")"
+if [ -z "${VERSION}" ]; then
+    fail "failed to read version from pyproject.toml"
+fi
+
+EXPECTED_FREEBSD_PKG="pysh-shell-${VERSION}.pkg"
+FREEBSD_PKG_PATH="${REPO_ROOT}/dist/os/freebsd/${EXPECTED_FREEBSD_PKG}"
+
+preserve_freebsd_pkg() {
+    if [ -f "${FREEBSD_PKG_PATH}" ]; then
+        PRESERVED_FREEBSD_PKG="$(mktemp -t pysh-freebsd-pkg.XXXXXXXX)"
+        cp "${FREEBSD_PKG_PATH}" "${PRESERVED_FREEBSD_PKG}"
+        log "Preserved prebuilt FreeBSD .pkg: ${FREEBSD_PKG_PATH}"
+    fi
+}
+
+restore_freebsd_pkg() {
+    if [ -n "${PRESERVED_FREEBSD_PKG}" ] && [ -f "${PRESERVED_FREEBSD_PKG}" ]; then
+        mkdir -p "${REPO_ROOT}/dist/os/freebsd"
+        cp "${PRESERVED_FREEBSD_PKG}" "${FREEBSD_PKG_PATH}"
+        log "Restored prebuilt FreeBSD .pkg: ${FREEBSD_PKG_PATH}"
+    fi
+}
+
+preserve_freebsd_pkg
+
 log "[1/12] ruff check src tests"
 uv run ruff check src tests
 
@@ -88,9 +121,12 @@ require_file scripts/check_release_artifacts.sh
 require_file scripts/build_pysh_package.sh
 require_file scripts/build_deb.sh
 require_file scripts/build_rpm.sh
+require_file scripts/build_freebsd_pkg.sh
 
 log "[6/12] clean and build mandatory release artifacts"
+preserve_freebsd_pkg
 rm -rf dist build ./*.egg-info
+restore_freebsd_pkg
 TMPDIR="$(mktemp -d)"
 PYTHON_WRAPPER="${TMPDIR}/python"
 cat >"${PYTHON_WRAPPER}" <<'SH'
@@ -98,6 +134,10 @@ cat >"${PYTHON_WRAPPER}" <<'SH'
 exec uv run --with build --with twine python "$@"
 SH
 chmod +x "${PYTHON_WRAPPER}"
+restore_freebsd_pkg
+if [ "$(uname -s)" != "FreeBSD" ] && [ ! -s "${FREEBSD_PKG_PATH}" ]; then
+    fail "prebuilt FreeBSD .pkg is required before build_release_artifacts.sh: ${FREEBSD_PKG_PATH}"
+fi
 PYTHON_BIN="${PYTHON_WRAPPER}" bash "${REPO_ROOT}/scripts/build_release_artifacts.sh"
 
 log "[7/12] confirm mandatory artifact families"
@@ -106,6 +146,7 @@ wheels=(dist/*.whl)
 sdists=(dist/*.tar.gz)
 debs=(dist/os/deb/pysh-shell_*-1_all.deb)
 rpms=(dist/os/rpm/pysh-shell-*-1.noarch.rpm)
+pkgs=(dist/os/freebsd/pysh-shell-*.pkg)
 shopt -u nullglob
 
 if [ "${#wheels[@]}" -ne 1 ]; then
@@ -119,6 +160,9 @@ if [ "${#debs[@]}" -ne 1 ]; then
 fi
 if [ "${#rpms[@]}" -ne 1 ]; then
     fail "expected exactly one RPM artifact matching dist/os/rpm/pysh-shell-*-1.noarch.rpm, found ${#rpms[@]}"
+fi
+if [ "${#pkgs[@]}" -ne 1 ]; then
+    fail "expected exactly one FreeBSD artifact matching dist/os/freebsd/pysh-shell-*.pkg, found ${#pkgs[@]}; build it on FreeBSD 14+ with scripts/build_freebsd_pkg.sh before v0.8.0 release completion"
 fi
 require_file dist/SHA256SUMS
 require_file dist/release-assets/SHA256SUMS
@@ -174,6 +218,7 @@ wheel = one(sorted(dist.glob("*.whl")), "wheel")
 sdist = one(sorted(dist.glob("*.tar.gz")), "sdist")
 deb = one(sorted((dist / "os" / "deb").glob("pysh-shell_*-1_all.deb")), "Debian .deb")
 rpm = one(sorted((dist / "os" / "rpm").glob("pysh-shell-*-1.noarch.rpm")), "RPM .rpm")
+pkg = one(sorted((dist / "os" / "freebsd").glob("pysh-shell-*.pkg")), "FreeBSD .pkg")
 checksums = dist / "SHA256SUMS"
 release_assets = dist / "release-assets"
 release_checksums = release_assets / "SHA256SUMS"
@@ -185,6 +230,7 @@ expected_sdist_names = {
 }
 expected_deb_name = f"pysh-shell_{expected_version}-1_all.deb"
 expected_rpm_name = f"pysh-shell-{expected_version}-1.noarch.rpm"
+expected_pkg_name = f"pysh-shell-{expected_version}.pkg"
 
 if wheel.name != expected_wheel_name:
     fail(f"wheel filename must be {expected_wheel_name}, got {wheel.name}")
@@ -198,13 +244,15 @@ if deb.name != expected_deb_name:
     fail(f"Debian filename must be {expected_deb_name}, got {deb.name}")
 if rpm.name != expected_rpm_name:
     fail(f"RPM filename must be {expected_rpm_name}, got {rpm.name}")
+if pkg.name != expected_pkg_name:
+    fail(f"FreeBSD .pkg filename must be {expected_pkg_name}, got {pkg.name}")
 if not checksums.is_file():
     fail("dist/SHA256SUMS is required")
 if not release_checksums.is_file():
     fail("dist/release-assets/SHA256SUMS is required")
 
 checksum_text = checksums.read_text(encoding="utf-8")
-for artifact in (wheel, sdist, deb, rpm):
+for artifact in (wheel, sdist, deb, rpm, pkg):
     digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
     relative = artifact.relative_to(dist).as_posix()
     expected_line = f"{digest}  {relative}"
@@ -216,6 +264,7 @@ expected_release_asset_names = {
     sdist.name,
     deb.name,
     rpm.name,
+    pkg.name,
     "SHA256SUMS",
 }
 actual_release_asset_names = {path.name for path in release_assets.iterdir() if path.is_file()}
@@ -226,7 +275,7 @@ if actual_release_asset_names != expected_release_asset_names:
     )
 
 release_checksum_text = release_checksums.read_text(encoding="utf-8")
-for artifact in (wheel, sdist, deb, rpm):
+for artifact in (wheel, sdist, deb, rpm, pkg):
     staged = release_assets / artifact.name
     digest = hashlib.sha256(staged.read_bytes()).hexdigest()
     expected_line = f"{digest}  {artifact.name}"

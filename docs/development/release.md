@@ -12,16 +12,17 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Release Process (`vX.Y.Z`)
 
-> Each release ships **three** artifact families: PyPI (wheel + sdist),
-> Debian `.deb`, and Red Hat/Fedora `.rpm`. See
+> Each v0.8.0 release ships **four** artifact families: PyPI (wheel + sdist),
+> Debian `.deb`, Red Hat/Fedora `.rpm`, and FreeBSD `.pkg`. See
 > [`packaging.md`](packaging.md) for the canonical naming contract and
 > [`installation.md`](../user/installation.md) for end-user install commands.
 
 A release is incomplete unless all current mandatory artifact families are
-built and validated: PyPI wheel + sdist, Debian `.deb`, and RPM `.rpm`. The
-local release gate must fail if `.deb` or `.rpm` packaging tools are missing;
-those artifact families are not optional. FreeBSD `.pkg` validation is
-deferred to Issue #18 and is not part of the current release gate.
+built and validated: PyPI wheel + sdist, Debian `.deb`, RPM `.rpm`, FreeBSD
+`.pkg`, and `SHA256SUMS`. The local release gate must fail if mandatory
+artifacts are missing. On non-FreeBSD hosts it validates an already-produced
+`dist/os/freebsd/pysh-shell-X.Y.Z.pkg` from a FreeBSD 14+ builder and fails
+clearly if that artifact is absent.
 
 PySH is published to PyPI as **`pysh-shell`** through GitHub Actions and
 **PyPI Trusted Publishing**. The workflow lives at
@@ -52,11 +53,10 @@ the `pypi` GitHub environment.
    The gate builds local artifacts, inspects metadata and contents, installs
    the wheel into a temporary virtual environment, and runs CLI smoke tests.
    The gate must produce and validate PyPI wheel + sdist, Debian `.deb`,
-   RPM `.rpm`, and `SHA256SUMS` before a release can proceed. It does not tag,
-   publish, upload or create GitHub releases. FreeBSD `.pkg` validation is
-   performed after this gate as a separate Issue #18 platform validation step.
-   Local build internals keep OS packages under `dist/os/deb/` and
-   `dist/os/rpm/`; GitHub Release upload uses flat files staged under
+   RPM `.rpm`, FreeBSD `.pkg`, and `SHA256SUMS` before a release can proceed.
+   It does not tag, publish, upload or create GitHub releases. Local build
+   internals keep OS packages under `dist/os/deb/`, `dist/os/rpm/`, and
+   `dist/os/freebsd/`; GitHub Release upload uses flat files staged under
    `dist/release-assets/`.
 
 ## Release checklist
@@ -70,6 +70,9 @@ the `pypi` GitHub environment.
 - `scripts/check_release_quality.sh` passes.
 - `twine check dist/*.whl dist/*.tar.gz` passes.
 - `pysh --version` and `python -m pysh --version` print the target version.
+- FreeBSD 14+ package and smoke validation follows
+  [`packaging.md`](packaging.md#freebsd-validation-and-package-build-for-v080).
+  The release is incomplete without `dist/os/freebsd/pysh-shell-X.Y.Z.pkg`.
 
 ## Cutting the release
 
@@ -89,14 +92,17 @@ the `pypi` GitHub environment.
    ```
 4. The `publish.yml` workflow runs on tag push, builds artifacts in an
    isolated CI environment, and uploads to PyPI using Trusted Publishing.
-5. The `release-artifacts.yml` workflow attaches all mandatory GitHub Release
-   assets from `dist/release-assets/`: wheel, sdist, Debian `.deb`, RPM `.rpm`,
-   and flat `SHA256SUMS`.
-6. Verify the release on
+5. The `freebsd-pkg.yml` workflow builds `pysh-shell-X.Y.Z.pkg` on a FreeBSD
+   14+ self-hosted runner and uploads it as a workflow artifact for release
+   staging.
+6. The `release-artifacts.yml` workflow attaches all mandatory GitHub Release
+   assets from `dist/release-assets/`: wheel, sdist, Debian `.deb`, RPM
+   `.rpm`, FreeBSD `.pkg`, and flat `SHA256SUMS`.
+7. Verify the release on
    [PyPI](https://pypi.org/project/pysh-shell/) and that the GitHub
    release page lists `vX.Y.Z` under
    [Releases](https://github.com/SSobol77/pysh/releases).
-7. Verify downloaded GitHub Release assets:
+8. Verify downloaded GitHub Release assets:
    ```bash
    mkdir -p /tmp/pysh-release-vX.Y.Z
    cd /tmp/pysh-release-vX.Y.Z
@@ -115,6 +121,15 @@ the `pypi` GitHub environment.
   python -m pip install pysh-shell==X.Y.Z
   pysh --version
   python -m pysh --version
+  ```
+- On FreeBSD 14+, install the release `.pkg` and run smoke tests:
+  ```sh
+  sudo pkg install ./pysh-shell-X.Y.Z.pkg
+  pysh --version
+  python -m pysh --version
+  pysh -c "echo freebsd-smoke"
+  pysh -c "exit"
+  pysh -c "quit"
   ```
 - If something is wrong, **yank** the release on PyPI rather than deleting
   the tag, and prepare a patch release.

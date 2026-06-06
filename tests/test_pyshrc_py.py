@@ -181,13 +181,13 @@ def configure(shell):
     # ----------------------------------------------------------------------
     # Prompt layout and prompt segments
     # ----------------------------------------------------------------------
-    # PySH supports a two-line prompt:
+    # PySH uses a framed three-line prompt:
     #
-    #   (.venv) 🐍 user@host:~/project git:main py3.13 uv0.11.17 ...
-    #   >
+    #   ┌─(.venv) 🐍 user@host ─ [~/project] ─ git:main
+    #   │  py3.13 · uv0.11.17 · ruff0.15.15
+    #   └─❯
     #
-    # The command prompt symbol is separate from the information line, which
-    # keeps the raw-mode editor stable and readline-safe.
+    # The command symbol is on a separate readline line for stability.
 
     shell.set_prompt_option("prompt_layout", "two_line")
     shell.set_prompt_option("symbol", ">")
@@ -614,16 +614,20 @@ def test_load_invalid_config_call_is_contained(tmp_path: Path, capsys) -> None:
 # --------------------------------------------------- integration with PyShell
 def test_pyshell_default_prompt_is_two_line(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
+    monkeypatch.setattr(PyShell, "_unicode_capable", staticmethod(lambda: True))
     monkeypatch.setenv("USER", "tester")
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
     monkeypatch.setattr(socket, "gethostname", lambda: "vm")
     monkeypatch.chdir(tmp_path)
     shell = PyShell()
     info_line = shell._prompt_info_line()
-    assert info_line.startswith(f"🐍 tester@vm:{tmp_path} py")
-    assert shell._prompt() == "> "
-    assert "\n" not in shell._prompt()
-    assert info_line
+    assert info_line  # not empty
+    assert "🐍 tester@vm" in info_line
+    assert f"[{tmp_path}]" in info_line  # CWD in brackets
+    assert "py" in info_line  # Python version on line 2
+    prompt = shell._prompt()
+    assert "\n" not in prompt
+    assert prompt == "└─❯ "
 
 
 def test_pyshell_single_layout_uses_prompt_body(monkeypatch, tmp_path: Path) -> None:
@@ -962,6 +966,7 @@ def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.setattr(socket, "gethostname", lambda: "sun")
     monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
+    monkeypatch.setattr(PyShell, "_unicode_capable", staticmethod(lambda: True))
 
     class Result:
         def __init__(self, stdout: str) -> None:
@@ -988,11 +993,11 @@ def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path
     shell.set_prompt_option("cwd_style", "home")
     py = ".".join(str(p) for p in sys.version_info[:2])
 
-    assert shell._prompt_info_line() == (
-        "(.venv) 🐍 ssobol@sun:~/Code/Project_PySH/pysh/pysh "
-        f"git:main py{py} uv0.9.16 ruff0.15.15 rust1.83.0 node22.3.0 npm10.8.1"
-    )
-    assert shell._prompt() == "> "
+    info = shell._prompt_info_line()
+    line1, line2 = info.split("\n", 1)
+    assert line1 == "┌─(.venv) 🐍 ssobol@sun ─ [~/Code/Project_PySH/pysh/pysh] ─ git:main"
+    assert line2 == f"│  py{py} · uv0.9.16 · ruff0.15.15 · rust1.83.0 · node22.3.0 · npm10.8.1"
+    assert shell._prompt() == "└─❯ "
 
 
 def test_colored_prompt_contains_ansi_and_preserves_semantics(monkeypatch, tmp_path: Path) -> None:

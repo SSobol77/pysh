@@ -1,10 +1,10 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
 pysh_read_version() {
-    local pyproject="$1"
+    pyproject="$1"
     awk -F'"' '
         /^[[:space:]]*version[[:space:]]*=[[:space:]]*"/ {
             print $2

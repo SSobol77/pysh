@@ -609,13 +609,13 @@ def configure(shell):
     # ----------------------------------------------------------------------
     # Prompt layout and prompt segments
     # ----------------------------------------------------------------------
-    # PySH supports a two-line prompt:
+    # PySH uses a framed three-line prompt:
     #
-    #   (.venv) 🐍 user@host:~/project git:main py3.13 uv0.11.17 ...
-    #   >
+    #   ┌─(.venv) 🐍 user@host ─ [~/project] ─ git:main
+    #   │  py3.13 · uv0.11.17 · ruff0.15.15
+    #   └─❯
     #
-    # The command prompt symbol is separate from the information line, which
-    # keeps the raw-mode editor stable and readline-safe.
+    # The command symbol is on a separate readline line for stability.
 
     shell.set_prompt_option("prompt_layout", "two_line")
     shell.set_prompt_option("symbol", ">")

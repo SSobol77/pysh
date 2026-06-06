@@ -49,7 +49,7 @@ body:
       label: "Steps to Reproduce"
       description: "Write exact commands and key presses needed to reproduce the bug."
       placeholder: |
-        1. Install PySH version 0.7.0 from the .deb package.
+        1. Install PySH version 0.8.0 from the .deb package.
         2. Run:
            pysh
         3. Paste:
@@ -144,7 +144,7 @@ body:
       label: "Environment"
       description: "Provide environment details if they are not already visible in diagnostics."
       placeholder: |
-        PySH version: 0.7.0
+        PySH version: 0.8.0
         Installation method: .deb / PyPI / source / uv / other
         Operating system: Debian 13
         Python version: 3.13.5

@@ -53,7 +53,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current release: **PySH 0.7.0**. PySH targets **Python 3.13+** and is
+Current release: **PySH 0.8.0**. PySH targets **Python 3.13+** and is
 validated primarily on **Debian 13** and Unix-like systems.
 
 ---
@@ -241,7 +241,7 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 
 - [Development](https://github.com/SSobol77/pysh/blob/main/docs/development/development.md) — running the test suite, linting, building artifacts, repository layout.
 - [Release process](https://github.com/SSobol77/pysh/blob/main/docs/development/release.md) — how PySH ships via GitHub Actions and PyPI Trusted Publishing.
-- [Packaging](https://github.com/SSobol77/pysh/blob/main/docs/development/packaging.md) — PyPI / `.deb` / `.rpm` artifact naming contract and build scripts.
+- [Packaging](https://github.com/SSobol77/pysh/blob/main/docs/development/packaging.md) — PyPI / `.deb` / `.rpm` / `.pkg` artifact naming contract and build scripts.
 
 ---
 

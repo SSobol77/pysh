@@ -284,6 +284,18 @@ class TestTokenizeAndGlobExpand:
         with pytest.raises(ValueError, match="double quote"):
             tokenize_and_glob_expand('echo "unterminated')
 
+    def test_unterminated_single_quote_no_embedded_pysh_prefix(self) -> None:
+        with pytest.raises(ValueError) as exc_info:
+            tokenize_and_glob_expand("echo 'unterminated")
+        assert str(exc_info.value) == "unterminated single quote"
+        assert not str(exc_info.value).startswith("pysh:")
+
+    def test_unterminated_double_quote_no_embedded_pysh_prefix(self) -> None:
+        with pytest.raises(ValueError) as exc_info:
+            tokenize_and_glob_expand('echo "unterminated')
+        assert str(exc_info.value) == "unterminated double quote"
+        assert not str(exc_info.value).startswith("pysh:")
+
     def test_brace_expansion_stays_literal(self) -> None:
         # Brace expansion is unsupported; { is not a glob metachar
         result = tokenize_and_glob_expand("echo {a,b}")

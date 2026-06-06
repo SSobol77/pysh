@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pysh import __version__
 from pysh.core.errors import exception_to_diagnostic
-from pysh.core.shell import PyShell
+from pysh.core.shell import PyShell, _ExitShell
 from pysh.diagnostics.trace import DiagnosticTrace, TraceOptions
 from pysh.parsing.multiline import iter_logical_lines
 
@@ -118,6 +118,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 native_only=True,
             )
         return shell.run()
+    except _ExitShell as exc:
+        return exc.code
     except SystemExit as exc:
         return int(exc.code) if exc.code is not None else 0
     except BaseException as exc:  # noqa: BLE001

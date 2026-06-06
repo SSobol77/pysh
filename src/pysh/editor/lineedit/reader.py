@@ -134,6 +134,10 @@ class RawLineReader:
         """Return True when pasted commands are waiting to be replayed."""
         return bool(self._command_queue)
 
+    def clear_command_queue(self) -> None:
+        """Clear queued commands produced by paste handling."""
+        self._command_queue.clear()
+
     def read_line(
         self,
         prompt: str,
