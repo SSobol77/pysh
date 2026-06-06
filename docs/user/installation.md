@@ -91,6 +91,53 @@ gh release download vX.Y.Z
 sha256sum -c SHA256SUMS
 ```
 
+## Upgrading PySH
+
+### Upgrade from PyPI
+
+```bash
+python3.13 -m pip install --upgrade pysh-shell
+pysh --version
+```
+
+### Upgrade from a GitHub Release `.deb`
+
+Download the new `.deb` for the target version from the GitHub Release page,
+then install it over the existing package:
+
+```bash
+sudo apt install ./pysh-shell_X.Y.Z-1_all.deb
+pysh --version
+```
+
+`apt install ./<path>` resolves dependencies and upgrades the installed package
+in-place.
+
+### Upgrade from a GitHub Release `.rpm`
+
+Download the new `.rpm` for the target version from the GitHub Release page,
+then upgrade:
+
+```bash
+sudo dnf upgrade ./pysh-shell-X.Y.Z-1.noarch.rpm
+pysh --version
+```
+
+### User configuration preservation
+
+Upgrading PySH never overwrites an existing `~/.pyshrc.py`. Your personal
+Python-native configuration is preserved across all upgrade paths: PyPI,
+`.deb`, and `.rpm`.
+
+If a future version introduces a new default configuration template, it will be
+installed as a template or example file only — it will not be written over an
+existing `~/.pyshrc.py`.
+
+The local `dist/os/` tree is an internal build layout used by the release
+quality gate. It is not part of the GitHub Release download. See
+[Verify GitHub Release artifacts](#verify-github-release-artifacts) for the
+flat download workflow.
+
 ## Development install (editable)
 
 Use a virtual environment so PySH does not interfere with system Python:
