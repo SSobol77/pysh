@@ -328,7 +328,7 @@ def test_no_affirmative_broad_compatibility_claims_in_public_docs() -> None:
 # Version gate tests — prevent stale release metadata from surviving a bump
 # ---------------------------------------------------------------------------
 
-CURRENT_VERSION = "0.7.0"
+CURRENT_VERSION = "0.8.0"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 INIT_PY = REPO_ROOT / "src" / "pysh" / "__init__.py"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
@@ -377,25 +377,41 @@ def test_changelog_has_current_version_section() -> None:
     )
 
 
-def test_changelog_v070_covers_mandatory_features() -> None:
-    """CHANGELOG v0.7.0 section must document all mandatory v0.7.0 features."""
+def test_changelog_current_release_covers_mandatory_features() -> None:
+    """CHANGELOG current-release section must document mandatory v0.8.0 scope."""
     text = CHANGELOG.read_text(encoding="utf-8")
 
     start = text.find(f"## {CURRENT_VERSION}")
     assert start != -1, f"CHANGELOG.md missing ## {CURRENT_VERSION} section"
 
-    # Find end of the 0.7.0 section (next ## header or EOF).
+    # Find end of the current release section (next ## header or EOF).
     rest = text[start:]
     next_section = rest.find("\n## ", 1)
     section = rest[:next_section] if next_section != -1 else rest
 
     required_phrases = (
-        "migrate",
-        "migration",
-        "zsh",
-        "/bin/sh",
-        "SHA256SUMS",
         "Issue #18",
+        "Issue #21",
+        "Issue #22",
+        "Issue #23",
+        "Issue #24",
+        "prompt",
+        "banner",
+        "multiline paste",
+        "stale input",
+        "exit",
+        "quit",
+        "FreeBSD 14+",
+        "`.pkg`",
+        "wheel",
+        "sdist",
+        "`.deb`",
+        "`.rpm`",
+        "SHA256SUMS",
+        "Debian/Linux",
+        "fake `.pkg`",
+        "~/.pyshrc.py",
+        "not overwritten",
     )
     missing = [p for p in required_phrases if p.lower() not in section.lower()]
     assert not missing, (

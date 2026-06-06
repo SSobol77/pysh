@@ -14,6 +14,50 @@ Copyright (C) 2026 Siergej Sobolewski
 
 All notable changes to PySH are documented in this file.
 
+## 0.8.0 - 2026-06-06
+
+Release type: release hardening — terminal presentation, paste-state safety,
+release asset regression guards, FreeBSD packaging validation, and builtin
+dispatch fixes.
+
+### Prompt and terminal presentation
+
+- Issue #21: redesigned the prompt/banner presentation while preserving the
+  framed prompt behavior required by the interactive shell.
+- Added compact system display so terminal startup state remains readable
+  without expanding into noisy host diagnostics.
+
+### Multiline paste and stale input hardening
+
+- Issue #22: hardened staged multiline paste handling so stale paste payloads
+  and same-batch queued commands cannot silently survive `paste_cancel`,
+  `paste_run`, or Ctrl+C into a later prompt.
+- Paste parse errors are attributed as paste-originated diagnostics while
+  direct typed parse errors retain the normal direct input form.
+
+### Release asset workflow and upgrade documentation
+
+- Issue #23: added release asset workflow regression guards for flat release
+  assets and `SHA256SUMS` validation.
+- Upgrade documentation now states that an existing `~/.pyshrc.py` is not overwritten
+  during upgrades. Future default configuration changes must be
+  delivered as templates only.
+
+### Exit and quit dispatch
+
+- Issue #24: fixed the builtin dispatch regression so `exit` and `quit`
+  execute through the intended shell builtin path.
+
+### FreeBSD package validation
+
+- Issue #18: FreeBSD 14+ validation and mandatory FreeBSD `.pkg` release
+  gating are now part of the release contract.
+- A v0.8.0 release is incomplete without all required artifacts: wheel, sdist,
+  Debian `.deb`, RPM `.rpm`, FreeBSD `.pkg`, and `SHA256SUMS`.
+- The FreeBSD `.pkg` must be built on FreeBSD 14+ with native `pkg` tooling.
+- Debian/Linux hosts must not fake `.pkg` artifacts; release quality checks
+  must fail deterministically until a real FreeBSD-built `.pkg` is present.
+
 ## 0.7.0 - 2026-06-05
 
 Release type: feature release — migration analysis, zsh transition hardening,
