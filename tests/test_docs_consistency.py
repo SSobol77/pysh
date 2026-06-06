@@ -146,7 +146,7 @@ def test_release_workflow_uploads_flat_staged_assets() -> None:
     ):
         assert "runs-on: [self-hosted, freebsd, x64]" not in workflow_text
         assert "vmactions/freebsd-vm" in workflow_text or "cross-platform-actions/action" in workflow_text
-        assert "release: \"14.2\"" in workflow_text
+        assert "release: \"14.3\"" in workflow_text
         assert "pkg install -y python313" in workflow_text
         assert "python3.13 --version" in workflow_text
         assert "pkg --version" in workflow_text
