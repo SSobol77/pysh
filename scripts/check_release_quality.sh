@@ -92,6 +92,8 @@ restore_freebsd_pkg() {
     fi
 }
 
+preserve_freebsd_pkg
+
 log "[1/12] ruff check src tests"
 uv run ruff check src tests
 
@@ -124,6 +126,7 @@ require_file scripts/build_freebsd_pkg.sh
 log "[6/12] clean and build mandatory release artifacts"
 preserve_freebsd_pkg
 rm -rf dist build ./*.egg-info
+restore_freebsd_pkg
 TMPDIR="$(mktemp -d)"
 PYTHON_WRAPPER="${TMPDIR}/python"
 cat >"${PYTHON_WRAPPER}" <<'SH'
@@ -132,6 +135,9 @@ exec uv run --with build --with twine python "$@"
 SH
 chmod +x "${PYTHON_WRAPPER}"
 restore_freebsd_pkg
+if [ "$(uname -s)" != "FreeBSD" ] && [ ! -s "${FREEBSD_PKG_PATH}" ]; then
+    fail "prebuilt FreeBSD .pkg is required before build_release_artifacts.sh: ${FREEBSD_PKG_PATH}"
+fi
 PYTHON_BIN="${PYTHON_WRAPPER}" bash "${REPO_ROOT}/scripts/build_release_artifacts.sh"
 
 log "[7/12] confirm mandatory artifact families"

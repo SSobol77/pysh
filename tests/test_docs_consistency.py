@@ -644,6 +644,34 @@ def test_release_quality_gate_preserves_prebuilt_freebsd_pkg_before_cleaning() -
     build_idx = quality_gate.index('bash "${REPO_ROOT}/scripts/build_release_artifacts.sh"')
     assert preserve_idx < clean_idx < restore_idx < build_idx
 
+    # Initial preserve must happen before step [1/12] (ruff check) so that the
+    # pytest suite cannot delete the .pkg before it is saved to a temp file.
+    ruff_idx = quality_gate.index("ruff check src tests")
+    assert preserve_idx < ruff_idx, (
+        "preserve_freebsd_pkg must be called before step [1/12] ruff check src tests"
+    )
+
+    # restore_freebsd_pkg must be called immediately after rm -rf dist
+    restore_after_clean_idx = quality_gate.index("\nrestore_freebsd_pkg\n", clean_idx)
+    assert clean_idx < restore_after_clean_idx < build_idx, (
+        "restore_freebsd_pkg must be called immediately after rm -rf dist"
+    )
+
+    # restore_freebsd_pkg must also be called a second time immediately before
+    # build_release_artifacts.sh (redundant guard in case TMPDIR setup intervenes)
+    final_restore_idx = quality_gate.rindex("\nrestore_freebsd_pkg\n", 0, build_idx)
+    assert final_restore_idx > restore_after_clean_idx, (
+        "a second restore_freebsd_pkg call must appear immediately before build_release_artifacts.sh"
+    )
+
+    # Non-FreeBSD must hard-fail with a clear message if the .pkg is absent or empty
+    assert '! -s "${FREEBSD_PKG_PATH}"' in quality_gate, (
+        "check_release_quality.sh must guard [ ! -s FREEBSD_PKG_PATH ] before build_release_artifacts.sh"
+    )
+    assert "prebuilt FreeBSD .pkg is required before build_release_artifacts.sh" in quality_gate, (
+        "check_release_quality.sh must emit a hard-fail message when the prebuilt .pkg is missing"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Issue #23 — Release asset workflow regression guard
