@@ -241,7 +241,7 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 
 - [Development](https://github.com/SSobol77/pysh/blob/main/docs/development/development.md) — running the test suite, linting, building artifacts, repository layout.
 - [Release process](https://github.com/SSobol77/pysh/blob/main/docs/development/release.md) — how PySH ships via GitHub Actions and PyPI Trusted Publishing.
-- [Packaging](https://github.com/SSobol77/pysh/blob/main/docs/development/packaging.md) — PyPI / `.deb` / `.rpm` artifact naming contract and build scripts.
+- [Packaging](https://github.com/SSobol77/pysh/blob/main/docs/development/packaging.md) — PyPI / `.deb` / `.rpm` / `.pkg` artifact naming contract and build scripts.
 
 ---
 
