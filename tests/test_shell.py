@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from pysh.core.shell import PyShell
+from pysh.core.shell import PyShell, _ExitShell
 from pysh.editor.lineedit.reader import QueuedCommand
 
 
@@ -259,6 +259,25 @@ def test_command_substitution_suppressed_in_single_quotes(
     assert status == 0
     captured = capfd.readouterr()
     assert "literal $(printf x)" in captured.out
+
+
+@pytest.mark.parametrize("command", ["exit", "exit ", "exit   ", "quit", "quit ", "quit   "])
+def test_exit_and_quit_dispatch_through_exit_shell(command: str, shell: PyShell) -> None:
+    """exit/quit must dispatch as builtins after deterministic command-word trimming."""
+    with pytest.raises(_ExitShell) as exc:
+        shell.execute(command)
+    assert exc.value.code == 0
+
+
+def test_exit_preserves_numeric_status(shell: PyShell) -> None:
+    with pytest.raises(_ExitShell) as exc:
+        shell.execute("exit 7")
+    assert exc.value.code == 7
+
+
+def test_exit_and_quit_are_registered_builtins(shell: PyShell) -> None:
+    assert "exit" in shell.BUILTINS
+    assert "quit" in shell.BUILTINS
 
 
 # ---------------------------------------------------------------- Issue #22: paste state hardening
