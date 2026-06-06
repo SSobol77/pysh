@@ -70,6 +70,9 @@ the `pypi` GitHub environment.
 - `scripts/check_release_quality.sh` passes.
 - `twine check dist/*.whl dist/*.tar.gz` passes.
 - `pysh --version` and `python -m pysh --version` print the target version.
+- FreeBSD smoke validation follows the PyPI/wheel checklist in
+  [`packaging.md`](packaging.md#freebsd-validation-for-v080). This validation
+  does not require or imply a current FreeBSD `.pkg` artifact.
 
 ## Cutting the release
 

@@ -395,12 +395,121 @@ def test_docs_system_shell_policy_present() -> None:
 
 
 def test_docs_freebsd_pkg_is_deferred() -> None:
-    """Packaging and release docs must defer FreeBSD .pkg to Issue #18."""
+    """Packaging and release docs must document FreeBSD validation without current .pkg."""
     packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
     release_doc = (DOCS / "development" / "release.md").read_text(encoding="utf-8")
-    for name, text in (("packaging.md", packaging_doc), ("release.md", release_doc)):
-        assert "FreeBSD" in text, f"{name} must mention FreeBSD .pkg deferral"
-        assert "Issue #18" in text, f"{name} must reference Issue #18 for FreeBSD .pkg"
+    installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
+
+    assert "FreeBSD validation for v0.8.0" in packaging_doc
+    assert "FreeBSD validation install path" in installation_doc
+    assert "FreeBSD smoke validation" in release_doc
+
+    for name, text in (
+        ("packaging.md", packaging_doc),
+        ("release.md", release_doc),
+        ("installation.md", installation_doc),
+    ):
+        assert "FreeBSD" in text, f"{name} must mention FreeBSD validation"
+        assert ".pkg" in text, f"{name} must mention FreeBSD .pkg status"
+        assert any(word in text.lower() for word in ("planned", "future", "deferred")), (
+            f"{name} must mark FreeBSD .pkg as planned/future/deferred"
+        )
+
+
+def test_freebsd_validation_docs_include_required_smoke_commands() -> None:
+    """FreeBSD validation docs must include the required PyPI/wheel smoke commands."""
+    packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
+    installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
+
+    required_commands = (
+        "python3.13 -m venv /tmp/pysh-freebsd-smoke",
+        ". /tmp/pysh-freebsd-smoke/bin/activate",
+        "python -m pip install --upgrade pip",
+        "python -m pip install pysh-shell==X.Y.Z",
+        "pysh --version",
+        "python -m pysh --version",
+        'pysh -c "echo freebsd-smoke"',
+        'pysh -c "exit"',
+        'pysh -c "quit"',
+    )
+    for text in (packaging_doc, installation_doc):
+        for command in required_commands:
+            assert command in text
+
+
+def test_freebsd_validation_docs_capture_portability_and_interactive_checks() -> None:
+    """FreeBSD docs must capture platform risks and interactive safety checks."""
+    packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
+    installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
+    combined = packaging_doc + "\n" + installation_doc
+
+    required_phrases = (
+        "Python 3.13 or newer",
+        "virtual environment",
+        "startup banner renders",
+        "framed prompt",
+        "Unicode",
+        "exit` exits on the first attempt",
+        "quit` exits on the first attempt",
+        "multiline paste safety remains enabled",
+        "Python-first",
+        "must not replace `/bin/sh`",
+        "terminal and PTY behavior",
+        "platform.release()",
+        "/proc/cpuinfo",
+        "package manager semantics",
+        "filesystem layout",
+        "executable wrapper paths",
+    )
+    for phrase in required_phrases:
+        assert phrase in combined
+
+
+def test_freebsd_pkg_future_direction_is_not_current_artifact_policy() -> None:
+    """Docs must separate current artifacts from future FreeBSD .pkg packaging."""
+    packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
+    installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
+    combined = packaging_doc + "\n" + installation_doc
+
+    current_artifacts = (
+        "PyPI wheel + sdist",
+        "Debian `.deb`",
+        "RPM `.rpm`",
+        "SHA256SUMS",
+    )
+    for artifact in current_artifacts:
+        assert artifact in combined
+
+    assert "No FreeBSD `.pkg` artifact is a current mandatory release artifact" in combined
+    assert "native FreeBSD `.pkg` is planned/future work" in combined
+    assert "/usr/local/bin/pysh" in packaging_doc
+    assert "FreeBSD-appropriate prefix" in packaging_doc
+    assert "documentation and license files" in packaging_doc
+    assert "no system shell diversion" in packaging_doc
+    assert "no overwrite of an existing `~/.pyshrc.py`" in combined
+
+
+def test_release_gates_do_not_require_fake_freebsd_pkg_artifacts() -> None:
+    """Release scripts/workflow must keep current mandatory artifacts and not require .pkg."""
+    quality_gate = (REPO_ROOT / "scripts" / "check_release_quality.sh").read_text(
+        encoding="utf-8"
+    )
+    artifact_gate = (REPO_ROOT / "scripts" / "check_release_artifacts.sh").read_text(
+        encoding="utf-8"
+    )
+    workflow = (REPO_ROOT / ".github" / "workflows" / "release-artifacts.yml").read_text(
+        encoding="utf-8"
+    )
+
+    for text in (quality_gate, artifact_gate, workflow):
+        assert ".pkg" not in text
+
+    for text in (quality_gate, artifact_gate):
+        assert "dist/*.whl" in text or "EXPECTED_WHEEL_NAME" in text
+        assert "dist/*.tar.gz" in text or "EXPECTED_SDIST" in text
+        assert "pysh-shell_*-1_all.deb" in text or "EXPECTED_DEB" in text
+        assert "pysh-shell-*-1.noarch.rpm" in text or "EXPECTED_RPM" in text
+        assert "SHA256SUMS" in text
 
 
 # ---------------------------------------------------------------------------

@@ -104,6 +104,73 @@ sudo dnf install ./pysh-shell-X.Y.Z-1.noarch.rpm
 pysh --version
 ```
 
+## FreeBSD validation for v0.8.0
+
+FreeBSD validation is performed against the Python distribution path for now.
+PySH requires Python 3.13 or newer. The recommended FreeBSD smoke path is a
+virtual environment installed from PyPI or from a locally built wheel:
+
+```sh
+python3.13 -m venv /tmp/pysh-freebsd-smoke
+. /tmp/pysh-freebsd-smoke/bin/activate
+python -m pip install --upgrade pip
+python -m pip install pysh-shell==X.Y.Z
+pysh --version
+python -m pysh --version
+pysh -c "echo freebsd-smoke"
+pysh -c "exit"
+pysh -c "quit"
+```
+
+Interactive smoke validation on FreeBSD must verify:
+
+- startup banner renders;
+- framed prompt renders, or falls back cleanly when Unicode rendering is not
+  available in the terminal;
+- `exit` exits on the first attempt;
+- `quit` exits on the first attempt;
+- multiline paste safety remains enabled and staged paste does not execute
+  without explicit confirmation.
+
+Portability assumptions for this validation:
+
+- PySH is Python-first and should not require Linux-only shell behavior.
+- PySH must not replace `/bin/sh`, divert `/bin/sh`, or claim POSIX sh
+  compatibility.
+- OS packages must install only the explicit `pysh` command and must not
+  replace the system shell used by scripts or package-manager hooks.
+
+Known OS-specific areas to watch on FreeBSD:
+
+- terminal and PTY behavior;
+- `platform.release()` and kernel display in the prompt/banner;
+- CPU model fallback where `/proc/cpuinfo` does not exist;
+- package manager semantics;
+- filesystem layout and installation prefixes;
+- executable wrapper paths.
+
+## Future FreeBSD `.pkg` direction
+
+FreeBSD `.pkg` packaging is planned/future work and remains deferred until a
+real build script, package metadata, install-layout validation and checksum
+coverage exist. No FreeBSD `.pkg` artifact is a current mandatory release artifact
+for v0.8.0.
+
+A future `.pkg` must install:
+
+- `/usr/local/bin/pysh`, or another documented FreeBSD-appropriate wrapper
+  path;
+- PySH library files under a FreeBSD-appropriate prefix;
+- documentation and license files;
+- no `/bin/sh` replacement;
+- no system shell diversion;
+- no overwrite of an existing `~/.pyshrc.py`.
+
+A future `.pkg` release must have checksum coverage and must be added to the
+release gate only after implementation and validation. Until that work lands,
+the mandatory v0.8.0 release artifacts remain PyPI wheel + sdist, Debian
+`.deb`, RPM `.rpm`, flat GitHub Release assets, and `SHA256SUMS`.
+
 ### Verify checksums
 
 GitHub Release assets are uploaded from `dist/release-assets/` as flat files:

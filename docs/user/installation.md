@@ -79,6 +79,30 @@ requires `python3 >= 3.13`.
 > are **not** yet shipped via the official Debian, Ubuntu, Fedora or
 > RHEL/EPEL repositories.
 
+## FreeBSD validation install path
+
+FreeBSD validation currently uses the PyPI/wheel install path in a virtual
+environment. A native FreeBSD `.pkg` is planned/future work and is not a
+current release artifact.
+
+```sh
+python3.13 -m venv /tmp/pysh-freebsd-smoke
+. /tmp/pysh-freebsd-smoke/bin/activate
+python -m pip install --upgrade pip
+python -m pip install pysh-shell==X.Y.Z
+pysh --version
+python -m pysh --version
+pysh -c "echo freebsd-smoke"
+pysh -c "exit"
+pysh -c "quit"
+```
+
+For interactive validation, start `pysh` and verify that the startup banner
+renders, the framed prompt falls back cleanly if Unicode is unavailable,
+`exit` and `quit` exit on the first attempt, and multiline paste safety remains
+enabled. PySH must not replace `/bin/sh`, and any future FreeBSD `.pkg` must
+not overwrite an existing `~/.pyshrc.py`.
+
 ## Verify GitHub Release artifacts
 
 Each GitHub Release publishes flat assets: wheel, sdist, `.deb`, `.rpm`, and
