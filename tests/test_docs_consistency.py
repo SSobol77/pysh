@@ -401,3 +401,79 @@ def test_docs_freebsd_pkg_is_deferred() -> None:
     for name, text in (("packaging.md", packaging_doc), ("release.md", release_doc)):
         assert "FreeBSD" in text, f"{name} must mention FreeBSD .pkg deferral"
         assert "Issue #18" in text, f"{name} must reference Issue #18 for FreeBSD .pkg"
+
+
+# ---------------------------------------------------------------------------
+# Issue #23 — Release asset workflow regression guard
+# ---------------------------------------------------------------------------
+
+
+def test_installation_doc_has_upgrade_paths() -> None:
+    """Installation doc must document upgrade instructions for all distribution channels.
+
+    Regression guard for Issue #23: every supported install path (PyPI, .deb,
+    .rpm) must also have a documented upgrade path so users can move between
+    releases without losing configuration or consulting external sources.
+    """
+    installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
+
+    assert "## Upgrading" in installation_doc, (
+        "installation.md must contain an ## Upgrading section"
+    )
+    assert "pip install --upgrade pysh-shell" in installation_doc, (
+        "installation.md must document 'pip install --upgrade pysh-shell' for PyPI upgrades"
+    )
+    assert "apt install" in installation_doc, (
+        "installation.md must document apt install for .deb upgrades"
+    )
+    assert "dnf upgrade" in installation_doc, (
+        "installation.md must document 'dnf upgrade' for .rpm upgrades"
+    )
+
+
+def test_installation_doc_states_pyshrc_py_preserved_on_upgrade() -> None:
+    """Installation doc must explicitly state that ~/.pyshrc.py is not overwritten on upgrade.
+
+    Regression guard for Issue #23: users must be informed that upgrading PySH
+    through any distribution channel (PyPI, .deb, .rpm) preserves their
+    existing Python-native configuration file.  If a future release ships a new
+    default template it must be delivered as a template only, never forced over
+    an existing file.
+    """
+    installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
+
+    assert "pyshrc.py" in installation_doc, (
+        "installation.md must mention ~/.pyshrc.py in the upgrade section"
+    )
+    preserved = (
+        "not overwritten" in installation_doc
+        or "never overwrites" in installation_doc
+        or "never overwritten" in installation_doc
+    )
+    assert preserved, (
+        "installation.md must state that ~/.pyshrc.py is not overwritten during upgrades"
+    )
+    assert "template" in installation_doc, (
+        "installation.md must state that future default configs are installed as templates only"
+    )
+
+
+def test_release_quality_gate_validates_flat_sha256sums_entries() -> None:
+    """Quality gate must reject dist/release-assets/SHA256SUMS entries with path separators.
+
+    Regression guard for Issue #23: the v0.7.0 incident showed that a
+    SHA256SUMS file with nested paths (``os/deb/...``) does not survive a plain
+    ``gh release download vX.Y.Z`` intact.  The quality gate's Python
+    inspection block must actively reject any ``/`` or ``./`` prefix in the
+    flat release-facing checksum file.
+    """
+    script = (REPO_ROOT / "scripts" / "check_release_quality.sh").read_text(encoding="utf-8")
+
+    assert '"/" in filename' in script, (
+        "check_release_quality.sh must check that release-assets/SHA256SUMS "
+        "entries contain no '/' path separator"
+    )
+    assert "must use flat filenames" in script, (
+        "check_release_quality.sh must emit a 'must use flat filenames' error "
+        "when a path separator is found in release-assets/SHA256SUMS"
+    )
