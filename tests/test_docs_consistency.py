@@ -139,12 +139,35 @@ def test_release_workflow_uploads_flat_staged_assets() -> None:
 
     freebsd_workflow = REPO_ROOT / ".github" / "workflows" / "freebsd-pkg.yml"
     freebsd_text = freebsd_workflow.read_text(encoding="utf-8")
-    assert "runs-on: [self-hosted, freebsd, x64]" in freebsd_text
+
+    for name, workflow_text in (
+        ("freebsd-pkg.yml", freebsd_text),
+        ("release-artifacts.yml", text),
+    ):
+        assert "runs-on: [self-hosted, freebsd, x64]" not in workflow_text
+        assert "vmactions/freebsd-vm" in workflow_text or "cross-platform-actions/action" in workflow_text
+        assert "release: \"14.2\"" in workflow_text
+        assert "pkg install -y python313" in workflow_text
+        assert "python3.13 --version" in workflow_text
+        assert "pkg --version" in workflow_text
+        assert "pyproject.toml" in workflow_text
+        assert 'PKG_PATH="dist/os/freebsd/pysh-shell-${VERSION}.pkg"' in workflow_text
+        assert "pysh-shell-0.8.0.pkg" not in workflow_text
+        assert "sh scripts/build_freebsd_pkg.sh" in workflow_text
+        assert 'pkg info -F "${PKG_PATH}"' in workflow_text
+        assert 'pkg query -F "${PKG_PATH}" "%Fp"' in workflow_text
+        assert "/usr/local/bin/pysh" in workflow_text
+        assert "/usr/local/lib/pysh-shell/pysh" in workflow_text
+        assert "actions/upload-artifact" in workflow_text, name
+
     assert "workflow_dispatch:" in freebsd_text
-    assert "push:" not in freebsd_text
-    assert "bash scripts/build_freebsd_pkg.sh" in freebsd_text
+    assert "push:" in freebsd_text
+    assert "release/v0.8.0" in freebsd_text
+    assert "runs-on: ubuntu-latest" in freebsd_text
     assert "dist/os/freebsd/pysh-shell-*.pkg" in freebsd_text
-    assert "actions/upload-artifact" in freebsd_text
+    assert "needs: freebsd-pkg" in text
+    assert "actions/download-artifact" in text
+    assert "path: dist/os/freebsd" in text
 
 
 def test_release_docs_define_flat_assets_and_nested_local_layout() -> None:

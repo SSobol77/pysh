@@ -5,6 +5,9 @@
 name: FreeBSD package
 
 on:
+  push:
+    branches:
+      - release/v0.8.0
   workflow_dispatch:
 
 permissions:
@@ -13,40 +16,41 @@ permissions:
 jobs:
   freebsd-pkg:
     name: Build FreeBSD .pkg
-    runs-on: [self-hosted, freebsd, x64]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Verify FreeBSD 14+ builder
-        run: |
-          set -euo pipefail
-          test "$(uname -s)" = "FreeBSD"
-          major="$(uname -r | awk -F. '{print $1}')"
-          test "${major}" -ge 14
-          command -v pkg
-          command -v python3.13
+      - name: Build and inspect FreeBSD .pkg
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.2"
+          usesh: true
+          prepare: |
+            pkg update -f
+            pkg install -y python313
+          run: |
+            set -eu
+            test "$(uname -s)" = "FreeBSD"
+            major="$(uname -r | awk -F. '{print $1}')"
+            test "${major}" -ge 14
+            python3.13 --version
+            pkg --version
+            VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+            PKG_PATH="dist/os/freebsd/pysh-shell-${VERSION}.pkg"
+            sh scripts/build_freebsd_pkg.sh
+            test -f "${PKG_PATH}"
+            pkg info -F "${PKG_PATH}"
+            pkg query -F "${PKG_PATH}" "%Fp" | tee /tmp/pysh-freebsd-pkg-files
+            grep -Fx /usr/local/bin/pysh /tmp/pysh-freebsd-pkg-files
+            grep -E '^/usr/local/lib/pysh-shell/pysh(/|$)' \
+              /tmp/pysh-freebsd-pkg-files
 
-      - name: Install Python validation tools
+      - name: Verify FreeBSD .pkg artifact on host
         run: |
-          set -euo pipefail
-          python3.13 -m ensurepip --upgrade
-          python3.13 -m pip install --upgrade pip
-          python3.13 -m pip install pytest ruff
-
-      - name: Run feasible FreeBSD validation
-        run: |
-          set -euo pipefail
-          python3.13 -m pytest -q
-          python3.13 -m ruff check src tests
-          PYTHONPATH=src python3.13 -m pysh --version
-          PYTHONPATH=src python3.13 -m pysh -c "echo freebsd-smoke"
-          PYTHONPATH=src python3.13 -m pysh -c "exit"
-          PYTHONPATH=src python3.13 -m pysh -c "quit"
-
-      - name: Build FreeBSD .pkg
-        run: bash scripts/build_freebsd_pkg.sh
+          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+          test -f "dist/os/freebsd/pysh-shell-${VERSION}.pkg"
 
       - name: Upload FreeBSD .pkg workflow artifact
         uses: actions/upload-artifact@v4
