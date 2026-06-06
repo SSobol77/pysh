@@ -55,7 +55,8 @@ echo "==> Building FreeBSD package ${EXPECTED_PKG}"
 STAGE_DIR="$(mktemp -d -t pysh-freebsd-pkg.XXXXXXXX)"
 MANIFEST="$(mktemp -t pysh-freebsd-manifest.XXXXXXXX)"
 LISTING="$(mktemp -t pysh-freebsd-listing.XXXXXXXX)"
-trap 'rm -rf "${STAGE_DIR}" "${MANIFEST}" "${LISTING}"' EXIT
+PLIST="$(mktemp -t pysh-freebsd-plist.XXXXXXXX)"
+trap 'rm -rf "${STAGE_DIR}" "${MANIFEST}" "${LISTING}" "${PLIST}"' EXIT
 
 mkdir -p \
     "${STAGE_DIR}${LIB_DIR}" \
@@ -90,6 +91,12 @@ chmod 0755 "${STAGE_DIR}${PREFIX}/bin/pysh"
 install -m 0644 "${REPO_ROOT}/README.md" "${STAGE_DIR}${DOC_DIR}/README.md"
 install -m 0644 "${REPO_ROOT}/LICENSE" "${STAGE_DIR}${DOC_DIR}/LICENSE"
 
+# pkg create -M manifest does not auto-discover files from -r rootdir in pkg 2.x;
+# an explicit plist of installed paths is required to populate the archive.
+find "${STAGE_DIR}" \( -type f -o -type l \) \
+    | LC_ALL=C sort \
+    | sed "s|^${STAGE_DIR}||" > "${PLIST}"
+
 cat >"${MANIFEST}" <<EOF
 name: ${PKG_NAME}
 version: "${VERSION}"
@@ -115,7 +122,7 @@ deps: {
 EOF
 
 rm -f "${EXPECTED_PATH}"
-pkg create -r "${STAGE_DIR}" -M "${MANIFEST}" -o "${OUT_DIR}"
+pkg create -r "${STAGE_DIR}" -M "${MANIFEST}" -p "${PLIST}" -o "${OUT_DIR}"
 
 if [ ! -f "${EXPECTED_PATH}" ]; then
     echo "build_freebsd_pkg.sh: expected ${EXPECTED_PATH} but it was not produced." >&2
