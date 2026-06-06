@@ -287,9 +287,72 @@ def _run_pty_session_phased(
     return bytes(buf)
 
 
+def _run_pty_exit_attempt(command: bytes) -> tuple[bytes, int | None]:
+    """Run one interactive command and return output plus natural process status."""
+    master_fd, slave_fd = pty.openpty()
+    _set_winsize(slave_fd)
+    proc = subprocess.Popen(
+        _PYSH_CMD,
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        env=_PTY_ENV,
+        close_fds=True,
+    )
+    os.close(slave_fd)
+    buf = bytearray()
+    try:
+        buf.extend(_wait_for_prompt(master_fd))
+        os.write(master_fd, command)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            try:
+                r, _, _ = select.select([master_fd], [], [], 0.05)
+            except (ValueError, OSError):
+                break
+            if r:
+                try:
+                    chunk = os.read(master_fd, 4096)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                buf.extend(chunk)
+            if proc.poll() is not None:
+                buf.extend(_read_nonblocking(master_fd, settle=0.1, timeout=0.5))
+                break
+        return bytes(buf), proc.poll()
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # Part B — PTY test: pasted multiline commands
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("command", [b"exit\n", b"quit\n", b"exit   \n"])
+def test_pty_exit_and_quit_exit_on_first_attempt(command: bytes) -> None:
+    """Interactive exit/quit must terminate on the first submitted line."""
+    output, returncode = _run_pty_exit_attempt(command)
+    stripped = _strip_ansi(output)
+    assert returncode == 0, (
+        f"{command!r} did not terminate PySH with status 0 on first attempt.\n"
+        f"returncode={returncode!r}\nRaw PTY output:\n{output!r}"
+    )
+    assert b"pysh: exit: command not found" not in stripped
+    assert b"pysh: quit: command not found" not in stripped
+    assert b"pysh: internal error" not in stripped
 
 
 def test_pty_multiline_paste_both_commands_execute() -> None:

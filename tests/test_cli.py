@@ -35,6 +35,22 @@ def test_dash_c_runs_command(capfd: pytest.CaptureFixture[str]) -> None:
     assert "cli-runs" in captured.out
 
 
+@pytest.mark.parametrize("command", ["exit", "quit", "exit ", "exit   ", "quit ", "quit   "])
+def test_dash_c_exit_and_quit_return_success_without_internal_error(
+    command: str,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["-c", command]) == 0
+    captured = capfd.readouterr()
+    assert "pysh: internal error" not in captured.err
+
+
+def test_dash_c_exit_preserves_numeric_status(capfd: pytest.CaptureFixture[str]) -> None:
+    assert main(["-c", "exit 7"]) == 7
+    captured = capfd.readouterr()
+    assert "pysh: internal error" not in captured.err
+
+
 @pytest.mark.parametrize(
     "argv0",
     ["sh", "/bin/sh", "dash", "/usr/bin/dash", "ash", "/bin/ash"],
