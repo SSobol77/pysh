@@ -28,6 +28,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 logs/
+labels.json
 
 # Virtual environments
 env/
