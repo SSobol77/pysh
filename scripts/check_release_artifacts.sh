@@ -25,10 +25,12 @@ EXPECTED_SDIST_HYPHEN="pysh-shell-${VERSION}.tar.gz"
 EXPECTED_SDIST_UNDER="pysh_shell-${VERSION}.tar.gz"
 EXPECTED_DEB="${PKG_NAME}_${VERSION}-${PKG_RELEASE}_all.deb"
 EXPECTED_RPM="${PKG_NAME}-${VERSION}-${PKG_RELEASE}.noarch.rpm"
+EXPECTED_FREEBSD_PKG="${PKG_NAME}-${VERSION}.pkg"
 
 WHEEL_PATH="${REPO_ROOT}/dist/${EXPECTED_WHEEL_NAME}"
 DEB_PATH="${REPO_ROOT}/dist/os/deb/${EXPECTED_DEB}"
 RPM_PATH="${REPO_ROOT}/dist/os/rpm/${EXPECTED_RPM}"
+FREEBSD_PKG_PATH="${REPO_ROOT}/dist/os/freebsd/${EXPECTED_FREEBSD_PKG}"
 RELEASE_ASSETS_DIR="${REPO_ROOT}/dist/release-assets"
 
 missing=0
@@ -44,6 +46,7 @@ check_present() {
 check_present "${WHEEL_PATH}"
 check_present "${DEB_PATH}"
 check_present "${RPM_PATH}"
+check_present "${FREEBSD_PKG_PATH}"
 
 # Accept either backend filename form for the sdist.
 SDIST_PATH=""
@@ -80,6 +83,15 @@ for f in "${REPO_ROOT}/dist/os/rpm"/*.rpm; do
     fi
 done
 
+for f in "${REPO_ROOT}/dist/os/freebsd"/*.pkg; do
+    base="$(basename "${f}")"
+    if [ "${base}" != "${EXPECTED_FREEBSD_PKG}" ]; then
+        echo "check_release_artifacts.sh: unexpected .pkg filename: ${base}" >&2
+        echo "check_release_artifacts.sh: canonical name must be ${EXPECTED_FREEBSD_PKG}" >&2
+        exit 1
+    fi
+done
+
 SUM_FILE="${REPO_ROOT}/dist/SHA256SUMS"
 echo "==> Generating local SHA256SUMS"
 (
@@ -91,6 +103,7 @@ echo "==> Generating local SHA256SUMS"
         "$(basename "${SDIST_PATH}")" \
         "os/deb/${EXPECTED_DEB}" \
         "os/rpm/${EXPECTED_RPM}" \
+        "os/freebsd/${EXPECTED_FREEBSD_PKG}" \
         >"${SUM_FILE}"
 )
 
@@ -107,6 +120,7 @@ cp "${WHEEL_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_WHEEL_NAME}"
 cp "${SDIST_PATH}" "${RELEASE_ASSETS_DIR}/$(basename "${SDIST_PATH}")"
 cp "${DEB_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_DEB}"
 cp "${RPM_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_RPM}"
+cp "${FREEBSD_PKG_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_FREEBSD_PKG}"
 
 RELEASE_SUM_FILE="${RELEASE_ASSETS_DIR}/SHA256SUMS"
 echo "==> Generating flat GitHub Release SHA256SUMS"
@@ -117,6 +131,7 @@ echo "==> Generating flat GitHub Release SHA256SUMS"
         "$(basename "${SDIST_PATH}")" \
         "${EXPECTED_DEB}" \
         "${EXPECTED_RPM}" \
+        "${EXPECTED_FREEBSD_PKG}" \
         >"${RELEASE_SUM_FILE}"
 )
 
@@ -131,6 +146,7 @@ ls -1 "${REPO_ROOT}/dist"
 echo "----"
 ls -1 "${REPO_ROOT}/dist/os/deb"
 ls -1 "${REPO_ROOT}/dist/os/rpm"
+ls -1 "${REPO_ROOT}/dist/os/freebsd"
 echo "----"
 echo "Local SHA256SUMS:"
 cat "${SUM_FILE}"

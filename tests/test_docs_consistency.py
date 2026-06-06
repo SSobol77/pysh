@@ -9,7 +9,9 @@ contracts without importing PySH runtime modules.
 """
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -87,7 +89,7 @@ def test_release_quality_gate_is_documented_and_executable() -> None:
 
 
 def test_release_quality_gate_enforces_mandatory_artifact_families() -> None:
-    """The release quality gate must require PyPI, Debian and RPM artifacts."""
+    """The release quality gate must require PyPI, Debian, RPM and FreeBSD artifacts."""
     script = REPO_ROOT / "scripts" / "check_release_quality.sh"
     text = script.read_text(encoding="utf-8")
 
@@ -97,8 +99,10 @@ def test_release_quality_gate_enforces_mandatory_artifact_families() -> None:
     assert "dist/*.tar.gz" in text
     assert "dist/os/deb/pysh-shell_*-1_all.deb" in text
     assert "dist/os/rpm/pysh-shell-*-1.noarch.rpm" in text
+    assert "dist/os/freebsd/pysh-shell-*.pkg" in text
     assert "dist/SHA256SUMS" in text
     assert "dist/release-assets/SHA256SUMS" in text
+    assert "scripts/build_freebsd_pkg.sh" in text
 
 
 def test_release_artifact_script_stages_flat_github_release_assets() -> None:
@@ -110,10 +114,13 @@ def test_release_artifact_script_stages_flat_github_release_assets() -> None:
     assert 'rm -rf "${RELEASE_ASSETS_DIR}"' in text
     assert 'cp "${DEB_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_DEB}"' in text
     assert 'cp "${RPM_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_RPM}"' in text
+    assert 'cp "${FREEBSD_PKG_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_FREEBSD_PKG}"' in text
     assert '"os/deb/${EXPECTED_DEB}"' in text
     assert '"os/rpm/${EXPECTED_RPM}"' in text
+    assert '"os/freebsd/${EXPECTED_FREEBSD_PKG}"' in text
     assert '"${EXPECTED_DEB}"' in text
     assert '"${EXPECTED_RPM}"' in text
+    assert '"${EXPECTED_FREEBSD_PKG}"' in text
 
 
 def test_release_workflow_uploads_flat_staged_assets() -> None:
@@ -130,6 +137,15 @@ def test_release_workflow_uploads_flat_staged_assets() -> None:
     assert "dist/os/rpm/pysh-shell-*-1.noarch.rpm" not in text
     assert "dist/SHA256SUMS" not in text
 
+    freebsd_workflow = REPO_ROOT / ".github" / "workflows" / "freebsd-pkg.yml"
+    freebsd_text = freebsd_workflow.read_text(encoding="utf-8")
+    assert "runs-on: [self-hosted, freebsd, x64]" in freebsd_text
+    assert "workflow_dispatch:" in freebsd_text
+    assert "push:" not in freebsd_text
+    assert "bash scripts/build_freebsd_pkg.sh" in freebsd_text
+    assert "dist/os/freebsd/pysh-shell-*.pkg" in freebsd_text
+    assert "actions/upload-artifact" in freebsd_text
+
 
 def test_release_docs_define_flat_assets_and_nested_local_layout() -> None:
     """Docs must distinguish flat GitHub assets from nested local build internals."""
@@ -145,9 +161,11 @@ def test_release_docs_define_flat_assets_and_nested_local_layout() -> None:
     assert "flat filenames only" in packaging_doc
     assert "dist/os/deb/" in packaging_doc
     assert "dist/os/rpm/" in packaging_doc
+    assert "dist/os/freebsd/" in packaging_doc
     assert "dist/release-assets/" in release_doc
     assert "dist/os/deb/" in release_doc
     assert "dist/os/rpm/" in release_doc
+    assert "dist/os/freebsd/" in release_doc
     assert "local `dist/os/`" in installation_doc
 
 
@@ -173,7 +191,7 @@ def test_release_docs_state_current_mandatory_artifact_policy() -> None:
         assert "Debian `.deb`" in text
         assert "RPM `.rpm`" in text
         assert "FreeBSD `.pkg`" in text
-        assert "Issue #18" in text
+        assert "SHA256SUMS" in text
 
 
 def test_public_docs_do_not_link_to_agent_instruction_files() -> None:
@@ -394,13 +412,198 @@ def test_docs_system_shell_policy_present() -> None:
     assert "/bin/sh" in text, "system-shell-integration-policy.md must mention /bin/sh"
 
 
-def test_docs_freebsd_pkg_is_deferred() -> None:
-    """Packaging and release docs must defer FreeBSD .pkg to Issue #18."""
+def test_freebsd_pkg_builder_script_exists_and_is_executable() -> None:
+    """FreeBSD package builder must exist, be executable and document FreeBSD-only use."""
+    script = REPO_ROOT / "scripts" / "build_freebsd_pkg.sh"
+    assert script.exists()
+    assert script.stat().st_mode & 0o111
+    text = script.read_text(encoding="utf-8")
+    assert "SPDX-License-Identifier: GPL-2.0-only" in text
+    assert "uname -s" in text
+    assert "FreeBSD 14+" in text
+    assert "pkg create" in text
+    assert "pkg info -F" in text
+    assert "pkg query -F" in text
+    assert "/usr/local/bin/pysh" in text
+    assert "exec /usr/local/bin/python3.13 -m pysh" in text
+    assert "/usr/local/lib/pysh-shell/pysh" in text
+    assert "pysh-shell-${VERSION}.pkg" in text
+
+
+def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg() -> None:
+    """On non-FreeBSD hosts, the builder must fail before creating fake .pkg bytes."""
+    if os.uname().sysname == "FreeBSD":
+        return
+    import tomllib
+
+    version = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
+    expected = REPO_ROOT / "dist" / "os" / "freebsd" / f"pysh-shell-{version}.pkg"
+    if expected.exists():
+        expected.unlink()
+
+    result = subprocess.run(
+        ["bash", "scripts/build_freebsd_pkg.sh"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert result.returncode != 0
+    assert (
+        "FreeBSD .pkg must be built on FreeBSD 14+ with native pkg tooling; "
+        f"refusing to fake .pkg on {os.uname().sysname}."
+    ) in result.stderr
+    assert not expected.exists()
+
+
+def test_docs_freebsd_pkg_is_mandatory_for_v080() -> None:
+    """Docs must describe FreeBSD .pkg as mandatory/current for v0.8.0."""
     packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
     release_doc = (DOCS / "development" / "release.md").read_text(encoding="utf-8")
-    for name, text in (("packaging.md", packaging_doc), ("release.md", release_doc)):
-        assert "FreeBSD" in text, f"{name} must mention FreeBSD .pkg deferral"
-        assert "Issue #18" in text, f"{name} must reference Issue #18 for FreeBSD .pkg"
+    installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
+
+    assert "FreeBSD validation and package build for v0.8.0" in packaging_doc
+    assert "Install from a GitHub Release `.pkg` (FreeBSD 14+)" in installation_doc
+    assert "FreeBSD 14+ package and smoke validation" in release_doc
+
+    for name, text in (
+        ("packaging.md", packaging_doc),
+        ("release.md", release_doc),
+        ("installation.md", installation_doc),
+    ):
+        assert "FreeBSD" in text, f"{name} must mention FreeBSD validation"
+        assert ".pkg" in text, f"{name} must mention FreeBSD .pkg status"
+        assert "mandatory" in text.lower() or "canonical FreeBSD artifact" in text
+        assert "planned/future" not in text
+        assert "deferred" not in text
+
+
+def test_freebsd_validation_docs_include_required_smoke_commands() -> None:
+    """FreeBSD validation docs must include the required package and smoke commands."""
+    packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
+    installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
+
+    required_commands = (
+        "python3.13 -m venv /tmp/pysh-freebsd-smoke",
+        ". /tmp/pysh-freebsd-smoke/bin/activate",
+        "python -m pip install --upgrade pip",
+        "python -m pip install pysh-shell==X.Y.Z",
+        "pysh --version",
+        "python -m pysh --version",
+        'pysh -c "echo freebsd-smoke"',
+        'pysh -c "exit"',
+        'pysh -c "quit"',
+        "bash scripts/build_freebsd_pkg.sh",
+        "sudo pkg install ./pysh-shell-X.Y.Z.pkg",
+    )
+    for text in (packaging_doc, installation_doc):
+        for command in required_commands:
+            assert command in text
+
+
+def test_freebsd_validation_docs_capture_portability_and_interactive_checks() -> None:
+    """FreeBSD docs must capture platform risks and interactive safety checks."""
+    packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
+    installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
+    combined = packaging_doc + "\n" + installation_doc
+
+    required_phrases = (
+        "Python 3.13 or newer",
+        "virtual environment",
+        "startup banner renders",
+        "framed prompt",
+        "Unicode",
+        "exit` exits on the first attempt",
+        "quit` exits on the first attempt",
+        "multiline paste safety remains enabled",
+        "Python-first",
+        "must not replace `/bin/sh`",
+        "terminal and PTY behavior",
+        "platform.release()",
+        "/proc/cpuinfo",
+        "package manager semantics",
+        "filesystem layout",
+        "executable wrapper paths",
+    )
+    for phrase in required_phrases:
+        assert phrase in combined
+
+
+def test_freebsd_pkg_future_direction_is_not_current_artifact_policy() -> None:
+    """Docs must define FreeBSD .pkg as a current mandatory artifact policy."""
+    packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
+    installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
+    combined = packaging_doc + "\n" + installation_doc
+
+    current_artifacts = (
+        "PyPI wheel + sdist",
+        "Debian `.deb`",
+        "RPM `.rpm`",
+        "FreeBSD `.pkg`",
+        "SHA256SUMS",
+    )
+    for artifact in current_artifacts:
+        assert artifact in combined
+
+    assert "FreeBSD `.pkg` packaging is current mandatory v0.8.0 release work" in combined
+    assert "pysh-shell-X.Y.Z.pkg" in combined
+    assert "dist/os/freebsd/pysh-shell-X.Y.Z.pkg" in combined
+    assert "dist/release-assets/pysh-shell-X.Y.Z.pkg" in combined
+    assert "/usr/local/bin/pysh" in packaging_doc
+    assert "/usr/local/lib/pysh-shell/pysh/" in combined
+    assert "/usr/local/share/doc/pysh-shell/" in combined
+    assert "no system shell diversion" in packaging_doc
+    assert "no overwrite of an existing `~/.pyshrc.py`" in combined
+    assert "must not replace `/bin/sh`" in combined
+
+
+def test_release_gates_require_freebsd_pkg_without_fake_builds() -> None:
+    """Release scripts/workflow must require .pkg while refusing non-FreeBSD fake builds."""
+    quality_gate = (REPO_ROOT / "scripts" / "check_release_quality.sh").read_text(
+        encoding="utf-8"
+    )
+    artifact_gate = (REPO_ROOT / "scripts" / "check_release_artifacts.sh").read_text(
+        encoding="utf-8"
+    )
+    workflow = (REPO_ROOT / ".github" / "workflows" / "release-artifacts.yml").read_text(
+        encoding="utf-8"
+    )
+
+    for text in (quality_gate, artifact_gate):
+        assert "dist/*.whl" in text or "EXPECTED_WHEEL_NAME" in text
+        assert "dist/*.tar.gz" in text or "EXPECTED_SDIST" in text
+        assert "pysh-shell_*-1_all.deb" in text or "EXPECTED_DEB" in text
+        assert "pysh-shell-*-1.noarch.rpm" in text or "EXPECTED_RPM" in text
+        assert "pysh-shell-*.pkg" in text or "EXPECTED_FREEBSD_PKG" in text
+        assert "SHA256SUMS" in text
+    assert "FreeBSD .pkg is mandatory" in (
+        REPO_ROOT / "scripts" / "build_release_artifacts.sh"
+    ).read_text(encoding="utf-8")
+    assert "dist/release-assets/*" in workflow
+
+
+def test_release_quality_gate_preserves_prebuilt_freebsd_pkg_before_cleaning() -> None:
+    """Top-level quality gate must preserve prebuilt .pkg before removing dist/."""
+    quality_gate = (REPO_ROOT / "scripts" / "check_release_quality.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'EXPECTED_FREEBSD_PKG="pysh-shell-${VERSION}.pkg"' in quality_gate
+    assert 'FREEBSD_PKG_PATH="${REPO_ROOT}/dist/os/freebsd/${EXPECTED_FREEBSD_PKG}"' in (
+        quality_gate
+    )
+    assert "preserve_freebsd_pkg()" in quality_gate
+    assert "restore_freebsd_pkg()" in quality_gate
+    assert 'cp "${FREEBSD_PKG_PATH}" "${PRESERVED_FREEBSD_PKG}"' in quality_gate
+    assert 'cp "${PRESERVED_FREEBSD_PKG}" "${FREEBSD_PKG_PATH}"' in quality_gate
+
+    preserve_idx = quality_gate.index("\npreserve_freebsd_pkg\n")
+    clean_idx = quality_gate.index("rm -rf dist build ./*.egg-info")
+    restore_idx = quality_gate.index("\nrestore_freebsd_pkg\n")
+    build_idx = quality_gate.index('bash "${REPO_ROOT}/scripts/build_release_artifacts.sh"')
+    assert preserve_idx < clean_idx < restore_idx < build_idx
 
 
 # ---------------------------------------------------------------------------

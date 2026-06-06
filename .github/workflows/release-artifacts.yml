@@ -13,9 +13,54 @@ permissions:
   contents: write
 
 jobs:
+  freebsd-pkg:
+    name: Build FreeBSD .pkg
+    runs-on: [self-hosted, freebsd, x64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Verify FreeBSD 14+ builder
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = "FreeBSD"
+          major="$(uname -r | awk -F. '{print $1}')"
+          test "${major}" -ge 14
+          command -v pkg
+          command -v python3.13
+
+      - name: Install Python validation tools
+        run: |
+          set -euo pipefail
+          python3.13 -m ensurepip --upgrade
+          python3.13 -m pip install --upgrade pip
+          python3.13 -m pip install pytest ruff
+
+      - name: Run feasible FreeBSD validation
+        run: |
+          set -euo pipefail
+          python3.13 -m pytest -q
+          python3.13 -m ruff check src tests
+          PYTHONPATH=src python3.13 -m pysh --version
+          PYTHONPATH=src python3.13 -m pysh -c "echo freebsd-smoke"
+          PYTHONPATH=src python3.13 -m pysh -c "exit"
+          PYTHONPATH=src python3.13 -m pysh -c "quit"
+
+      - name: Build FreeBSD .pkg
+        run: bash scripts/build_freebsd_pkg.sh
+
+      - name: Upload FreeBSD .pkg workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-pkg
+          path: dist/os/freebsd/pysh-shell-*.pkg
+          if-no-files-found: error
+
   release-assets:
     name: Build & attach release assets
     runs-on: ubuntu-latest
+    needs: freebsd-pkg
 
     steps:
       - name: Checkout
@@ -44,6 +89,12 @@ jobs:
 
       - name: Build RPM .rpm
         run: bash scripts/build_rpm.sh
+
+      - name: Download FreeBSD .pkg
+        uses: actions/download-artifact@v4
+        with:
+          name: freebsd-pkg
+          path: dist/os/freebsd
 
       - name: Verify canonical artifact names + stage flat release assets
         run: bash scripts/check_release_artifacts.sh

@@ -321,6 +321,11 @@ def _run_pty_exit_attempt(command: bytes) -> tuple[bytes, int | None]:
             if proc.poll() is not None:
                 buf.extend(_read_nonblocking(master_fd, settle=0.1, timeout=0.5))
                 break
+        if proc.poll() is None:
+            try:
+                proc.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                pass
         return bytes(buf), proc.poll()
     finally:
         if proc.poll() is None:

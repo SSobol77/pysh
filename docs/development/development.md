@@ -50,7 +50,7 @@ twine check dist/*
 ```
 
 To build the full release artifact set locally (wheel, sdist, `.deb`,
-`.rpm`, `SHA256SUMS`), use:
+`.rpm`, FreeBSD `.pkg`, `SHA256SUMS`), use:
 
 ```bash
 bash scripts/build_release_artifacts.sh
@@ -60,7 +60,10 @@ See [`packaging.md`](packaging.md) for the canonical artifact naming
 contract and per-script details. `scripts/build_rpm.sh` needs the
 `rpm` package installed locally (`sudo apt-get install -y rpm` on
 Debian); if it is missing, the script fails fast with a deterministic
-message.
+message. `scripts/build_freebsd_pkg.sh` runs only on FreeBSD 14+ with native
+`pkg` tooling. On Debian, the release gate requires a prebuilt
+`dist/os/freebsd/pysh-shell-X.Y.Z.pkg` from that FreeBSD builder and fails
+clearly if it is missing.
 
 `bash scripts/check_headers.sh` should print no output. `uv run pytest -q`
 should report **all tests passing**. `uv run ruff check` should report
