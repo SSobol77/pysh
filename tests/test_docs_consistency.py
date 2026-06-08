@@ -701,13 +701,13 @@ def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg() -> None:
     assert not expected.exists()
 
 
-def test_docs_freebsd_pkg_is_mandatory_for_v080() -> None:
-    """Docs must describe FreeBSD .pkg as mandatory/current for v0.8.0."""
+def test_docs_freebsd_pkg_is_mandatory_for_current_release() -> None:
+    """Docs must describe FreeBSD .pkg as mandatory/current for this release."""
     packaging_doc = (DOCS / "development" / "packaging.md").read_text(encoding="utf-8")
     release_doc = (DOCS / "development" / "release.md").read_text(encoding="utf-8")
     installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
 
-    assert "FreeBSD validation and package build for v0.8.0" in packaging_doc
+    assert f"FreeBSD validation and package build for v{CURRENT_VERSION}" in packaging_doc
     assert "Install from a GitHub Release `.pkg` (FreeBSD 14+)" in installation_doc
     assert "FreeBSD 14+ package and smoke validation" in release_doc
 
@@ -790,7 +790,10 @@ def test_freebsd_pkg_future_direction_is_not_current_artifact_policy() -> None:
     for artifact in current_artifacts:
         assert artifact in combined
 
-    assert "FreeBSD `.pkg` packaging is current mandatory v0.8.0 release work" in combined
+    assert (
+        f"FreeBSD `.pkg` packaging is current mandatory v{CURRENT_VERSION} release work"
+        in combined
+    )
     assert "pysh-shell-X.Y.Z.pkg" in combined
     assert "dist/os/freebsd/pysh-shell-X.Y.Z.pkg" in combined
     assert "dist/release-assets/pysh-shell-X.Y.Z.pkg" in combined

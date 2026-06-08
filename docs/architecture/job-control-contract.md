@@ -290,12 +290,12 @@ Behavior is identical to Issue #6.
 `os.WNOHANG`, `os.WIFSTOPPED`, `os.WIFEXITED`, `os.WIFSIGNALED` are all
 available.  Full job-control behavior including Ctrl+Z is supported.
 
-**Non-Linux POSIX (e.g., FreeBSD) — v0.8.0 validation gate:**
+**Non-Linux POSIX (e.g., FreeBSD) — v0.8.1 validation gate:**
 
 All POSIX job-control APIs are guarded by `hasattr(os, ...)` probes.
 The architecture degrades gracefully on platforms where APIs are missing.
 FreeBSD 14+ validation is tracked in Issue #18 and is release-blocking for
-v0.8.0.
+v0.8.1.
 
 **Windows:**
 
@@ -370,4 +370,4 @@ uv run pysh
 | #12 (completion) | `jobs`, `fg`, `bg` added to completer BUILTINS list |
 | #13 (observability) | Out of scope for #11 |
 | #14 (script mode) | `pysh -c 'cmd &'` supported; interactive job control requires TTY |
-| #18 (FreeBSD) | Portability probes in place; FreeBSD 14+ validation is release-blocking for v0.8.0 |
+| #18 (FreeBSD) | Portability probes in place; FreeBSD 14+ validation is release-blocking for v0.8.1 |
