@@ -353,7 +353,7 @@ def test_no_affirmative_broad_compatibility_claims_in_public_docs() -> None:
 # Version gate tests — prevent stale release metadata from surviving a bump
 # ---------------------------------------------------------------------------
 
-CURRENT_VERSION = "0.8.1"
+CURRENT_VERSION = "0.8.2"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 INIT_PY = REPO_ROOT / "src" / "pysh" / "__init__.py"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
@@ -631,8 +631,22 @@ def test_changelog_080_section_covers_mandatory_features() -> None:
     assert not missing, "CHANGELOG 0.8.0 section missing: " + ", ".join(missing)
 
 
-def test_changelog_current_release_covers_hotfix_scope() -> None:
-    """The current-release section must document the v0.8.1 hotfix scope."""
+def test_changelog_081_section_covers_hotfix_scope() -> None:
+    """The historical 0.8.1 section must document the runtime/paste hotfix scope."""
+    text = CHANGELOG.read_text(encoding="utf-8")
+    start = text.find("## 0.8.1")
+    assert start != -1, "CHANGELOG.md missing ## 0.8.1 section"
+    rest = text[start:]
+    nxt = rest.find("\n## ", 1)
+    section = rest[:nxt] if nxt != -1 else rest
+
+    required_phrases = ("stdlib-only", "Pygments", "optional", "PyYAML", "drift")
+    missing = [p for p in required_phrases if p.lower() not in section.lower()]
+    assert not missing, "CHANGELOG 0.8.1 section missing: " + ", ".join(missing)
+
+
+def test_changelog_current_release_covers_metadata_hotfix_scope() -> None:
+    """The current-release section must document the v0.8.2 metadata hotfix scope."""
     text = CHANGELOG.read_text(encoding="utf-8")
     start = text.find(f"## {CURRENT_VERSION}")
     assert start != -1, f"CHANGELOG.md missing ## {CURRENT_VERSION} section"
@@ -640,7 +654,13 @@ def test_changelog_current_release_covers_hotfix_scope() -> None:
     nxt = rest.find("\n## ", 1)
     section = rest[:nxt] if nxt != -1 else rest
 
-    required_phrases = ("stdlib-only", "Pygments", "optional", "PyYAML", "drift")
+    required_phrases = (
+        "metadata hotfix",
+        "author email",
+        "Karol Sobolewski",
+        "No runtime behavior changes",
+        "No dependency changes",
+    )
     missing = [p for p in required_phrases if p.lower() not in section.lower()]
     assert not missing, (
         f"CHANGELOG {CURRENT_VERSION} section missing: " + ", ".join(missing)

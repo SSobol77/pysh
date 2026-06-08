@@ -16,7 +16,7 @@ This document defines how PySH compatibility claims are validated. A claim is
 only valid when it has evidence in this matrix. Claims without current evidence
 are gaps that must be resolved before the claim can be published.
 
-Current release line: **PySH 0.8.1**.
+Current release line: **PySH 0.8.2**.
 
 ---
 
@@ -179,7 +179,7 @@ Current release line: **PySH 0.8.1**.
 | Feature matrix broad-claim audit | Active (Issue #4) | None |
 | Shell comparison tests | Not yet | Issue #16 |
 | Negative construct tests (job control) | Partial | Issue #11 |
-| FreeBSD validation | Mandatory for v0.8.1 release completion | Issue #18 |
+| FreeBSD validation | Mandatory for v0.8.2 release completion | Issue #18 |
 
 ---
 
@@ -191,7 +191,7 @@ Current release line: **PySH 0.8.1**.
 | Shell comparison tests (PySH vs real zsh/bash) | #16 | Medium |
 | Script mode full contract validation | #14 | High |
 | POSIX sh script fixture tests | #17 | Medium |
-| FreeBSD terminal and PTY validation | #18 | Release-blocking for v0.8.1 |
+| FreeBSD terminal and PTY validation | #18 | Release-blocking for v0.8.2 |
 | Programmable completion validation | #12 | Medium |
 
 ---

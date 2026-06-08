@@ -16,7 +16,7 @@ This directory is the authoritative source for all PySH compatibility claims.
 
 ---
 
-## Current compatibility status (PySH 0.8.1)
+## Current compatibility status (PySH 0.8.2)
 
 | Target | Claim | Status |
 | ------ | ----- | ------ |
