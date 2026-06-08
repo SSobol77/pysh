@@ -37,6 +37,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Protocol, runtime_checkable
 
+from pysh.editor.history import DEFAULT_HISTORY_LENGTH, DEFAULT_HISTORY_PATH
 from pysh.editor.lineedit.buffer import _display_width
 from pysh.prompt.colors import color_to_hex, parse_color
 
@@ -187,6 +188,14 @@ SENSITIVE_INPUT_VALUES: dict[str, frozenset[str]] = {
     "mode": frozenset({"ring", "single-blink"}),
 }
 
+DEFAULT_HISTORY_OPTIONS: dict[str, object] = {
+    "max_length": DEFAULT_HISTORY_LENGTH,
+    "dedup_mode": "consecutive",
+    "ignore_space_prefix": True,
+    "ignore_patterns": ["password", "secret", "token", "api_key"],
+    "path": str(DEFAULT_HISTORY_PATH),
+}
+
 _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # Monotonic counter guarantees a fresh module object on every load, which
@@ -253,6 +262,10 @@ class ConfigurableShell(Protocol):
 
     def set_cursor_color(self, color: str) -> None:
         """Set the configured terminal cursor color."""
+        ...
+
+    def set_history_option(self, name: str, value: object) -> None:
+        """Set a single validated history engine option."""
         ...
 
 
@@ -410,6 +423,66 @@ def validate_sensitive_input(name: str, value: object) -> None:
         raise ConfigError(
             f"sensitive-input option {name!r} must be one of: {allowed_text}"
         )
+
+
+def validate_history_option(name: str, value: object) -> None:
+    """Validate a history engine option name/value pair.
+
+    Rules per option:
+
+    * ``max_length`` — ``int``, must be > 0 (``bool`` rejected).
+      Note: the ``HistoryManager`` constructor accepts 0; the *config* API
+      enforces positivity so that user configuration is sane.
+    * ``dedup_mode`` — one of ``"none"``, ``"consecutive"``, ``"global"``.
+    * ``ignore_space_prefix`` — ``bool``.
+    * ``ignore_patterns`` — ``list`` or ``tuple`` of non-empty ``str`` items.
+    * ``path`` — non-empty ``str``.
+    """
+    if name == "max_length":
+        if isinstance(value, bool):
+            raise ConfigError("history option 'max_length' expects int, got bool")
+        if not isinstance(value, int):
+            raise ConfigError(
+                f"history option 'max_length' expects int, got {type(value).__name__}"
+            )
+        if value <= 0:
+            raise ConfigError("history option 'max_length' must be greater than 0")
+        return
+    if name == "dedup_mode":
+        if not isinstance(value, str):
+            raise ConfigError(
+                f"history option 'dedup_mode' expects str, got {type(value).__name__}"
+            )
+        allowed = frozenset({"none", "consecutive", "global"})
+        if value not in allowed:
+            raise ConfigError(
+                "history option 'dedup_mode' must be one of: consecutive, global, none"
+            )
+        return
+    if name == "ignore_space_prefix":
+        if not isinstance(value, bool):
+            raise ConfigError(
+                f"history option 'ignore_space_prefix' expects bool, "
+                f"got {type(value).__name__}"
+            )
+        return
+    if name == "ignore_patterns":
+        if not isinstance(value, (list, tuple)):
+            raise ConfigError(
+                f"history option 'ignore_patterns' expects list, got {type(value).__name__}"
+            )
+        for item in value:
+            if not isinstance(item, str) or not item:
+                raise ConfigError(
+                    "history option 'ignore_patterns': malformed ignore patterns"
+                )
+        return
+    if name == "path":
+        if not isinstance(value, str) or not value:
+            raise ConfigError("history option 'path' expects a non-empty str")
+        return
+    known = ", ".join(sorted(DEFAULT_HISTORY_OPTIONS))
+    raise ConfigError(f"unknown history option {name!r} (known: {known})")
 
 
 def _validate_alias_name(name: str) -> None:
@@ -582,6 +655,32 @@ class ShellConfigAPI:
         """
         validate_cursor_color(color)
         self._shell.set_cursor_color(color)
+
+    def set_history_option(self, name: str, value: object) -> None:
+        """Set a single history engine option.
+
+        Recognised options (defaults in brackets):
+
+        * ``max_length`` (int > 0) — maximum entries retained after compaction
+          [10000]
+        * ``dedup_mode`` (str) — ``"none"``, ``"consecutive"``, or ``"global"``
+          ["consecutive"]
+        * ``ignore_space_prefix`` (bool) — discard commands whose raw input
+          starts with a space [True]
+        * ``ignore_patterns`` (list[str]) — commands containing any of these
+          substrings (case-insensitive) are never stored
+          [["password", "secret", "token", "api_key"]]
+        * ``path`` (str) — data file path [str(DEFAULT_HISTORY_PATH)]
+
+        Examples::
+
+            # shell.set_history_option("max_length", 5000)
+            # shell.set_history_option("dedup_mode", "global")
+            # shell.set_history_option("ignore_space_prefix", True)
+            # shell.set_history_option("ignore_patterns", ["password", "secret"])
+        """
+        validate_history_option(name, value)
+        self._shell.set_history_option(name, value)
 
 
 # --------------------------------------------------------------- default file
@@ -816,6 +915,33 @@ def configure(shell):
     # For compatibility with the old one-symbol blink mode:
     #
     # shell.set_sensitive_input_indicator("mode", "single-blink")
+
+    # ----------------------------------------------------------------------
+    # Command history (History Engine 2.0)
+    # ----------------------------------------------------------------------
+    # History is stored as JSONL at ~/.pysh_history (one JSON object per
+    # command).  Legacy plain-text lines from older PySH versions are
+    # migrated automatically on first load.
+    #
+    # max_length:
+    #   Maximum entries kept after compaction.  Default: 10000.
+    #
+    # dedup_mode:
+    #   "consecutive" -> collapse runs of the same command (default).
+    #   "global"      -> keep one entry per command; frequency accumulates.
+    #   "none"        -> store every command without deduplication.
+    #
+    # ignore_space_prefix:
+    #   True -> commands prefixed with a space are not stored (zsh-style).
+    #
+    # ignore_patterns:
+    #   Commands containing any of these substrings (case-insensitive) are
+    #   silently discarded.  Sensitive commands never reach disk.
+
+    # shell.set_history_option("max_length", 10000)
+    # shell.set_history_option("dedup_mode", "global")
+    # shell.set_history_option("ignore_space_prefix", True)
+    # shell.set_history_option("ignore_patterns", ["password", "secret", "token", "api_key"])
 
     # ----------------------------------------------------------------------
     # Optional classic minimal prompt profile

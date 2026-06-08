@@ -19,6 +19,7 @@ import sys
 import tempfile
 import termios
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +42,7 @@ from pysh.compat.zsh_diagnostics import (
 from pysh.config.api import (
     DEFAULT_CURSOR_OPTIONS,
     DEFAULT_EDITOR_OPTIONS,
+    DEFAULT_HISTORY_OPTIONS,
     DEFAULT_PROMPT_COLOR_MODES,
     DEFAULT_PROMPT_COLORS,
     DEFAULT_PROMPT_OPTIONS,
@@ -51,6 +53,7 @@ from pysh.config.api import (
     validate_cursor_color,
     validate_cursor_color_enabled,
     validate_editor_option,
+    validate_history_option,
     validate_prompt_color,
     validate_prompt_color_mode,
     validate_prompt_option,
@@ -77,7 +80,7 @@ from pysh.diagnostics.command_plan import plan as run_plan
 from pysh.diagnostics.trace import DiagnosticStage, DiagnosticTrace
 from pysh.editor.completion import Completer
 from pysh.editor.highlight import colors_enabled, diagnostic
-from pysh.editor.history import DEFAULT_HISTORY_PATH, HistoryManager
+from pysh.editor.history import DEFAULT_HISTORY_PATH, HistoryEngine, HistoryManager
 from pysh.editor.lineedit.autosuggest import AutoSuggester
 from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
 from pysh.editor.lineedit.reader import RawLineReader
@@ -306,6 +309,17 @@ class PyShell:
             get_job_ids=lambda: [job.job_id for job in self.job_table.all_jobs() if job.is_alive()],
         )
         self.history = HistoryManager(self.HISTORY_PATH)
+        self.history_options: dict[str, object] = dict(DEFAULT_HISTORY_OPTIONS)
+        self._session_id: str = uuid.uuid4().hex[:16]
+        self.history_engine = HistoryEngine(
+            self.HISTORY_PATH,
+            session_id=self._session_id,
+            max_length=int(self.history_options.get("max_length", 10_000)),  # type: ignore[arg-type]
+            dedup_mode=str(self.history_options.get("dedup_mode", "consecutive")),
+            ignore_space_prefix=bool(self.history_options.get("ignore_space_prefix", True)),
+            ignore_patterns=list(self.history_options.get("ignore_patterns", [])),  # type: ignore[arg-type]
+        )
+        self._last_execute_parse_ok: bool = True
         self.autosuggester = AutoSuggester()
         self.line_highlighter = LineHighlighter(self.BUILTINS)
         self.line_reader = RawLineReader()
@@ -388,20 +402,23 @@ class PyShell:
                         self._discard_pending_paste_for_exit()
                         try:
                             self.last_status = self.execute(line)
-                            self.history.add(line)
+                            if self._last_execute_parse_ok:
+                                self.history_engine.add(line, raw_line=line)
                         except _ExitShell as exit_signal:
                             return exit_signal.code
                         continue
                     if pending_action == "clear":
                         self.last_status = self.execute(line)
-                        self.history.add(line)
+                        if self._last_execute_parse_ok:
+                            self.history_engine.add(line, raw_line=line)
                         if self.pending_multiline_paste is not None:
                             self._print_pending_paste_hint()
                         continue
                     if pending_action == "paste":
                         try:
                             self.last_status = self.execute(line)
-                            self.history.add(line)
+                            if self._last_execute_parse_ok:
+                                self.history_engine.add(line, raw_line=line)
                         except _ExitShell as exit_signal:
                             return exit_signal.code
                         continue
@@ -429,7 +446,8 @@ class PyShell:
                     line = collected
                 try:
                     self.last_status = self.execute(line)
-                    self.history.add(line)
+                    if self._last_execute_parse_ok:
+                        self.history_engine.add(line, raw_line=line)
                 except _ExitShell as exit_signal:
                     return exit_signal.code
         finally:
@@ -761,6 +779,7 @@ class PyShell:
 
     def _execute_impl(self, line: str) -> int:
         """Execute one shell line. Returns the exit status of the last command."""
+        self._last_execute_parse_ok = True
         line = line.rstrip("\n").rstrip("\r")
         trace_fields: dict[str, object] = {"line": line}
         if self._script_context is not None:
@@ -785,6 +804,7 @@ class PyShell:
                 special_vars=self._special_vars(),
             )
         except ParseError as exc:
+            self._last_execute_parse_ok = False
             self.trace.error(
                 "heredoc parse error",
                 detail=str(exc),
@@ -798,12 +818,14 @@ class PyShell:
             return 0
         zsh_diagnostic = detect_unsupported_zsh_syntax(line)
         if zsh_diagnostic is not None:
+            self._last_execute_parse_ok = False
             print(zsh_diagnostic.message, file=sys.stderr)
             print(zsh_diagnostic.hint, file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
         try:
             validate_unsupported_syntax(line)
         except ParseError as exc:
+            self._last_execute_parse_ok = False
             self.trace.error(
                 "unsupported syntax",
                 detail=str(exc),
@@ -840,6 +862,7 @@ class PyShell:
         try:
             chain = split_chain(line)
         except ParseError as exc:
+            self._last_execute_parse_ok = False
             self.trace.error(
                 "split chain failed",
                 detail=str(exc),
@@ -2287,6 +2310,12 @@ class PyShell:
         validate_sensitive_input(name, value)
         self.sensitive_input[name] = value
 
+    def set_history_option(self, name: str, value: object) -> None:
+        """Set a validated history engine option (ConfigurableShell contract)."""
+        validate_history_option(name, value)
+        self.history_options[name] = value
+        self.history_engine.set_option(name, value)
+
     def _apply_cursor_color(self) -> None:
         """Apply configured terminal cursor color when the terminal gate allows it."""
         if self._cursor_color_applied:
@@ -2335,7 +2364,7 @@ class PyShell:
             try:
                 return self.line_reader.read_line(
                     self._prompt(),
-                    history=self.history.entries(),
+                    history=self.history_engine.entries(),
                     suggester=self.autosuggester,
                     highlighter=self.line_highlighter,
                     scheme=DEFAULT_SCHEME,
@@ -2986,12 +3015,14 @@ class PyShell:
 
     # ----------------------------------------------------------------- readline
     def _setup_readline(self) -> None:
-        self.history.load()
+        self.history_engine.load()
+        self.history.populate_from_entries(self.history_engine.entries())
+        self.history.disable_auto_history()
         self.history.bind_reverse_search()
         self.completer.install()
 
     def _save_history(self) -> None:
-        self.history.save()
+        self.history_engine.save()
 
     def _export_interactive_shell_vars(self) -> None:
         """Set SHELL, PYSH_SHELL, and PYSH_INTERACTIVE when running interactively.

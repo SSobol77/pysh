@@ -68,6 +68,12 @@ def configure(shell):
 
     # Aliases
     shell.register_alias("ll", "ls --color=auto -laF")
+
+    # History engine options (History Engine 2.0 — Issue #28)
+    # shell.set_history_option("max_length", 10000)
+    # shell.set_history_option("dedup_mode", "global")
+    # shell.set_history_option("ignore_space_prefix", True)
+    # shell.set_history_option("ignore_patterns", ["password", "secret", "token", "api_key"])
 ```
 
 The `configure` function is optional; an empty file or a file that defines no
