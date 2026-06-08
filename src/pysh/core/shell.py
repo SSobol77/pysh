@@ -357,7 +357,22 @@ class PyShell:
                         except _ExitShell as exit_signal:
                             return exit_signal.code
                         continue
-                    if self._pending_paste_command_allowed(line):
+                    pending_action = self._pending_paste_command(line)
+                    if pending_action == "exit":
+                        self._discard_pending_paste_for_exit()
+                        try:
+                            self.last_status = self.execute(line)
+                            self.history.add(line)
+                        except _ExitShell as exit_signal:
+                            return exit_signal.code
+                        continue
+                    if pending_action == "clear":
+                        self.last_status = self.execute(line)
+                        self.history.add(line)
+                        if self.pending_multiline_paste is not None:
+                            self._print_pending_paste_hint()
+                        continue
+                    if pending_action == "paste":
                         try:
                             self.last_status = self.execute(line)
                             self.history.add(line)
@@ -649,13 +664,63 @@ class PyShell:
         return m.group(1) if m else ""
 
     @staticmethod
-    def _pending_paste_command_allowed(line: str) -> bool:
-        """Return whether *line* may run while multiline paste is pending."""
+    def _pending_paste_command(line: str) -> str | None:
+        """Classify commands allowed while multiline paste is pending."""
         try:
             argv = shlex.split(line, posix=True)
         except ValueError:
-            return False
-        return bool(argv) and argv[0] in {"paste_show", "paste_run", "paste_cancel"}
+            return None
+        if not argv:
+            return None
+        if argv[0] in {"paste_show", "paste_run", "paste_cancel"}:
+            return "paste"
+        if argv[0] == "clear":
+            return "clear"
+        if argv[0] in {"exit", "quit"}:
+            return "exit"
+        return None
+
+    def _print_pending_paste_hint(self) -> None:
+        """Re-render the pending paste state after a safe UI command."""
+        payload = self.pending_multiline_paste
+        if payload is None:
+            return
+        enabled = style_enabled()
+        count = self._pending_multiline_paste_line_count()
+        print(
+            style(
+                f"pysh: pending multiline paste retained ({count} lines). Review below.",
+                "warning",
+                enabled=enabled,
+            )
+        )
+        for preview_line in self._format_pending_paste_preview(
+            payload,
+            title="paste",
+            max_lines=20,
+            enabled=enabled,
+            highlighter=self._make_paste_line_highlighter(payload, enabled=enabled),
+        ):
+            print(preview_line)
+        print(
+            format_key_hints(
+                [
+                    ("Enter", "run"),
+                    ("Ctrl+C", "cancel"),
+                    ("paste_show", "inspect"),
+                    ("paste_cancel", "discard"),
+                ],
+                enabled=enabled,
+            )
+        )
+
+    def _discard_pending_paste_for_exit(self) -> None:
+        """Drop pending paste before dispatching exit/quit."""
+        self.pending_multiline_paste = None
+        self.line_reader.clear_command_queue()
+        self._executing_paste = False
+        enabled = style_enabled()
+        print(style("paste_cancel: pending multiline paste discarded", "warning", enabled=enabled))
 
     def execute(self, line: str) -> int:
         """Execute one shell line. Returns the exit status of the last command."""

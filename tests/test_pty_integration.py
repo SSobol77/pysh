@@ -726,6 +726,108 @@ def test_pty_ctrl_c_cancels_pending_multiline_paste() -> None:
     assert "two" not in lines
 
 
+def test_pty_repeated_same_paste_clear_retains_hint_and_allows_recovery() -> None:
+    """Repeated paste replacement followed by clear must not trap the prompt."""
+    paste = b"\x1b[200~echo loop-one\necho loop-two\necho loop-three\x1b[201~"
+    output = _run_pty_session_phased(
+        [
+            paste,
+            paste,
+            b"clear\n",
+            b"paste_cancel\n",
+            b"echo recovered\nexit\n",
+        ],
+        collect_timeout=6.0,
+    )
+    lines = _visible_lines(output)
+    text = _strip_ansi(output).decode("utf-8", errors="replace")
+
+    assert lines.count("pysh: multiline paste captured (3 lines). Review below.") >= 2
+    assert "pysh: previous pending paste replaced" in lines
+    assert "pysh: pending multiline paste retained (3 lines). Review below." in lines
+    assert "paste_cancel: pending multiline paste discarded" in lines
+    assert "recovered" in lines
+    assert "pysh: pending multiline paste exists; use paste_run or paste_cancel first" not in lines
+    assert "loop-one\n" not in text
+    assert "loop-two\n" not in text
+    assert "loop-three\n" not in text
+
+
+def test_pty_clear_while_paste_pending_keeps_paste_runnable() -> None:
+    """clear is a safe UI command; it must not discard or execute pending paste."""
+    output = _run_pty_session_phased(
+        [
+            b"\x1b[200~echo clear-one\necho clear-two\necho clear-three\x1b[201~",
+            b"clear\n",
+            b"paste_run\n",
+            b"echo after-clear\nexit\n",
+        ],
+        collect_timeout=6.0,
+    )
+    lines = _visible_lines(output)
+
+    assert "pysh: pending multiline paste retained (3 lines). Review below." in lines
+    assert "pysh: pending multiline paste exists; use paste_run or paste_cancel first" not in lines
+    _assert_lines_in_order(
+        lines,
+        [
+            "pysh: pending multiline paste retained (3 lines). Review below.",
+            "[paste_run:begin]",
+            "1 | echo clear-one",
+            "2 | echo clear-two",
+            "3 | echo clear-three",
+            "[paste_run:end]",
+            "clear-one",
+            "clear-two",
+            "clear-three",
+            "after-clear",
+        ],
+    )
+
+
+def test_pty_repeated_same_paste_ctrl_c_recovers_normal_command_execution() -> None:
+    """Ctrl+C must cancel even after repeated replacement of the same paste."""
+    paste = b"\x1b[200~echo ctrl-one\necho ctrl-two\necho ctrl-three\x1b[201~"
+    output = _run_pty_session_phased(
+        [
+            paste,
+            paste,
+            b"\x03",
+            b"echo clean-after-ctrl-c\nexit\n",
+        ],
+        collect_timeout=6.0,
+    )
+    lines = _visible_lines(output)
+    text = _strip_ansi(output).decode("utf-8", errors="replace")
+
+    assert "pysh: previous pending paste replaced" in lines
+    assert "paste_cancel: pending multiline paste discarded" in lines
+    assert "clean-after-ctrl-c" in lines
+    assert "pysh: pending multiline paste exists; use paste_run or paste_cancel first" not in lines
+    assert "ctrl-one\n" not in text
+    assert "ctrl-two\n" not in text
+    assert "ctrl-three\n" not in text
+
+
+@pytest.mark.parametrize("command", [b"exit\n", b"quit\n"])
+def test_pty_exit_and_quit_discard_pending_paste_and_exit(command: bytes) -> None:
+    """exit/quit while pending must not be treated as external commands."""
+    output = _run_pty_session(
+        b"\x1b[200~echo should-not-run-one\necho should-not-run-two\x1b[201~"
+        + command,
+        collect_timeout=6.0,
+    )
+    lines = _visible_lines(output)
+    text = _strip_ansi(output).decode("utf-8", errors="replace")
+
+    assert "paste_cancel: pending multiline paste discarded" in lines
+    assert "pysh: pending multiline paste exists; use paste_run or paste_cancel first" not in lines
+    assert "pysh: exit: command not found" not in text
+    assert "pysh: quit: command not found" not in text
+    assert "should-not-run-one\n" not in text
+    assert "should-not-run-two\n" not in text
+
+
 def test_pty_paste_cancel_clears_same_batch_stale_commands() -> None:
     output = _run_pty_session_phased(
         [

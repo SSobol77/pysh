@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Packaging
 
-PySH publishes four artifact families per v0.8.0 release:
+PySH publishes four artifact families per v0.8.1 release:
 
 1. **PyPI** — wheel and sdist (primary distribution channel for Python users).
 2. **Debian `.deb`** — attached to the matching GitHub Release.
@@ -119,9 +119,9 @@ sudo pkg install ./pysh-shell-X.Y.Z.pkg
 pysh --version
 ```
 
-## FreeBSD validation and package build for v0.8.0
+## FreeBSD validation and package build for v0.8.1
 
-FreeBSD 14+ validation is mandatory for v0.8.0 release completion. PySH
+FreeBSD 14+ validation is mandatory for v0.8.1 release completion. PySH
 requires Python 3.13 or newer. The FreeBSD `.pkg` must be built by
 FreeBSD-native package tooling; Docker on Debian is not a native FreeBSD
 package builder and must not be used to fake `.pkg` bytes.
@@ -182,7 +182,7 @@ Known OS-specific areas to watch on FreeBSD:
 
 ## FreeBSD `.pkg` package contract
 
-FreeBSD `.pkg` packaging is current mandatory v0.8.0 release work. The package
+FreeBSD `.pkg` packaging is current mandatory v0.8.1 release work. The package
 filename is `pysh-shell-X.Y.Z.pkg`; the local artifact path is
 `dist/os/freebsd/pysh-shell-X.Y.Z.pkg`; and the flat GitHub Release asset path
 is `dist/release-assets/pysh-shell-X.Y.Z.pkg`.

@@ -14,8 +14,9 @@ Highlighting is **rendering-only**:
 * ANSI escape sequences are never written to files;
 * code passed to the Python runtime is always clean source text.
 
-Pygments is a normal runtime dependency for PySH. A defensive plain-text
-fallback remains so terminal rendering can never crash the shell.
+Pygments is optional via the ``highlight`` extra. A defensive plain-text
+fallback remains so terminal rendering can never crash the shell when the
+extra is absent.
 """
 from __future__ import annotations
 
@@ -25,8 +26,8 @@ from typing import IO
 from pysh.editor.highlight import colors_enabled, paint
 
 # ---------------------------------------------------------------------------
-# Defensive Pygments import — the package depends on it at runtime, but render
-# failures must never crash PySH.
+# Defensive Pygments import — the package is optional, and render failures must
+# never crash PySH.
 # ---------------------------------------------------------------------------
 try:
     from pygments import highlight as _pygments_highlight

@@ -8,16 +8,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pysh-shell"
-version = "0.8.0"
+version = "0.8.1"
 description = "PySH — fast, Python-first universal interactive shell for Debian and Unix-like systems."
 readme = "README.md"
 requires-python = ">=3.13"
 license = "GPL-2.0-only"
 authors = [{ name = "Siergej Sobolewski" }]
-dependencies = [
-    "pygments>=2.0",
-    "pyyaml>=6.0.3",
-]
+dependencies = []
 keywords = ["shell", "python", "terminal", "cli", "debian"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -41,7 +38,8 @@ Issues = "https://github.com/SSobol77/pysh/issues"
 pysh = "pysh.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.6", "build>=1.2", "twine>=5.0"]
+dev = ["pytest>=8.0", "ruff>=0.6", "build>=1.2", "twine>=5.0", "pygments>=2.0"]
+highlight = ["pygments>=2.0"]
 
 [tool.ruff]
 line-length = 100
@@ -63,6 +61,9 @@ include = ["/src", "/tests", "/README.md", "/CHANGELOG.md", "/LICENSE", "/pyproj
 
 [dependency-groups]
 dev = [
+    "build>=1.2",
+    "pygments>=2.0",
     "pytest>=9.0.3",
     "ruff>=0.15.15",
+    "twine>=5.0",
 ]

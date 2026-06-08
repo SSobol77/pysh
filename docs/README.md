@@ -22,7 +22,7 @@ source of truth. All canonical documentation lives here under `docs/`.
 
 | Attribute            | Value                                             |
 | -------------------- | ------------------------------------------------- |
-| Version              | 0.6.x baseline                                   |
+| Version              | 0.8.1 current release                           |
 | Language             | Pure Python (stdlib only, no external deps)       |
 | Primary target       | Debian 13, Python 3.13+                           |
 | Shell type           | Python-first interactive shell and script runner  |

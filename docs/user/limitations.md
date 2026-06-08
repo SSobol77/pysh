@@ -91,9 +91,9 @@ PySH implements a minimal job-control model (Issue #11):
   handover are disabled.
 - `wait` and `disown` builtins are not yet implemented.
 - Background job output writes to the terminal unless explicitly redirected.
-- FreeBSD 14+ validation is a mandatory v0.8.0 release gate; see the
+- FreeBSD 14+ validation is a mandatory v0.8.1 release gate; see the
   FreeBSD package and smoke checklist in
-  [packaging.md](../development/packaging.md#freebsd-validation-and-package-build-for-v080).
+  [packaging.md](../development/packaging.md#freebsd-validation-and-package-build-for-v081).
 
 See [job-control-contract.md](../architecture/job-control-contract.md) for
 the complete contract, process-group model, and exit-status mapping.

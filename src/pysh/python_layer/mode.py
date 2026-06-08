@@ -1078,7 +1078,7 @@ class PythonCommandMode:
             "\n"
             "Syntax highlighting:\n"
             "  Python source shown in #py mode is syntax-highlighted when\n"
-            "  terminal color is enabled. Pygments is installed by default.\n"
+            "  terminal color is enabled and the optional highlight extra is installed.\n"
             "  Highlighting applies to interactive input, continuation input,\n"
             "  prompts, diagnostics, #show, #show file.py, and #edit.\n"
             "  Highlighting is visual only and is never saved to files.\n"

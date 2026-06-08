@@ -360,13 +360,13 @@ class TestHighlightingInTestMode:
         assert _has_ansi(err.getvalue())
 
 
-def test_pygments_is_required_runtime_dependency() -> None:
+def test_pygments_is_optional_highlight_extra() -> None:
     data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     dependencies = data["project"]["dependencies"]
     extras = data["project"].get("optional-dependencies", {})
 
-    assert any(dep.startswith("pygments") for dep in dependencies)
-    assert "highlighting" not in extras
+    assert not any(dep.startswith("pygments") for dep in dependencies)
+    assert any(dep == "pygments>=2.0" for dep in extras["highlight"])
 
 
 class TestHelpMentionsHighlighting:

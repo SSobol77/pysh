@@ -12,10 +12,11 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Security and Trust Model (Issue #7)
 
-This document defines the security and trust model for PySH 0.6.x.
-It describes what PySH executes, what it reads, what it delegates, and what
-it explicitly does not do.  All claims in this document are backed by tests
-in `tests/test_security_trust_model.py`.
+This document defines the security and trust model established in the PySH
+0.6.x line and still normative for current releases unless superseded by a
+newer contract section. It describes what PySH executes, what it reads, what it
+delegates, and what it explicitly does not do.  All claims in this document are
+backed by tests in `tests/test_security_trust_model.py`.
 
 ---
 

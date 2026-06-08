@@ -393,9 +393,11 @@ TAB inserts four spaces inside Python code. Inside `#open`, `#save`, and
 
 Ctrl+D exits (same as `#exit`). Ctrl+C cancels current input.
 
-Python command mode uses **Pygments** syntax highlighting across all views:
-interactive input, continuation input, prompts, `#show`, `#show file.py`,
-`#edit`, and Python diagnostics are colored on capable terminals.
+Python command mode uses optional **Pygments** syntax highlighting across all
+views when `pysh-shell[highlight]` is installed: interactive input,
+continuation input, prompts, `#show`, `#show file.py`, `#edit`, and Python
+diagnostics are colored on capable terminals. Without the extra, the same
+views render as plain text.
 
 Color controls:
 

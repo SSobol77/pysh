@@ -7,7 +7,7 @@ name: FreeBSD package
 on:
   push:
     branches:
-      - release/v0.8.0
+      - "release/v*"
   workflow_dispatch:
 
 permissions:
