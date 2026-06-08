@@ -361,6 +361,33 @@ def configure(shell):
     # shell.set_sensitive_input_indicator("mode", "single-blink")
 
     # ----------------------------------------------------------------------
+    # Command history (History Engine 2.0)
+    # ----------------------------------------------------------------------
+    # History is stored as JSONL at ~/.pysh_history (one JSON object per
+    # command).  Legacy plain-text lines from older PySH versions are
+    # migrated automatically on first load.
+    #
+    # max_length:
+    #   Maximum entries kept after compaction.  Default: 10000.
+    #
+    # dedup_mode:
+    #   "consecutive" -> collapse runs of the same command (default).
+    #   "global"      -> keep one entry per command; frequency accumulates.
+    #   "none"        -> store every command without deduplication.
+    #
+    # ignore_space_prefix:
+    #   True -> commands prefixed with a space are not stored (zsh-style).
+    #
+    # ignore_patterns:
+    #   Commands containing any of these substrings (case-insensitive) are
+    #   silently discarded.  Sensitive commands never reach disk.
+
+    # shell.set_history_option("max_length", 10000)
+    # shell.set_history_option("dedup_mode", "global")
+    # shell.set_history_option("ignore_space_prefix", True)
+    # shell.set_history_option("ignore_patterns", ["password", "secret", "token", "api_key"])
+
+    # ----------------------------------------------------------------------
     # Optional classic minimal prompt profile
     # ----------------------------------------------------------------------
     # Uncomment this block if you want a small historical prompt:

@@ -45,6 +45,7 @@ docs/
 │   ├── builtins.md
 │   ├── operators.md
 │   ├── configuration.md
+│   ├── history.md
 │   ├── limitations.md
 │   └── midnight-commander.md
 ├── shell/                             ← shell behavior documentation
@@ -86,6 +87,7 @@ docs/
 │   └── ISSUE-3-architecture-contracts.md
 ├── development/                       ← contributor and release guides
 │   ├── development.md
+│   ├── history-engine.md
 │   ├── prompt-engine.md
 │   ├── completion-engine.md
 │   ├── repository-structure.md
@@ -109,6 +111,7 @@ Documentation for people who install and use PySH day to day.
 | [builtins.md](user/builtins.md) | Every builtin: syntax, examples, exit codes, limitations |
 | [operators.md](user/operators.md) | Chain, pipeline, redirection, substitution, quoting semantics |
 | [configuration.md](user/configuration.md) | `~/.pyshrc`, plugin directory `~/.pyshrc.d/`, aliases, prompt |
+| [history.md](user/history.md) | Persistent JSONL history, dedup modes, sensitive filtering, Ctrl+R backends |
 | [limitations.md](user/limitations.md) | Explicit non-goals and compatibility boundaries |
 | [midnight-commander.md](user/midnight-commander.md) | MC integration policy and the `mc` builtin |
 
