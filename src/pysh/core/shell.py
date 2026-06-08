@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import termios
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -168,6 +169,11 @@ TOOL_VERSION_SPECS: tuple[ToolVersionSpec, ...] = (
 
 _UNSET = object()
 _VERSION_RE = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|.)")
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_KUBECONFIG_MAX_BYTES = 64 * 1024
+_KUBE_CURRENT_CONTEXT_RE = re.compile(r'^current-context:\s*([^\s#]+)\s*(?:#.*)?$')
+_GIT_BARE_CONFIG_MAX_BYTES = 64 * 1024
 
 
 def _osc_set_cursor_color(hex_color: str) -> str:
@@ -178,6 +184,22 @@ def _osc_set_cursor_color(hex_color: str) -> str:
 def _osc_reset_cursor_color() -> str:
     """Return OSC 112 sequence that requests terminal cursor color reset."""
     return "\x1b]112\x07"
+
+
+def _sanitize_prompt_value(value: str) -> str:
+    """Remove terminal controls from untrusted prompt segment values."""
+    cleaned = _ANSI_ESCAPE_RE.sub("", value)
+    cleaned = _CONTROL_CHAR_RE.sub("", cleaned)
+    return cleaned.strip()
+
+
+def _format_command_duration(seconds: float) -> str:
+    """Return a deterministic prompt label for command duration seconds."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    total = int(seconds)
+    minutes, remainder = divmod(total, 60)
+    return f"{minutes}m{remainder:02d}s"
 
 
 class _ExitShell(Exception):
@@ -275,6 +297,9 @@ class PyShell:
         self.sensitive_input: dict[str, object] = dict(DEFAULT_SENSITIVE_INPUT)
         for spec in TOOL_VERSION_SPECS:
             setattr(self, spec.cache_attr, _UNSET)
+        self._last_command_duration: float | None = None
+        self._k8s_context_cache_key: tuple[tuple[str, int, int] | tuple[str, str], ...] | None = None
+        self._k8s_context_cache_value: str | None = None
         self.completer = Completer(
             lambda: list(self.aliases.keys()),
             get_locals=lambda: dict(self.local_vars),
@@ -724,6 +749,17 @@ class PyShell:
         print(style("paste_cancel: pending multiline paste discarded", "warning", enabled=enabled))
 
     def execute(self, line: str) -> int:
+        """Execute one shell line and record bounded prompt duration metadata."""
+        if not line.strip():
+            self._last_command_duration = None
+            return self._execute_impl(line)
+        start = time.perf_counter()
+        try:
+            return self._execute_impl(line)
+        finally:
+            self._last_command_duration = time.perf_counter() - start
+
+    def _execute_impl(self, line: str) -> int:
         """Execute one shell line. Returns the exit status of the last command."""
         line = line.rstrip("\n").rstrip("\r")
         trace_fields: dict[str, object] = {"line": line}
@@ -2414,6 +2450,9 @@ class PyShell:
         if bool(options.get("show_last_status", False)) and self.last_status != 0:
             segments.append(self._color_prompt_segment(f"[{self.last_status}]", "status"))
 
+        for text, role in self._prompt_context_segments(options):
+            segments.append(self._color_prompt_segment(text, role))
+
         if self.pending_multiline_paste is not None:
             lines = self._pending_multiline_paste_line_count()
             segments.append(self._color_prompt_segment(f"[paste:{lines}]", "status"))
@@ -2478,6 +2517,9 @@ class PyShell:
             line1_segs.append(
                 self._color_prompt_segment(f"[{self.last_status}]", "status")
             )
+
+        for text, role in self._prompt_context_segments(options):
+            line1_segs.append(self._color_prompt_segment(text, role))
 
         if self.pending_multiline_paste is not None:
             count = self._pending_multiline_paste_line_count()
@@ -2638,6 +2680,128 @@ class PyShell:
         setattr(self, spec.cache_attr, value)
         return value
 
+    def _prompt_context_segments(self, options: dict[str, object]) -> list[tuple[str, str]]:
+        """Return optional non-tool context prompt segments."""
+        segments: list[tuple[str, str]] = []
+        for provider in (
+            self._prompt_duration_segment,
+            self._prompt_ssh_segment,
+            self._prompt_aws_segment,
+            self._prompt_k8s_segment,
+        ):
+            try:
+                segment = provider(options)
+            except (OSError, ValueError):
+                segment = None
+            if segment is not None:
+                segments.append(segment)
+        return segments
+
+    def _prompt_duration_segment(self, options: dict[str, object]) -> tuple[str, str] | None:
+        """Return the last command duration segment when above threshold."""
+        if not bool(options.get("show_command_duration", False)):
+            return None
+        duration = self._last_command_duration
+        if duration is None:
+            return None
+        threshold = options.get("command_duration_threshold", 0.5)
+        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+            return None
+        if duration < threshold:
+            return None
+        return _format_command_duration(duration), "duration"
+
+    @staticmethod
+    def _prompt_ssh_segment(options: dict[str, object]) -> tuple[str, str] | None:
+        """Return an SSH marker for interactive remote sessions."""
+        if not bool(options.get("show_ssh_indicator", False)):
+            return None
+        if not any(os.environ.get(name) for name in ("SSH_CLIENT", "SSH_TTY", "SSH_CONNECTION")):
+            return None
+        marker = _sanitize_prompt_value("ssh")
+        return (marker, "ssh") if marker else None
+
+    @staticmethod
+    def _prompt_aws_segment(options: dict[str, object]) -> tuple[str, str] | None:
+        """Return the configured AWS profile segment without invoking AWS tools."""
+        if not bool(options.get("show_aws_profile", False)):
+            return None
+        raw = os.environ.get("AWS_PROFILE") or os.environ.get("AWS_DEFAULT_PROFILE")
+        if not raw:
+            return None
+        profile = _sanitize_prompt_value(raw)
+        return (f"aws:{profile}", "aws") if profile else None
+
+    def _prompt_k8s_segment(self, options: dict[str, object]) -> tuple[str, str] | None:
+        """Return Kubernetes current-context from bounded stdlib config parsing."""
+        if not bool(options.get("show_k8s_context", False)):
+            return None
+        context = self._read_k8s_context()
+        return (f"k8s:{context}", "k8s") if context else None
+
+    def _read_k8s_context(self) -> str | None:
+        """Return the first configured Kubernetes current-context, or None."""
+        paths = self._kubeconfig_paths()
+        signature = self._kubeconfig_signature(paths)
+        if signature == self._k8s_context_cache_key:
+            return self._k8s_context_cache_value
+        value: str | None = None
+        for path in paths:
+            value = self._read_k8s_context_file(path)
+            if value:
+                break
+        self._k8s_context_cache_key = signature
+        self._k8s_context_cache_value = value
+        return value
+
+    @staticmethod
+    def _kubeconfig_paths() -> tuple[Path, ...]:
+        raw = os.environ.get("KUBECONFIG")
+        if raw:
+            return tuple(Path(part).expanduser() for part in raw.split(os.pathsep) if part)
+        return (Path("~/.kube/config").expanduser(),)
+
+    @staticmethod
+    def _kubeconfig_signature(paths: tuple[Path, ...]) -> tuple[tuple[str, int, int] | tuple[str, str], ...]:
+        signature: list[tuple[str, int, int] | tuple[str, str]] = []
+        for path in paths:
+            try:
+                stat_result = path.stat()
+            except OSError:
+                signature.append((str(path), "missing"))
+                continue
+            signature.append((str(path), stat_result.st_size, stat_result.st_mtime_ns))
+        return tuple(signature)
+
+    @staticmethod
+    def _read_k8s_context_file(path: Path) -> str | None:
+        try:
+            stat_result = path.stat()
+        except OSError:
+            return None
+        if not path.is_file() or stat_result.st_size > _KUBECONFIG_MAX_BYTES:
+            return None
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+        if "\n---" in text or text.lstrip().startswith("---"):
+            return None
+        matches: list[str] = []
+        for line in text.splitlines():
+            if line.startswith((" ", "\t")):
+                continue
+            match = _KUBE_CURRENT_CONTEXT_RE.match(line.strip())
+            if match is None:
+                continue
+            raw = match.group(1).strip().strip("'\"")
+            context = _sanitize_prompt_value(raw)
+            if context:
+                matches.append(context)
+        if len(matches) != 1:
+            return None
+        return matches[0]
+
     def _prompt_git_segment(self, options: dict[str, object]) -> str | None:
         """Return the Git prompt segment without invoking ``git``."""
         if not bool(options.get("show_git_branch", False)):
@@ -2658,10 +2822,14 @@ class PyShell:
         """
         git_dir = cls._find_git_dir(start)
         if git_dir is None:
-            return None
-        head_path = git_dir / "HEAD"
+            return cls._read_bare_git_prompt_info(start)
+        return cls._read_git_prompt_info_from_dir(git_dir)
+
+    @classmethod
+    def _read_git_prompt_info_from_dir(cls, git_dir: Path) -> GitPromptInfo | None:
+        """Read prompt metadata from a concrete Git metadata directory."""
         try:
-            head = head_path.read_text(encoding="utf-8").strip()
+            head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
         except OSError:
             return None
         if not head:
@@ -2682,18 +2850,69 @@ class PyShell:
     @classmethod
     def _find_git_dir(cls, start: Path) -> Path | None:
         """Return the repository git-dir for ``start`` or one of its parents."""
-        current = start.resolve()
+        try:
+            current = start.resolve()
+        except OSError:
+            return None
         while True:
             dotgit = current / ".git"
-            if dotgit.is_dir():
-                return dotgit
-            if dotgit.is_file():
-                git_dir = cls._read_gitdir_file(dotgit)
-                if git_dir is not None:
-                    return git_dir
+            try:
+                if dotgit.is_dir():
+                    return dotgit
+                if dotgit.is_file():
+                    git_dir = cls._read_gitdir_file(dotgit)
+                    if git_dir is not None:
+                        return git_dir
+            except OSError:
+                return None
             if current.parent == current:
                 return None
             current = current.parent
+
+    @classmethod
+    def _read_bare_git_prompt_info(cls, start: Path) -> GitPromptInfo | None:
+        """Detect a bare repository using a bounded strong-signal check."""
+        try:
+            current = start.resolve()
+        except OSError:
+            return None
+        while True:
+            if cls._is_bare_git_dir(current):
+                return cls._read_git_prompt_info_from_dir(current)
+            if current.parent == current:
+                return None
+            current = current.parent
+
+    @staticmethod
+    def _is_bare_git_dir(path: Path) -> bool:
+        """Return True only for strong, bounded bare Git repository evidence."""
+        try:
+            config_stat = (path / "config").stat()
+        except OSError:
+            return False
+        if config_stat.st_size > _GIT_BARE_CONFIG_MAX_BYTES:
+            return False
+        try:
+            if not (path / "HEAD").is_file():
+                return False
+            if not (path / "objects").is_dir():
+                return False
+            if not (path / "refs").is_dir():
+                return False
+            config = (path / "config").read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return False
+        in_core = False
+        for raw_line in config.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith(("#", ";")):
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                in_core = line.casefold() == "[core]"
+                continue
+            if in_core and re.fullmatch(r"bare\s*=\s*true", line, re.IGNORECASE):
+                return True
+        return False
 
     @staticmethod
     def _read_gitdir_file(path: Path) -> Path | None:
@@ -2730,9 +2949,12 @@ class PyShell:
             "REVERT_HEAD",
             "BISECT_LOG",
         )
-        if any((git_dir / name).exists() for name in obvious_files):
-            return True
-        return (git_dir / "rebase-apply").exists() or (git_dir / "rebase-merge").exists()
+        try:
+            if any((git_dir / name).exists() for name in obvious_files):
+                return True
+            return (git_dir / "rebase-apply").exists() or (git_dir / "rebase-merge").exists()
+        except OSError:
+            return False
 
     @staticmethod
     def _prompt_icon() -> str:

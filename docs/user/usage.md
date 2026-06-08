@@ -38,6 +38,18 @@ back to a clean prompt.
 `[PYSH_DEBUG]` trace lines to stderr, never to normal command stdout, and do
 not change command execution or exit status.
 
+## Prompt
+
+Interactive sessions use the configurable Prompt Engine 2.0. The default
+two-line prompt keeps the command-entry line narrow and renders context such as
+current directory, Git state, tool versions, last non-zero status, command
+duration, and SSH state in a separate information block. AWS profile and
+Kubernetes context segments are opt-in and never invoke external cloud or
+cluster tools.
+
+See [prompt.md](prompt.md) for all prompt options, color names, safety
+boundaries, and manual validation steps.
+
 ## Script mode
 
 Script Mode v1 runs explicit local PySH script files:

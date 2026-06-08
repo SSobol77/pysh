@@ -60,6 +60,11 @@ DEFAULT_PROMPT_OPTIONS: dict[str, object] = {
     "show_node_version": True,
     "show_npm_version": True,
     "show_last_status": True,
+    "show_command_duration": True,
+    "show_ssh_indicator": True,
+    "show_aws_profile": False,
+    "show_k8s_context": False,
+    "command_duration_threshold": 0.5,
     "show_cwd": True,
     "cwd_style": "home",
     "prompt_layout": "two_line",
@@ -83,6 +88,10 @@ PROMPT_OPTION_TYPES: dict[str, type] = {
     "show_rust_version": bool,
     "show_node_version": bool,
     "show_npm_version": bool,
+    "show_command_duration": bool,
+    "show_ssh_indicator": bool,
+    "show_aws_profile": bool,
+    "show_k8s_context": bool,
     "cwd_style": str,
     "symbol": str,
     "prompt_layout": str,
@@ -133,6 +142,10 @@ DEFAULT_PROMPT_COLORS: dict[str, str] = {
     "node": "lime",
     "npm": "red",
     "status": "red",
+    "duration": "yellow",
+    "ssh": "fuchsia",
+    "aws": "orange",
+    "k8s": "aqua",
     "symbol": "white",
 }
 
@@ -249,9 +262,24 @@ def validate_prompt_option(name: str, value: object) -> None:
     Raises :class:`ConfigError` for an unknown option name or a value whose
     type does not match :data:`PROMPT_OPTION_TYPES`.
     """
+    if name == "command_duration_threshold":
+        if isinstance(value, bool):
+            raise ConfigError(
+                "prompt option 'command_duration_threshold' expects int or float, got bool"
+            )
+        if not isinstance(value, (int, float)):
+            raise ConfigError(
+                "prompt option 'command_duration_threshold' expects int or float, "
+                f"got {type(value).__name__}"
+            )
+        if value < 0:
+            raise ConfigError(
+                "prompt option 'command_duration_threshold' must be non-negative"
+            )
+        return
     expected = PROMPT_OPTION_TYPES.get(name)
     if expected is None:
-        known = ", ".join(sorted(PROMPT_OPTION_TYPES))
+        known = ", ".join(sorted((*PROMPT_OPTION_TYPES, "command_duration_threshold")))
         raise ConfigError(f"unknown prompt option {name!r} (known: {known})")
     if not isinstance(value, expected):
         raise ConfigError(
@@ -447,6 +475,11 @@ class ShellConfigAPI:
         * ``show_node_version`` (bool) - append the active Node.js version [True]
         * ``show_npm_version`` (bool) - append the active npm version [True]
         * ``show_last_status`` (bool) - append non-zero last status [True]
+        * ``show_command_duration`` (bool) - append slow command duration [True]
+        * ``show_ssh_indicator`` (bool) - append SSH session marker [True]
+        * ``show_aws_profile`` (bool) - append AWS profile name [False]
+        * ``show_k8s_context`` (bool) - append Kubernetes current-context [False]
+        * ``command_duration_threshold`` (int|float) - seconds before duration appears [0.5]
         * ``show_cwd`` (bool) - show the current directory [True]
         * ``cwd_style`` (str) - ``full``, ``home`` or ``basename`` ["home"]
         * ``prompt_layout`` (str) - ``single`` or ``two_line`` ["two_line"]
@@ -489,8 +522,9 @@ class ShellConfigAPI:
 
         ``segment`` must be one of ``venv``, ``icon``, ``user``, ``host``,
         ``cwd``, ``git``, ``python``, ``uv``, ``ruff``, ``rust``, ``node``,
-        ``npm``, ``status`` or ``symbol``. ``color`` accepts canonical HTML
-        color names or ``#RRGGBB``.
+        ``npm``, ``status``, ``duration``, ``ssh``, ``aws``, ``k8s`` or
+        ``symbol``. ``color`` accepts canonical HTML color names or
+        ``#RRGGBB``.
         """
         validate_prompt_color(segment, color)
         self._shell.set_prompt_color(segment, color)
@@ -632,6 +666,14 @@ def configure(shell):
     shell.set_prompt_option("show_git_branch", True)
     shell.set_prompt_option("show_git_dirty", True)
     shell.set_prompt_option("show_last_status", True)
+    shell.set_prompt_option("show_command_duration", True)
+    shell.set_prompt_option("command_duration_threshold", 0.5)
+    shell.set_prompt_option("show_ssh_indicator", True)
+    shell.set_prompt_option("show_aws_profile", False)
+    shell.set_prompt_option("show_k8s_context", False)
+    # shell.set_prompt_option("command_duration_threshold", 1)
+    # shell.set_prompt_option("show_aws_profile", True)
+    # shell.set_prompt_option("show_k8s_context", True)
 
     # Language and tool versions.
     shell.set_prompt_option("show_python_version", True)
@@ -668,6 +710,10 @@ def configure(shell):
     shell.set_prompt_color("node", "lime")
     shell.set_prompt_color("npm", "red")
     shell.set_prompt_color("status", "red")
+    shell.set_prompt_color("duration", "yellow")
+    shell.set_prompt_color("ssh", "fuchsia")
+    shell.set_prompt_color("aws", "orange")
+    shell.set_prompt_color("k8s", "aqua")
     shell.set_prompt_color("symbol", "white")
 
     # ----------------------------------------------------------------------
@@ -789,6 +835,10 @@ def configure(shell):
     # shell.set_prompt_option("show_node_version", False)
     # shell.set_prompt_option("show_npm_version", False)
     # shell.set_prompt_option("show_last_status", False)
+    # shell.set_prompt_option("show_command_duration", False)
+    # shell.set_prompt_option("show_ssh_indicator", False)
+    # shell.set_prompt_option("show_aws_profile", False)
+    # shell.set_prompt_option("show_k8s_context", False)
 
     return None
 '''
