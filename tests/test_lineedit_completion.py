@@ -1,10 +1,21 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_lineedit_completion.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
 from __future__ import annotations
 
-from pysh.editor.lineedit.completion import apply_single_completion, complete_line
+import os
+
+from pysh.editor.lineedit.buffer import LineBuffer
+from pysh.editor.lineedit.completion import (
+    CompletionCandidate,
+    CompletionKind,
+    CompletionResult,
+    apply_single_completion,
+    complete_line,
+)
+from pysh.editor.lineedit.reader import RawLineReader, _visible_width
 
 BUILTINS = (
     "cd",
@@ -80,3 +91,77 @@ def test_multiple_matches_do_not_mutate_buffer(tmp_path, monkeypatch) -> None:
     result = complete_line("s", 1, builtins=BUILTINS, aliases=(), path="")
     assert len(result.candidates) > 1
     assert apply_single_completion("s", result) == ("s", 1)
+
+
+class _StaticCompleter:
+    def __init__(self, result: CompletionResult) -> None:
+        self.result = result
+
+    def raw_completion(self, _line: str, _cursor: int) -> CompletionResult:
+        return self.result
+
+    def apply_raw_completion(self, line: str, result: CompletionResult) -> tuple[str, int]:
+        return apply_single_completion(line, result)
+
+
+def test_repeated_tab_inserts_common_prefix_before_menu() -> None:
+    read_fd, write_fd = os.pipe()
+    try:
+        result = CompletionResult(
+            0,
+            2,
+            "so",
+            ("source", "source_zsh"),
+            (
+                CompletionCandidate("source", CompletionKind.BUILTIN),
+                CompletionCandidate("source_zsh", CompletionKind.BUILTIN),
+            ),
+        )
+        reader = RawLineReader(output_fd=write_fd)
+        buffer = LineBuffer("so", 2)
+        reader._complete(buffer, _StaticCompleter(result))
+        os.close(write_fd)
+        write_fd = -1
+
+        assert buffer.text == "source"
+        assert os.read(read_fd, 4096) == b""
+    finally:
+        os.close(read_fd)
+        if write_fd != -1:
+            os.close(write_fd)
+
+
+def test_repeated_tab_candidate_display_preserves_buffer() -> None:
+    read_fd, write_fd = os.pipe()
+    try:
+        result = CompletionResult(
+            0,
+            6,
+            "source",
+            ("source", "source_zsh"),
+            (
+                CompletionCandidate("source", CompletionKind.BUILTIN),
+                CompletionCandidate("source_zsh", CompletionKind.BUILTIN),
+            ),
+        )
+        reader = RawLineReader(output_fd=write_fd)
+        buffer = LineBuffer("source", 6)
+        completer = _StaticCompleter(result)
+        reader._complete(buffer, completer)
+        reader._complete(buffer, completer)
+        os.close(write_fd)
+        write_fd = -1
+        output = os.read(read_fd, 4096).decode("utf-8")
+
+        assert buffer.text == "source"
+        assert "source [builtin]" in output
+        assert "source_zsh [builtin]" in output
+        assert output.count("source [builtin]") == 1
+    finally:
+        os.close(read_fd)
+        if write_fd != -1:
+            os.close(write_fd)
+
+
+def test_visible_width_strips_ansi_before_prompt_measurement() -> None:
+    assert _visible_width("\033[32mPySH>\033[0m ") == len("PySH> ")

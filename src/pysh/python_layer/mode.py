@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/python_layer/mode.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -42,6 +43,7 @@ from typing import IO
 from pysh.editor.lineedit.autosuggest import AutoSuggester
 from pysh.editor.lineedit.buffer import LineBuffer
 from pysh.editor.lineedit.completion import CompletionResult, apply_single_completion
+from pysh.editor.lineedit.completion import complete_line as complete_python_symbols
 from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
 from pysh.editor.lineedit.reader import RawLineReader
 from pysh.python_layer.render import PythonSyntaxRenderer
@@ -111,7 +113,48 @@ class _PendingEdit:
 
 
 class _PythonModeCompleter:
-    """Raw-line completion adapter for Python mode file directives."""
+    """Raw-line completion adapter for Python mode directives and symbols."""
+
+    def __init__(
+        self,
+        cwd_provider: Callable[[], Path],
+        namespace_provider: Callable[[], dict[str, object]],
+    ) -> None:
+        self._cwd_provider = cwd_provider
+        self._namespace_provider = namespace_provider
+
+    def raw_completion(self, line: str, cursor: int) -> CompletionResult:
+        prefix_up_to_cursor = line[:cursor]
+        for directive_prefix in _FILE_ARG_DIRECTIVES:
+            if prefix_up_to_cursor.startswith(directive_prefix):
+                candidates = tuple(complete_python_mode_path(line, cursor, self._cwd_provider()))
+                partial = prefix_up_to_cursor[len(directive_prefix):]
+                start = cursor - len(partial)
+                return CompletionResult(start, cursor, partial, candidates)
+
+        return complete_python_symbols(
+            line,
+            cursor,
+            builtins=(),
+            aliases=(),
+            env={},
+            locals={},
+            path="",
+            python_namespace=self._namespace_provider(),
+        )
+
+    def has_symbol_completion(self, line: str, cursor: int) -> bool:
+        """Return True when Python-symbol completion has candidates."""
+        if line[:cursor].startswith(_FILE_ARG_DIRECTIVES):
+            return False
+        return bool(self.raw_completion(line, cursor).candidates)
+
+    def apply_raw_completion(self, line: str, result: CompletionResult) -> tuple[str, int]:
+        return apply_single_completion(line, result)
+
+
+class _PythonModePathCompleter:
+    """Compatibility adapter retained for tests that expect path candidates."""
 
     def __init__(self, cwd_provider: Callable[[], Path]) -> None:
         self._cwd_provider = cwd_provider
@@ -499,7 +542,10 @@ class PythonCommandMode:
         self._raw_reader = RawLineReader()
         self._raw_suggester = AutoSuggester()
         self._raw_highlighter = LineHighlighter(frozenset())
-        self._raw_completer = _PythonModeCompleter(self._cwd_provider)
+        self._raw_completer = _PythonModeCompleter(
+            self._cwd_provider,
+            lambda: self._runtime._cmd_globals,
+        )
         self._last_read_live_rendered = False
         # Visual padding: auto-disabled in test/scripted mode.
         self._visual_padding_lines: int = (
@@ -1025,6 +1071,8 @@ class PythonCommandMode:
         """Insert four spaces for Python code; let file directives complete."""
         prefix = buffer.text[: buffer.cursor]
         if any(prefix.startswith(directive) for directive in _FILE_ARG_DIRECTIVES):
+            return False
+        if self._raw_completer.has_symbol_completion(buffer.text, buffer.cursor):
             return False
         text, cursor = expand_tab(buffer.text, buffer.cursor)
         buffer.set(text, cursor)

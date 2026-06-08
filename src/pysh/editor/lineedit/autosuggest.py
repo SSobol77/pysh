@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/editor/lineedit/autosuggest.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -23,4 +24,3 @@ class AutoSuggester:
             if len(entry) > len(line) and entry.startswith(line):
                 return entry[len(line) :]
         return None
-

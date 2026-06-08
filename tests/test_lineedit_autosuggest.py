@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_lineedit_autosuggest.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -18,4 +19,3 @@ def test_no_suggestion_cases() -> None:
     assert suggester.suggest("nope", ["echo hi"]) is None
     assert suggester.suggest("echo hi", ["echo hi"]) is None
     assert suggester.suggest("echo higher", ["echo hi"]) is None
-

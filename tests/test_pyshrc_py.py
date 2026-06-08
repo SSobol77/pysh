@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_pyshrc_py.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
