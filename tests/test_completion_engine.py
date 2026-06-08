@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_completion_engine.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -10,8 +11,12 @@ import stat
 from pathlib import Path
 
 from pysh.editor.lineedit.completion import (
+    CompletionCandidate,
     CompletionKind,
+    CompletionMatchType,
+    _PathCache,
     apply_single_completion,
+    common_completion_prefix,
     complete_line,
     parse_completion_context,
 )
@@ -72,6 +77,46 @@ def test_builtin_completion_at_command_position(tmp_path: Path, monkeypatch) -> 
     assert result.rich_candidates[0].kind is CompletionKind.BUILTIN
 
 
+def test_alias_completion_has_alias_kind(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = complete_line("gs", 2, builtins=BUILTINS, aliases=("gs",), path="")
+    assert result.candidates == ("gs",)
+    assert result.rich_candidates[0].kind is CompletionKind.ALIAS
+    assert result.rich_candidates[0].labeled_menu_text == "gs [alias]"
+
+
+def test_prefix_matches_rank_before_substring_fallback(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    prefix = complete_line(
+        "so",
+        2,
+        builtins=("source", "also"),
+        aliases=("sortit",),
+        path="",
+    )
+    assert prefix.candidates == ("sortit", "source")
+    assert all(
+        candidate.match_type is CompletionMatchType.PREFIX
+        for candidate in prefix.rich_candidates
+    )
+
+    substring = complete_line(
+        "our",
+        3,
+        builtins=("source", "elsewhere"),
+        aliases=(),
+        path="",
+    )
+    assert substring.candidates == ("source",)
+    assert substring.rich_candidates[0].match_type is CompletionMatchType.SUBSTRING
+
+
+def test_case_insensitive_matching_and_deterministic_sort(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = complete_line("so", 2, builtins=("Source", "sort", "Socks"), aliases=(), path="")
+    assert result.candidates == ("Socks", "sort", "Source")
+
+
 def test_no_builtin_completion_in_argument_position(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     result = complete_line("echo ec", 7, builtins=BUILTINS, aliases=(), path="")
@@ -102,6 +147,54 @@ def test_external_command_completion_dedupes_and_ignores_non_executable(
     assert result.candidates == ("tool",)
 
 
+def test_path_cache_ttl_invalidation_uses_fake_clock(tmp_path: Path) -> None:
+    now = 0.0
+
+    def monotonic() -> float:
+        return now
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    first = bindir / "alpha"
+    first.write_text("#!/bin/sh\n", encoding="utf-8")
+    first.chmod(first.stat().st_mode | stat.S_IXUSR)
+    cache = _PathCache(ttl=5.0, monotonic=monotonic)
+    path_value = str(bindir)
+
+    assert cache.commands(path_value) == ("alpha",)
+
+    second = bindir / "beta"
+    second.write_text("#!/bin/sh\n", encoding="utf-8")
+    second.chmod(second.stat().st_mode | stat.S_IXUSR)
+    assert cache.commands(path_value) == ("alpha",)
+
+    now = 6.0
+    assert cache.commands(path_value) == ("alpha", "beta")
+
+    third = bindir / "gamma"
+    third.write_text("#!/bin/sh\n", encoding="utf-8")
+    third.chmod(third.stat().st_mode | stat.S_IXUSR)
+    cache.invalidate()
+    assert cache.commands(path_value) == ("alpha", "beta", "gamma")
+
+
+def test_path_cache_is_keyed_by_path_not_prefix(tmp_path: Path) -> None:
+    now = 0.0
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    for name in ("alpha", "beta"):
+        exe = bindir / name
+        exe.write_text("#!/bin/sh\n", encoding="utf-8")
+        exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
+    cache = _PathCache(ttl=5.0, monotonic=lambda: now)
+    path_value = str(bindir)
+    alpha = complete_line("al", 2, builtins=(), aliases=(), path=path_value, path_cache=cache)
+    beta = complete_line("be", 2, builtins=(), aliases=(), path=path_value, path_cache=cache)
+    assert alpha.candidates == ("alpha",)
+    assert beta.candidates == ("beta",)
+    assert tuple(cache._cache) == (path_value,)
+
+
 def test_path_completion_files_dirs_and_hidden_policy(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "README.md").write_text("", encoding="utf-8")
     (tmp_path / "src").mkdir()
@@ -113,6 +206,13 @@ def test_path_completion_files_dirs_and_hidden_policy(tmp_path: Path, monkeypatc
     assert ".secret" not in result.candidates
     hidden = complete_line("echo .s", 7, builtins=(), aliases=(), path="")
     assert hidden.candidates == (".secret",)
+
+
+def test_unicode_path_completion(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "źródło").mkdir()
+    monkeypatch.chdir(tmp_path)
+    result = complete_line("echo ź", 6, builtins=(), aliases=(), path="")
+    assert result.candidates == ("źródło/",)
 
 
 def test_tilde_completion_preserves_tilde_prefix(tmp_path: Path, monkeypatch) -> None:
@@ -182,8 +282,11 @@ def test_braced_variable_completion() -> None:
 def test_job_completion_with_and_without_provider() -> None:
     none = complete_line("fg ", 3, builtins=BUILTINS, aliases=(), path="")
     jobs = complete_line("fg %", 4, builtins=BUILTINS, aliases=(), job_ids=(1, 12), path="")
+    bg_jobs = complete_line("bg %", 4, builtins=BUILTINS, aliases=(), job_ids=(2,), path="")
     assert none.candidates == ()
     assert jobs.candidates == ("%1", "%12")
+    assert jobs.rich_candidates[0].kind is CompletionKind.JOB
+    assert bg_jobs.candidates == ("%2",)
 
 
 def test_directory_only_completion_after_pushd(tmp_path: Path, monkeypatch) -> None:
@@ -216,3 +319,91 @@ def test_single_quotes_suppress_variable_completion(monkeypatch) -> None:
     assert result.context is not None
     assert result.context.variable_style is None
 
+
+def test_zero_match_apply_leaves_buffer_unchanged(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = complete_line("zz", 2, builtins=BUILTINS, aliases=(), path="")
+    assert result.candidates == ()
+    assert apply_single_completion("zz", result) == ("zz", 2)
+
+
+def test_common_prefix_for_repeated_tab() -> None:
+    result = complete_line(
+        "so",
+        2,
+        builtins=("source", "source_zsh", "source_sh_aliases"),
+        aliases=(),
+        path="",
+    )
+    assert common_completion_prefix(result) == "source"
+
+
+def test_python_symbol_completion_bare_names() -> None:
+    result = complete_line(
+        "os",
+        2,
+        builtins=(),
+        aliases=(),
+        path="",
+        python_namespace={"os": object(), "open_file": object(), "value": 1},
+    )
+    assert result.candidates == ("os",)
+    assert result.rich_candidates[0].kind is CompletionKind.PYTHON_SYMBOL
+
+
+def test_python_dotted_completion_does_not_trigger_user_getattr_or_property() -> None:
+    class Hazard:
+        def __init__(self) -> None:
+            self.side_effects = 0
+            self.safe_instance_name = 1
+
+        @property
+        def dangerous_property(self) -> int:
+            self.side_effects += 1
+            return 1
+
+        def __getattr__(self, _name: str) -> object:
+            self.side_effects += 1
+            raise AttributeError
+
+    hazard = Hazard()
+    result = complete_line(
+        "obj.safe",
+        8,
+        builtins=(),
+        aliases=(),
+        path="",
+        python_namespace={"obj": hazard},
+    )
+    assert "obj.safe_instance_name" in result.candidates
+    assert hazard.side_effects == 0
+
+
+def test_python_dotted_completion_skips_slotted_dynamic_attributes_safely() -> None:
+    class Trap:
+        __slots__ = ("called",)
+
+        def __init__(self) -> None:
+            self.called = False
+
+        def __getattr__(self, name: str) -> object:
+            self.called = True
+            raise AttributeError(name)
+
+    trap = Trap()
+    complete_line(
+        "obj.pa",
+        6,
+        builtins=(),
+        aliases=(),
+        path="",
+        python_namespace={"obj": trap},
+    )
+    assert trap.called is False
+
+
+def test_candidate_labels_include_alias_and_job_id() -> None:
+    alias_candidate = CompletionCandidate("gs", CompletionKind.ALIAS)
+    job_candidate = CompletionCandidate("%1", CompletionKind.JOB)
+    assert alias_candidate.labeled_menu_text == "gs [alias]"
+    assert job_candidate.labeled_menu_text == "%1 [job]"

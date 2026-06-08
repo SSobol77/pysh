@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_python_mode.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -13,10 +14,12 @@ from pathlib import Path
 import pytest
 
 from pysh.core.shell import PyShell
+from pysh.editor.lineedit.buffer import LineBuffer
 from pysh.python_layer.mode import (
     PythonCommandMode,
     _check_missing_hash,
     _parse_directive,
+    _PythonModeCompleter,
     complete_python_mode_path,
     expand_tab,
     next_python_indent,
@@ -1204,6 +1207,67 @@ class TestCompletePathMode:
         cursor = len("#open zz.py")
         result = complete_python_mode_path(line, cursor, tmp_path)
         assert any("zz.py" in r for r in result)
+
+
+class TestPythonSymbolCompletion:
+    def test_bare_symbol_completion_uses_runtime_namespace(self, tmp_path: Path) -> None:
+        namespace = {"omega": object(), "other": object(), "value": 1}
+        completer = _PythonModeCompleter(lambda: tmp_path, lambda: namespace)
+        result = completer.raw_completion("om", 2)
+        assert result.candidates == ("omega",)
+
+    def test_dotted_symbol_completion_is_side_effect_safe(self, tmp_path: Path) -> None:
+        class Hazard:
+            def __init__(self) -> None:
+                self.side_effects = 0
+                self.safe_attr = 1
+
+            @property
+            def side_effect_property(self) -> int:
+                self.side_effects += 1
+                return 1
+
+            def __getattr__(self, _name: str) -> object:
+                self.side_effects += 1
+                raise AttributeError
+
+        hazard = Hazard()
+        completer = _PythonModeCompleter(lambda: tmp_path, lambda: {"hazard": hazard})
+        result = completer.raw_completion("hazard.safe", len("hazard.safe"))
+        assert "hazard.safe_attr" in result.candidates
+        assert hazard.side_effects == 0
+
+    def test_dotted_symbol_completion_skips_slotted_dynamic_attributes_safely(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        class Trap:
+            __slots__ = ("called",)
+
+            def __init__(self) -> None:
+                self.called = False
+
+            def __getattr__(self, name: str) -> object:
+                self.called = True
+                raise AttributeError(name)
+
+        trap = Trap()
+        completer = _PythonModeCompleter(lambda: tmp_path, lambda: {"obj": trap})
+        completer.raw_completion("obj.pa", len("obj.pa"))
+        assert trap.called is False
+
+    def test_tab_indentation_remains_when_no_symbol_candidates(self) -> None:
+        mode = PythonCommandMode()
+        buffer = LineBuffer("def f():", 8)
+        assert mode._handle_raw_tab(buffer)
+        assert buffer.text == "def f():    "
+
+    def test_tab_delegates_to_symbol_completion_when_candidates_exist(self) -> None:
+        runtime = PythonRuntime()
+        runtime._cmd_globals["omega"] = object()
+        mode = PythonCommandMode(runtime=runtime)
+        buffer = LineBuffer("om", 2)
+        assert not mode._handle_raw_tab(buffer)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

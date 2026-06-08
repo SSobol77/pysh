@@ -1,5 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
+# File: packaging/wrappers/pysh.sh
 #
 # Copyright (C) 2026 Siergej Sobolewski
 

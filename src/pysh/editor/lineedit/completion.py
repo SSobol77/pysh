@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/editor/lineedit/completion.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -12,7 +13,9 @@ from __future__ import annotations
 
 import os
 import stat
-from collections.abc import Iterable, Mapping, Sequence
+import time
+from collections import OrderedDict
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -21,12 +24,21 @@ from pathlib import Path
 class CompletionKind(StrEnum):
     """Classification for one completion candidate."""
 
+    ALIAS = "alias"
     BUILTIN = "builtin"
     COMMAND = "command"
     PATH = "path"
     DIRECTORY = "directory"
     VARIABLE = "variable"
+    PYTHON_SYMBOL = "python-symbol"
     JOB = "job"
+
+
+class CompletionMatchType(StrEnum):
+    """How a candidate matched the current prefix."""
+
+    PREFIX = "prefix"
+    SUBSTRING = "substring"
 
 
 @dataclass(frozen=True)
@@ -41,11 +53,17 @@ class CompletionCandidate:
     kind: CompletionKind
     display: str | None = None
     append_space: bool = True
+    match_type: CompletionMatchType = CompletionMatchType.PREFIX
 
     @property
     def menu_text(self) -> str:
         """Return the deterministic display string for this candidate."""
         return self.display if self.display is not None else self.value
+
+    @property
+    def labeled_menu_text(self) -> str:
+        """Return the display string annotated with candidate kind."""
+        return f"{self.menu_text} [{self.kind.value}]"
 
 
 @dataclass(frozen=True)
@@ -78,6 +96,8 @@ class CompletionOptions:
     env: Mapping[str, str] | None = None
     locals: Mapping[str, str] | None = None
     job_ids: tuple[int, ...] = ()
+    python_namespace: Mapping[str, object] | None = None
+    path_cache: _PathCache | None = None
 
 
 @dataclass(frozen=True)
@@ -96,7 +116,7 @@ class CompletionResult:
         """Return stable candidate labels for menu display."""
         if not self.rich_candidates:
             return self.candidates
-        return tuple(candidate.menu_text for candidate in self.rich_candidates)
+        return tuple(candidate.labeled_menu_text for candidate in self.rich_candidates)
 
 
 _REDIRECTION_OPERATORS = {"<", ">", ">>", "2>", "2>>", "&>", "&>>", "<<", "<<-", "<<<"}
@@ -104,6 +124,80 @@ _DIRECTORY_ONLY_COMMANDS = {"cd", "pushd"}
 _JOB_COMMANDS = {"fg", "bg"}
 _COMMAND_SEPARATORS = {";", "&&", "||", "&", "|"}
 _SHELL_META_CHARS = set(" \t\n\\'\"$`;&|<>()[]{}*?!#")
+_DEFAULT_PATH_CACHE_MAX_ENTRIES = 4096
+_DEFAULT_PATH_CACHE_TTL = 5.0
+
+
+class _PathCache:
+    """Bounded, TTL-based PATH executable inventory cache.
+
+    The cache is keyed by the complete PATH string, not by completion prefix.
+    Prefix filtering happens in memory so a large number of typed prefixes
+    cannot create unbounded cache keys.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_entries: int = _DEFAULT_PATH_CACHE_MAX_ENTRIES,
+        ttl: float = _DEFAULT_PATH_CACHE_TTL,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.max_entries = max(1, max_entries)
+        self.ttl = max(0.0, ttl)
+        self._monotonic = monotonic
+        self._cache: OrderedDict[str, tuple[float, tuple[str, ...]]] = OrderedDict()
+
+    def invalidate(self) -> None:
+        """Drop all cached executable inventories."""
+        self._cache.clear()
+
+    def commands(self, path_value: str) -> tuple[str, ...]:
+        """Return the executable inventory for *path_value*."""
+        now = self._monotonic()
+        cached = self._cache.get(path_value)
+        if cached is not None:
+            timestamp, inventory = cached
+            if now - timestamp <= self.ttl:
+                self._cache.move_to_end(path_value)
+                return inventory
+            self._cache.pop(path_value, None)
+
+        inventory = self._scan_path(path_value)
+        self._cache[path_value] = (now, inventory)
+        self._cache.move_to_end(path_value)
+        while len(self._cache) > self.max_entries:
+            self._cache.popitem(last=False)
+        return inventory
+
+    def _scan_path(self, path_value: str) -> tuple[str, ...]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw_dir in path_value.split(os.pathsep):
+            if not raw_dir:
+                continue
+            directory = Path(raw_dir)
+            try:
+                entries = sorted(directory.iterdir(), key=lambda p: p.name.casefold())
+            except OSError:
+                continue
+            for entry in entries:
+                name = entry.name
+                if name in seen:
+                    continue
+                try:
+                    mode = entry.stat().st_mode
+                except OSError:
+                    continue
+                if stat.S_ISREG(mode) and os.access(entry, os.X_OK):
+                    seen.add(name)
+                    out.append(name)
+                    if len(out) >= self.max_entries:
+                        return tuple(sorted(out, key=str.casefold))
+        return tuple(sorted(out, key=str.casefold))
+
+
+_GLOBAL_PATH_CACHE = _PathCache()
 
 
 class CompletionEngine:
@@ -126,7 +220,9 @@ class CompletionEngine:
             )
 
         candidates: list[CompletionCandidate] = []
-        if context.variable_style is not None:
+        if self.options.python_namespace is not None:
+            candidates.extend(self._python_symbol_candidates(context))
+        elif context.variable_style is not None:
             candidates.extend(self._variable_candidates(context))
         elif context.command_name in _JOB_COMMANDS and context.argument_index >= 1:
             candidates.extend(self._job_candidates(context))
@@ -155,42 +251,49 @@ class CompletionEngine:
     def _command_candidates(self, context: CompletionContext) -> list[CompletionCandidate]:
         prefix = context.prefix
         candidates: list[CompletionCandidate] = []
-        for name in sorted((*self.options.builtins, *self.options.aliases)):
-            if name.startswith(prefix):
+        for name in sorted(self.options.builtins, key=str.casefold):
+            match_type = _match_type(name, prefix)
+            if match_type is not None:
                 candidates.append(
-                    CompletionCandidate(name, CompletionKind.BUILTIN, append_space=True)
+                    CompletionCandidate(
+                        name,
+                        CompletionKind.BUILTIN,
+                        append_space=True,
+                        match_type=match_type,
+                    )
                 )
-        for name in self._path_commands(prefix):
-            candidates.append(
-                CompletionCandidate(name, CompletionKind.COMMAND, append_space=True)
-            )
+        for name in sorted(self.options.aliases, key=str.casefold):
+            match_type = _match_type(name, prefix)
+            if match_type is not None:
+                candidates.append(
+                    CompletionCandidate(
+                        name,
+                        CompletionKind.ALIAS,
+                        append_space=True,
+                        match_type=match_type,
+                    )
+                )
+        candidates.extend(self._path_command_candidates(prefix))
         candidates.extend(self._path_candidates(context, directories_only=False))
-        return candidates
+        return _rank_candidates(candidates, prefix)
 
-    def _path_commands(self, prefix: str) -> list[str]:
+    def _path_command_candidates(self, prefix: str) -> list[CompletionCandidate]:
         path_value = os.environ.get("PATH", "") if self.options.path is None else self.options.path
-        out: list[str] = []
-        seen: set[str] = set()
-        for raw_dir in path_value.split(os.pathsep):
-            if not raw_dir:
+        cache = self.options.path_cache if self.options.path_cache is not None else _GLOBAL_PATH_CACHE
+        out: list[CompletionCandidate] = []
+        for name in cache.commands(path_value):
+            match_type = _match_type(name, prefix)
+            if match_type is None:
                 continue
-            directory = Path(raw_dir)
-            try:
-                entries = sorted(directory.iterdir(), key=lambda p: p.name)
-            except OSError:
-                continue
-            for entry in entries:
-                name = entry.name
-                if name in seen or not name.startswith(prefix):
-                    continue
-                try:
-                    mode = entry.stat().st_mode
-                except OSError:
-                    continue
-                if stat.S_ISREG(mode) and os.access(entry, os.X_OK):
-                    seen.add(name)
-                    out.append(name)
-        return sorted(out)
+            out.append(
+                CompletionCandidate(
+                    name,
+                    CompletionKind.COMMAND,
+                    append_space=True,
+                    match_type=match_type,
+                )
+            )
+        return out
 
     def _path_candidates(
         self,
@@ -213,7 +316,8 @@ class CompletionEngine:
             name = entry.name
             if name.startswith(".") and not include_hidden:
                 continue
-            if not name.startswith(name_prefix):
+            match_type = _match_type(name, name_prefix)
+            if match_type is None:
                 continue
             try:
                 is_dir = entry.is_dir()
@@ -229,9 +333,10 @@ class CompletionEngine:
                     CompletionKind.DIRECTORY if is_dir else CompletionKind.PATH,
                     display=raw_value,
                     append_space=not is_dir,
+                    match_type=match_type,
                 )
             )
-        return out
+        return _rank_candidates(out, name_prefix)
 
     def _variable_candidates(self, context: CompletionContext) -> list[CompletionCandidate]:
         names = set(os.environ if self.options.env is None else self.options.env)
@@ -239,7 +344,8 @@ class CompletionEngine:
             names.update(self.options.locals)
         out: list[CompletionCandidate] = []
         for name in sorted(names):
-            if not name.startswith(context.variable_prefix):
+            match_type = _match_type(name, context.variable_prefix)
+            if match_type is None:
                 continue
             if context.variable_style == "brace":
                 value = "${" + name + "}"
@@ -251,15 +357,19 @@ class CompletionEngine:
                     CompletionKind.VARIABLE,
                     display=value,
                     append_space=False,
+                    match_type=match_type,
                 )
             )
-        return out
+        return _rank_candidates(out, context.variable_prefix)
 
     def _job_candidates(self, context: CompletionContext) -> list[CompletionCandidate]:
         prefix = context.prefix.removeprefix("%")
         out: list[CompletionCandidate] = []
         for job_id in sorted(self.options.job_ids):
             value = str(job_id)
+            match_type = _match_type(value, prefix)
+            if match_type is not CompletionMatchType.PREFIX:
+                continue
             if value.startswith(prefix):
                 inserted = "%" + value if context.prefix.startswith("%") else value
                 out.append(
@@ -268,9 +378,50 @@ class CompletionEngine:
                         CompletionKind.JOB,
                         display=inserted,
                         append_space=True,
+                        match_type=CompletionMatchType.PREFIX,
                     )
                 )
         return out
+
+    def _python_symbol_candidates(self, context: CompletionContext) -> list[CompletionCandidate]:
+        namespace = self.options.python_namespace
+        if namespace is None:
+            return []
+        prefix = context.prefix
+        dotted = _dotted_python_context(prefix)
+        out: list[CompletionCandidate] = []
+        if dotted is None:
+            for name in sorted(namespace, key=str.casefold):
+                match_type = _match_type(name, prefix)
+                if match_type is None:
+                    continue
+                out.append(
+                    CompletionCandidate(
+                        name,
+                        CompletionKind.PYTHON_SYMBOL,
+                        append_space=False,
+                        match_type=match_type,
+                    )
+                )
+            return _rank_candidates(out, prefix)
+
+        base_name, attr_prefix = dotted
+        obj = namespace.get(base_name)
+        if obj is None:
+            return []
+        for attr_name in _safe_attribute_names(obj):
+            match_type = _match_type(attr_name, attr_prefix)
+            if match_type is None:
+                continue
+            out.append(
+                CompletionCandidate(
+                    f"{base_name}.{attr_name}",
+                    CompletionKind.PYTHON_SYMBOL,
+                    append_space=False,
+                    match_type=match_type,
+                )
+            )
+        return _rank_candidates(out, attr_prefix)
 
 
 def complete_line(
@@ -284,6 +435,8 @@ def complete_line(
     job_ids: Iterable[int] = (),
     path: str | None = None,
     cwd: Path | None = None,
+    python_namespace: Mapping[str, object] | None = None,
+    path_cache: _PathCache | None = None,
 ) -> CompletionResult:
     """Return completion candidates for ``line`` at ``cursor``."""
     engine = CompletionEngine(
@@ -295,6 +448,8 @@ def complete_line(
             env=env,
             locals=locals,
             job_ids=tuple(job_ids),
+            python_namespace=python_namespace,
+            path_cache=path_cache,
         )
     )
     return engine.complete(line, cursor)
@@ -397,6 +552,17 @@ def apply_single_completion(line: str, result: CompletionResult) -> tuple[str, i
         return line, result.token_end
     text = line[: result.token_start] + replacement + line[result.token_end :]
     return text, result.token_start + len(replacement)
+
+
+def common_completion_prefix(result: CompletionResult) -> str:
+    """Return the common candidate value prefix, or the existing prefix."""
+    values = [candidate.value for candidate in result.rich_candidates]
+    if not values:
+        values = list(result.candidates)
+    if len(values) < 2:
+        return result.prefix
+    common = os.path.commonprefix(values)
+    return common if len(common) > len(result.prefix) else result.prefix
 
 
 def filesystem_matches(prefix: str) -> list[str]:
@@ -593,3 +759,89 @@ def _dedupe_candidates(values: Sequence[CompletionCandidate]) -> list[Completion
         seen.add(candidate.value)
         out.append(candidate)
     return out
+
+
+def _match_type(value: str, prefix: str) -> CompletionMatchType | None:
+    """Return prefix/substring match type using case-insensitive matching."""
+    if not prefix:
+        return CompletionMatchType.PREFIX
+    folded_value = value.casefold()
+    folded_prefix = prefix.casefold()
+    if folded_value.startswith(folded_prefix):
+        return CompletionMatchType.PREFIX
+    if folded_prefix in folded_value:
+        return CompletionMatchType.SUBSTRING
+    return None
+
+
+def _rank_candidates(
+    candidates: Sequence[CompletionCandidate],
+    prefix: str,
+) -> list[CompletionCandidate]:
+    """Return deterministic candidates with substring fallback semantics."""
+    del prefix
+    deduped = _dedupe_candidates(candidates)
+    prefix_matches = [
+        candidate for candidate in deduped
+        if candidate.match_type is CompletionMatchType.PREFIX
+    ]
+    selected = prefix_matches if prefix_matches else [
+        candidate for candidate in deduped
+        if candidate.match_type is CompletionMatchType.SUBSTRING
+    ]
+    return sorted(
+        selected,
+        key=lambda candidate: (
+            _kind_rank(candidate.kind),
+            candidate.menu_text.casefold(),
+            candidate.value.casefold(),
+        ),
+    )
+
+
+def _kind_rank(kind: CompletionKind) -> int:
+    """Return deterministic display priority for candidate kinds."""
+    order = {
+        CompletionKind.ALIAS: 0,
+        CompletionKind.BUILTIN: 1,
+        CompletionKind.COMMAND: 2,
+        CompletionKind.DIRECTORY: 3,
+        CompletionKind.PATH: 4,
+        CompletionKind.VARIABLE: 5,
+        CompletionKind.PYTHON_SYMBOL: 6,
+        CompletionKind.JOB: 7,
+    }
+    return order[kind]
+
+
+def _dotted_python_context(prefix: str) -> tuple[str, str] | None:
+    """Return ``(base, attr_prefix)`` for a simple dotted Python prefix."""
+    if "." not in prefix:
+        return None
+    base_name, attr_prefix = prefix.rsplit(".", 1)
+    if not base_name.isidentifier():
+        return None
+    return base_name, attr_prefix
+
+
+def _safe_attribute_names(obj: object) -> tuple[str, ...]:
+    """Return attribute names without evaluating properties or __getattr__."""
+    names: set[str] = set()
+    try:
+        names.update(dir(type(obj)))
+    except Exception:  # noqa: BLE001 - completion must fail closed
+        return ()
+    if isinstance(obj, type(os)):
+        try:
+            names.update(str(name) for name in vars(obj))
+        except Exception:  # noqa: BLE001 - completion must fail closed
+            pass
+    else:
+        try:
+            instance_dict = object.__getattribute__(obj, "__dict__")
+        except Exception:  # noqa: BLE001 - completion must fail closed
+            pass
+        else:
+            if isinstance(instance_dict, dict):
+                names.update(str(name) for name in instance_dict)
+    return tuple(sorted(names, key=str.casefold))

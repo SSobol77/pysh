@@ -40,6 +40,7 @@ docs/
 ├── user/                              ← end-user guides
 │   ├── installation.md
 │   ├── usage.md
+│   ├── completion.md
 │   ├── builtins.md
 │   ├── operators.md
 │   ├── configuration.md
@@ -84,6 +85,8 @@ docs/
 │   └── ISSUE-3-architecture-contracts.md
 ├── development/                       ← contributor and release guides
 │   ├── development.md
+│   ├── completion-engine.md
+│   ├── repository-structure.md
 │   ├── release.md
 │   └── packaging.md
 └── img/                               ← project images and icons
@@ -99,6 +102,7 @@ Documentation for people who install and use PySH day to day.
 | -------- | ----------- |
 | [installation.md](user/installation.md) | Installing from PyPI; development install; running |
 | [usage.md](user/usage.md) | Invocation, operators, pipelines, redirection, substitution, variables |
+| [completion.md](user/completion.md) | TAB completion behavior, repeated TAB, path and Python symbol completion |
 | [builtins.md](user/builtins.md) | Every builtin: syntax, examples, exit codes, limitations |
 | [operators.md](user/operators.md) | Chain, pipeline, redirection, substitution, quoting semantics |
 | [configuration.md](user/configuration.md) | `~/.pyshrc`, plugin directory `~/.pyshrc.d/`, aliases, prompt |
@@ -192,6 +196,8 @@ Documentation for contributors, maintainers, and the release process.
 | Document | Description |
 | -------- | ----------- |
 | [development.md](development/development.md) | Test suite, linting, build commands, repository layout |
+| [completion-engine.md](development/completion-engine.md) | Completion Engine 2.0 architecture, cache contract, manual validation |
+| [repository-structure.md](development/repository-structure.md) | Repository-relative path map and guidance for similarly named files |
 | [release.md](development/release.md) | Release checklist, tagging, PyPI Trusted Publishing via GitHub Actions |
 | [packaging.md](development/packaging.md) | Canonical naming contract; PyPI / `.deb` / `.rpm` / `.pkg` artifact filenames and build scripts |
 

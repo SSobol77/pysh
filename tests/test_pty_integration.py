@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_pty_integration.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -478,6 +479,18 @@ def test_pty_command_name_not_parsed_as_assignment() -> None:
         "echo FOO=bar did not print FOO=bar.\n"
         f"Raw PTY output:\n{output!r}"
     )
+
+
+def test_pty_repeated_tab_displays_candidates_and_preserves_input() -> None:
+    """Repeated TAB must show candidates without corrupting the input buffer."""
+    output = _run_pty_session(b"so\t\t\nexit\n", collect_timeout=6.0)
+    text = _strip_ansi(output).decode("utf-8", errors="replace")
+    lines = _visible_lines(output)
+
+    assert "source [builtin]" in text
+    assert "source_zsh [builtin]" in text
+    assert "pysh: so: command not found" in lines
+    assert "source_zsh: filename argument required" not in lines
 
 
 # ---------------------------------------------------------------------------

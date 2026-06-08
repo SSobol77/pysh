@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-2.0-only
+# File: scripts/check_headers.sh
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -31,6 +32,11 @@ check_file() {
 
     has_line "$path" "$SPDX" || emit_missing "$path" SPDX
     has_line "$path" "$COPYRIGHT" || emit_missing "$path" Copyright
+    case "$path" in
+        *.md|*.py|*.sh)
+            has_line "$path" "File: $path" || emit_missing "$path" "File: $path"
+            ;;
+    esac
 }
 
 list_files() {

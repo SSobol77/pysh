@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_lineedit_reader_pty.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -189,8 +190,7 @@ def test_reader_tab_filters_and_redraws_command_line(tmp_path, monkeypatch) -> N
     output = _read_ready(master_fd, 0.5)
     os.write(master_fd, b"\x03")
     thread.join(2)
-    candidate_line = next(line for line in output.splitlines() if b"source" in line)
-    candidates = set(candidate_line.split())
+    candidates = set(output.split())
     assert b"source" in candidates
     assert b"sys_info" in candidates
     assert b"src/" in candidates

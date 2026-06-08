@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_lineedit_keys.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -59,4 +60,3 @@ def test_utf8_incremental_and_bare_escape_flush() -> None:
     assert decoder.feed("ą".encode()[1:]) == [KeyEvent(Key.PRINTABLE, "ą")]
     assert decoder.feed(b"\x1b") == []
     assert decoder.flush_pending() == [KeyEvent(Key.ESC)]
-
