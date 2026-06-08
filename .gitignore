@@ -30,6 +30,9 @@ MANIFEST
 logs/
 labels.json
 
+docs/issues/
+docs/roadmap/
+
 # Virtual environments
 env/
 venv/

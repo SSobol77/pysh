@@ -16,6 +16,8 @@ This document defines how PySH compatibility claims are validated. A claim is
 only valid when it has evidence in this matrix. Claims without current evidence
 are gaps that must be resolved before the claim can be published.
 
+Current release line: **PySH 0.8.1**.
+
 ---
 
 ## Validation methods

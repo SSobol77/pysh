@@ -80,7 +80,7 @@ Every PySH feature or shell construct falls into exactly one category:
 
 ## Scope boundaries
 
-### Native scope (PySH 0.6.x)
+### Native scope (current PySH release)
 
 PySH implements the following natively:
 
@@ -130,7 +130,7 @@ PySH delegates the following explicitly:
 
 ### Out of scope (Unsupported / Planned)
 
-The following are not natively implemented in PySH 0.6.x:
+The following are not natively implemented in the current PySH release:
 
 - Shell functions.
 - Shell arrays.

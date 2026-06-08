@@ -53,7 +53,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current release: **PySH 0.8.0**. PySH targets **Python 3.13+** and is
+Current release: **PySH 0.8.1**. PySH targets **Python 3.13+** and is
 validated primarily on **Debian 13** and Unix-like systems.
 
 ---
@@ -120,9 +120,9 @@ validated primarily on **Debian 13** and Unix-like systems.
   interactive launch; never overwrites an existing file.
 - **stdlib raw-mode line editor**: character-by-character editing with live
   syntax highlighting and fish-style autosuggestions.
-- **Python command-mode syntax highlighting**: Pygments is installed by
-  default and colors interactive `#py` input, continuation prompts, `#show`,
-  `#edit`, and Python diagnostics on capable terminals.
+- **Python command-mode syntax highlighting**: optional Pygments support via
+  `pysh-shell[highlight]` colors interactive `#py` input, continuation
+  prompts, `#show`, `#edit`, and Python diagnostics on capable terminals.
 - **Configurable prompt colors**: per-segment VGA and truecolor support via
   Python-native `~/.pyshrc.py`.
 - **Configurable terminal cursor color**: OSC 12/112 support, disabled by

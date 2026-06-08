@@ -13,7 +13,7 @@ Copyright (C) 2026 Siergej Sobolewski
 # PySH Feature Matrix
 
 This matrix documents the current implementation status of every significant
-shell feature area in PySH 0.6.x. Category definitions are in
+shell feature area in the current PySH release. Category definitions are in
 [shell-compatibility-contract.md](shell-compatibility-contract.md).
 
 **Columns:**

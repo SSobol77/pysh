@@ -14,6 +14,36 @@ Copyright (C) 2026 Siergej Sobolewski
 
 All notable changes to PySH are documented in this file.
 
+## 0.8.1 - 2026-06-08
+
+Release type: hotfix / contract-cleanup — stdlib-only runtime invariant
+restoration and version-documentation drift fix.
+
+### Runtime dependencies
+
+- Restored the stdlib-only default install. `pip install pysh-shell` no longer
+  pulls any runtime dependency.
+- Pygments moved from a mandatory runtime dependency to an optional `highlight`
+  extra (`pip install pysh-shell[highlight]`). Python-source rendering in
+  py-mode, `#show`, `#edit`, and diagnostics degrades to plain text when the
+  extra is absent and never raises ImportError. Shell command-line highlighting
+  is internal and unaffected.
+- Removed the unused PyYAML dependency. No module imported it; it was a dead
+  dependency.
+
+### Documentation
+
+- Fixed version-documentation drift: current-facing docs now reference 0.8.1.
+- Contract documents retain historical establishment wording ("PySH 0.6.x
+  line"); they were not mechanically renumbered.
+- Verified AI-agent guide files do not contain stale GPL-3.0 license strings.
+  The LICENSE file (GPL-2.0) was already correct and is unchanged.
+
+### Validation
+
+- `uv run ruff check src tests` passed.
+- `uv run pytest -q` passed.
+
 ## 0.8.0 - 2026-06-06
 
 Release type: release hardening — terminal presentation, paste-state safety,

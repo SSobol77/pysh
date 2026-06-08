@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Packaging
 
-PySH publishes four artifact families per v0.8.0 release:
+PySH publishes four artifact families per v0.8.1 release:
 
 1. **PyPI** — wheel and sdist (primary distribution channel for Python users).
 2. **Debian `.deb`** — attached to the matching GitHub Release.

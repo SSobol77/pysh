@@ -11,7 +11,9 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Completion Engine Contract (Issue #12)
 
-This document defines Completion Engine v1 for PySH 0.6.x.
+This document defines Completion Engine v1, established in the PySH 0.6.x line
+and still normative for current releases unless superseded by a newer contract
+section.
 
 ## Scope
 

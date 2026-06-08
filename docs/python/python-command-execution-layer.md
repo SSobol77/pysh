@@ -193,8 +193,9 @@ paths instead.
 
 ## Syntax highlighting
 
-Python command mode uses Pygments for terminal syntax highlighting.
-Pygments is a normal runtime dependency for the current PySH release.
+Python command mode uses optional Pygments support for terminal syntax
+highlighting. Install `pysh-shell[highlight]` to enable the colored Python
+source path; without that extra, rendering degrades to plain text.
 
 - Live input is highlighted as you type (real terminal mode).
 - `#show` and `#show <file>` render highlighted source.

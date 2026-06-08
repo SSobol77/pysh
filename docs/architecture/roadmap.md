@@ -34,7 +34,7 @@ vehicle for feature changes unless the issue explicitly authorizes them.
 
 ## Current Baseline
 
-The v0.6.x release baseline includes:
+The v0.8.1 current release baseline includes:
 
 - core interactive `PyShell` runtime,
 - parser, expansion and multiline grammar foundation,

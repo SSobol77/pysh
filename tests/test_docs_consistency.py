@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
+import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -162,7 +164,7 @@ def test_release_workflow_uploads_flat_staged_assets() -> None:
 
     assert "workflow_dispatch:" in freebsd_text
     assert "push:" in freebsd_text
-    assert "release/v0.8.0" in freebsd_text
+    assert '"release/v*"' in freebsd_text or "- release/v*" in freebsd_text
     assert "runs-on: ubuntu-latest" in freebsd_text
     assert "dist/os/freebsd/pysh-shell-*.pkg" in freebsd_text
     assert "needs: freebsd-pkg" in text
@@ -351,17 +353,37 @@ def test_no_affirmative_broad_compatibility_claims_in_public_docs() -> None:
 # Version gate tests — prevent stale release metadata from surviving a bump
 # ---------------------------------------------------------------------------
 
-CURRENT_VERSION = "0.8.0"
+CURRENT_VERSION = "0.8.1"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 INIT_PY = REPO_ROOT / "src" / "pysh" / "__init__.py"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+CURRENT_FACING_DOCS: tuple[Path, ...] = (
+    README,
+    REPO_ROOT / "roadmap.md",
+    DOCS / "README.md",
+    DOCS / "architecture" / "roadmap.md",
+    DOCS / "compatibility" / "README.md",
+    DOCS / "user" / "installation.md",
+    DOCS / "development" / "release.md",
+    DOCS / "development" / "packaging.md",
+    DOCS / "compatibility" / "validation-matrix.md",
+)
+STALE_CURRENT_PHRASES: tuple[str, ...] = (
+    "Current compatibility status (PySH 0.6.x)",
+    "The v0.6.x release baseline includes:",
+    "current release is 0.6.x",
+    "current baseline is 0.6.x",
+)
+
+
+def _read_pyproject() -> dict[str, object]:
+    """Return parsed pyproject.toml metadata."""
+    return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
 
 
 def test_pyproject_toml_version_is_current() -> None:
     """pyproject.toml must declare the current release version."""
-    import tomllib
-
-    data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    data = _read_pyproject()
     actual = data["project"]["version"]
     assert actual == CURRENT_VERSION, (
         f"pyproject.toml version must be {CURRENT_VERSION!r}, got {actual!r}"
@@ -382,14 +404,180 @@ def test_init_py_version_is_current() -> None:
 
 
 def test_readme_does_not_present_stale_version_as_current() -> None:
-    """README.md must not claim 0.6.1 or 0.6.0 as the current release."""
+    """README.md must not claim the 0.6.x line as the current release."""
     text = README.read_text(encoding="utf-8")
-    stale = re.compile(r"\b0\.6\.[01]\b")
+    stale = re.compile(r"\b(?:PySH\s+)?0\.6\.(?:x|[01])\b", re.IGNORECASE)
     matches = [(m.start(), m.group()) for m in stale.finditer(text)]
     assert not matches, (
         "README.md references stale version as current release: "
         + ", ".join(v for _, v in matches)
     )
+
+
+def test_roadmap_does_not_present_stale_version_as_current() -> None:
+    """roadmap.md must not claim the 0.6.x line as the current release baseline."""
+    roadmap = DOCS / "architecture" / "roadmap.md"
+    text = roadmap.read_text(encoding="utf-8")
+    stale = re.compile(r"\bv0\.6\.x release baseline\b", re.IGNORECASE)
+    assert not stale.search(text), "roadmap.md still claims v0.6.x as release baseline"
+
+
+def test_current_facing_docs_contain_current_version() -> None:
+    """Current-facing public docs must name the current release version."""
+    missing = [
+        str(path.relative_to(REPO_ROOT))
+        for path in CURRENT_FACING_DOCS
+        if path.exists()
+        if CURRENT_VERSION not in path.read_text(encoding="utf-8")
+    ]
+    assert not missing, (
+        f"Current-facing docs must contain {CURRENT_VERSION}:\n"
+        + "\n".join(f"  - {path}" for path in missing)
+    )
+
+
+def test_current_facing_docs_do_not_claim_06x_as_current() -> None:
+    """Current-facing docs must not present the 0.6.x line as current."""
+    violations: list[str] = []
+    checked = 0
+    for doc in CURRENT_FACING_DOCS:
+        if not doc.exists():
+            continue
+        checked += 1
+        text = doc.read_text(encoding="utf-8")
+        for phrase in STALE_CURRENT_PHRASES:
+            if phrase in text:
+                violations.append(f"{doc.relative_to(REPO_ROOT)}: {phrase!r}")
+
+    assert checked > 0, "current-facing docs list did not match any files"
+    assert not violations, (
+        "Current-facing docs present 0.6.x as current:\n  "
+        + "\n  ".join(violations)
+    )
+
+
+def test_contract_docs_only_use_06x_as_historical_or_normative_baseline() -> None:
+    """Contract docs may mention 0.6.x only as historical/normative provenance."""
+    contract_docs = (
+        DOCS / "architecture" / "architecture.md",
+        DOCS / "architecture" / "source-tree.md",
+        DOCS / "architecture" / "path-expansion-contract.md",
+        DOCS / "architecture" / "completion-engine-contract.md",
+        DOCS / "architecture" / "job-control-contract.md",
+        DOCS / "architecture" / "signal-handling.md",
+        DOCS / "architecture" / "security-trust-model.md",
+        DOCS / "compatibility" / "unsupported-constructs.md",
+        DOCS / "compatibility" / "shell-compatibility-contract.md",
+        DOCS / "compatibility" / "feature-matrix.md",
+    )
+    violations: list[str] = []
+    for path in contract_docs:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for line_no, line in enumerate(lines, start=1):
+            if "0.6.x" not in line:
+                continue
+            paragraph = " ".join(lines[max(0, line_no - 3): min(len(lines), line_no + 2)])
+            is_historical_normative = (
+                "established in the PySH 0.6.x line" in paragraph
+                and (
+                    "still normative for current releases unless superseded "
+                    "by a newer contract section" in paragraph
+                )
+            )
+            is_version_floor = re.search(r"PySH\s+>=\s+0\.6\.x", paragraph) is not None
+            if not (is_historical_normative or is_version_floor):
+                violations.append(f"{path.relative_to(REPO_ROOT)}:{line_no}: {line}")
+
+    assert not violations, (
+        "0.6.x references in contract docs must be historical/normative, not current:\n"
+        + "\n".join(f"  - {item}" for item in violations)
+    )
+
+
+def test_default_runtime_is_stdlib_only() -> None:
+    """Default installation must remain stdlib-only."""
+    data = _read_pyproject()
+    mandatory = [d.lower() for d in data["project"].get("dependencies", [])]
+    assert mandatory == [], (
+        "Default install must be stdlib-only; mandatory dependencies must be "
+        f"empty, got: {mandatory}"
+    )
+
+
+def test_pygments_is_optional_only() -> None:
+    """Pygments is allowed only in highlight/dev metadata, not runtime deps."""
+    data = _read_pyproject()
+    project = data["project"]
+    mandatory = [d.lower() for d in project.get("dependencies", [])]
+
+    assert not any(d.startswith("pygments") for d in mandatory), (
+        "Pygments must not be a mandatory runtime dependency"
+    )
+
+    extras = project.get("optional-dependencies", {})
+    assert "highlight" in extras, "optional extra 'highlight' is required"
+    assert any(d.lower().startswith("pygments") for d in extras["highlight"]), (
+        "optional extra 'highlight' must include pygments"
+    )
+
+    for name, deps in extras.items():
+        if any(d.lower().startswith("pygments") for d in deps):
+            assert name in {"highlight", "dev"}, (
+                f"Pygments is only allowed under 'highlight' or 'dev', found in {name!r}"
+            )
+
+    dependency_groups = data.get("dependency-groups", {})
+    for name, deps in dependency_groups.items():
+        if any(d.lower().startswith("pygments") for d in deps):
+            assert name == "dev", (
+                f"Pygments is only allowed under development groups, found in {name!r}"
+            )
+
+
+def test_pyyaml_is_fully_removed_from_dependency_metadata() -> None:
+    """PyYAML must not remain in runtime, extras, or UV dependency groups."""
+    data = _read_pyproject()
+    project = data["project"]
+    groups = [project.get("dependencies", [])]
+    groups.extend(project.get("optional-dependencies", {}).values())
+    groups.extend(data.get("dependency-groups", {}).values())
+    flat = [d.lower() for group in groups for d in group]
+
+    assert not any(d.startswith("pyyaml") for d in flat), (
+        "PyYAML must be fully removed from dependency metadata, found: "
+        f"{[d for d in flat if 'yaml' in d]}"
+    )
+
+
+def test_python_renderer_imports_and_falls_back_without_pygments() -> None:
+    """Blocking Pygments must still allow PySH import and plain-text rendering."""
+    code = (
+        "import sys; "
+        "sys.modules['pygments'] = None; "
+        "import pysh; "
+        "from pysh.python_layer.highlighting import PythonSyntaxRenderer, pygments_available; "
+        "assert pygments_available() is False; "
+        "assert PythonSyntaxRenderer(force_color=True).render_code('print(1)') == 'print(1)'; "
+        "print('no-pygments-import-ok')"
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert result.returncode == 0, (
+        f"no-Pygments fallback subprocess failed (exit {result.returncode}):\n"
+        f"stdout: {result.stdout!r}\n"
+        f"stderr: {result.stderr!r}"
+    )
+    assert result.stdout.strip() == "no-pygments-import-ok"
 
 
 def test_changelog_has_current_version_section() -> None:
@@ -400,17 +588,20 @@ def test_changelog_has_current_version_section() -> None:
     )
 
 
-def test_changelog_current_release_covers_mandatory_features() -> None:
-    """CHANGELOG current-release section must document mandatory v0.8.0 scope."""
+def test_changelog_080_section_covers_mandatory_features() -> None:
+    """The historical 0.8.0 section must permanently document its mandatory scope.
+
+    Pinned to the literal '0.8.0' — decoupled from CURRENT_VERSION so a later
+    release bump cannot demand 0.8.0-specific content inside a newer section.
+    """
     text = CHANGELOG.read_text(encoding="utf-8")
 
-    start = text.find(f"## {CURRENT_VERSION}")
-    assert start != -1, f"CHANGELOG.md missing ## {CURRENT_VERSION} section"
+    start = text.find("## 0.8.0")
+    assert start != -1, "CHANGELOG.md missing ## 0.8.0 section"
 
-    # Find end of the current release section (next ## header or EOF).
     rest = text[start:]
-    next_section = rest.find("\n## ", 1)
-    section = rest[:next_section] if next_section != -1 else rest
+    nxt = rest.find("\n## ", 1)
+    section = rest[:nxt] if nxt != -1 else rest
 
     required_phrases = (
         "Issue #18",
@@ -437,9 +628,22 @@ def test_changelog_current_release_covers_mandatory_features() -> None:
         "not overwritten",
     )
     missing = [p for p in required_phrases if p.lower() not in section.lower()]
+    assert not missing, "CHANGELOG 0.8.0 section missing: " + ", ".join(missing)
+
+
+def test_changelog_current_release_covers_hotfix_scope() -> None:
+    """The current-release section must document the v0.8.1 hotfix scope."""
+    text = CHANGELOG.read_text(encoding="utf-8")
+    start = text.find(f"## {CURRENT_VERSION}")
+    assert start != -1, f"CHANGELOG.md missing ## {CURRENT_VERSION} section"
+    rest = text[start:]
+    nxt = rest.find("\n## ", 1)
+    section = rest[:nxt] if nxt != -1 else rest
+
+    required_phrases = ("stdlib-only", "Pygments", "optional", "PyYAML", "drift")
+    missing = [p for p in required_phrases if p.lower() not in section.lower()]
     assert not missing, (
-        f"CHANGELOG v{CURRENT_VERSION} section missing coverage of: "
-        + ", ".join(missing)
+        f"CHANGELOG {CURRENT_VERSION} section missing: " + ", ".join(missing)
     )
 
 
