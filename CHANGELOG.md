@@ -14,6 +14,17 @@ Copyright (C) 2026 Siergej Sobolewski
 
 All notable changes to PySH are documented in this file.
 
+## 0.8.2 - 2026-06-08
+
+Release type: metadata hotfix.
+
+Packaging metadata:
+
+- Added missing package author email metadata.
+- Added Karol Sobolewski as a package author.
+- No runtime behavior changes.
+- No dependency changes.
+
 ## 0.8.1 - 2026-06-08
 
 Release type: hotfix / contract-cleanup — stdlib-only runtime invariant

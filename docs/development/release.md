@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Release Process (`vX.Y.Z`)
 
-> Each v0.8.1 release ships **four** artifact families: PyPI (wheel + sdist),
+> Each v0.8.2 release ships **four** artifact families: PyPI (wheel + sdist),
 > Debian `.deb`, Red Hat/Fedora `.rpm`, and FreeBSD `.pkg`. See
 > [`packaging.md`](packaging.md) for the canonical naming contract and
 > [`installation.md`](../user/installation.md) for end-user install commands.
