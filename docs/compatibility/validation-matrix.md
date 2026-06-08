@@ -119,6 +119,7 @@ Current release line: **PySH 0.8.2**.
 | `~/.pyshrc` loading | Unit test | `tests/test_rc.py` | None | — |
 | Plugin loading (`~/.pyshrc.d/`) | Unit test | `tests/test_plugins.py` | None | — |
 | `~/.pyshrc.py` Python config | Unit test | `tests/test_pyshrc_py.py` | None | — |
+| Prompt Engine 2.0 segments are bounded, sanitized, and configurable | Unit test, PTY test, manual acceptance | `tests/test_pyshrc_py.py`, `tests/test_shell.py`, `tests/test_pty_integration.py`, `docs/user/prompt.md` | FreeBSD manual validation | #27 |
 | Mini rc-interpreter (if/for/while) | Unit test | `tests/test_rc_interpreter.py` | None | — |
 | Highlighting works in editor | Unit test | `tests/test_lineedit_highlight.py` | PTY validation | Manual |
 | Autosuggestion works | Unit test | `tests/test_lineedit_autosuggest.py` | PTY validation | Manual |

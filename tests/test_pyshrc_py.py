@@ -6,6 +6,7 @@
 """Tests for the Python-native configuration layer (``~/.pyshrc.py``)."""
 from __future__ import annotations
 
+import os
 import re
 import socket
 import sys
@@ -29,7 +30,7 @@ from pysh.config.api import (
     validate_prompt_color_mode,
     validate_prompt_option,
 )
-from pysh.core.shell import PyShell
+from pysh.core.shell import PyShell, _format_command_duration, _sanitize_prompt_value
 
 
 class FakeShell:
@@ -111,6 +112,10 @@ def _use_legacy_single_line_prompt(shell: PyShell) -> None:
     shell.set_prompt_option("show_node_version", False)
     shell.set_prompt_option("show_npm_version", False)
     shell.set_prompt_option("show_last_status", False)
+    shell.set_prompt_option("show_command_duration", False)
+    shell.set_prompt_option("show_ssh_indicator", False)
+    shell.set_prompt_option("show_aws_profile", False)
+    shell.set_prompt_option("show_k8s_context", False)
     shell.set_prompt_option("cwd_style", "full")
 
 
@@ -204,6 +209,14 @@ def configure(shell):
     shell.set_prompt_option("show_git_branch", True)
     shell.set_prompt_option("show_git_dirty", True)
     shell.set_prompt_option("show_last_status", True)
+    shell.set_prompt_option("show_command_duration", True)
+    shell.set_prompt_option("command_duration_threshold", 0.5)
+    shell.set_prompt_option("show_ssh_indicator", True)
+    shell.set_prompt_option("show_aws_profile", False)
+    shell.set_prompt_option("show_k8s_context", False)
+    # shell.set_prompt_option("command_duration_threshold", 1)
+    # shell.set_prompt_option("show_aws_profile", True)
+    # shell.set_prompt_option("show_k8s_context", True)
 
     # Language and tool versions.
     shell.set_prompt_option("show_python_version", True)
@@ -240,6 +253,10 @@ def configure(shell):
     shell.set_prompt_color("node", "lime")
     shell.set_prompt_color("npm", "red")
     shell.set_prompt_color("status", "red")
+    shell.set_prompt_color("duration", "yellow")
+    shell.set_prompt_color("ssh", "fuchsia")
+    shell.set_prompt_color("aws", "orange")
+    shell.set_prompt_color("k8s", "aqua")
     shell.set_prompt_color("symbol", "white")
 
     # ----------------------------------------------------------------------
@@ -361,6 +378,10 @@ def configure(shell):
     # shell.set_prompt_option("show_node_version", False)
     # shell.set_prompt_option("show_npm_version", False)
     # shell.set_prompt_option("show_last_status", False)
+    # shell.set_prompt_option("show_command_duration", False)
+    # shell.set_prompt_option("show_ssh_indicator", False)
+    # shell.set_prompt_option("show_aws_profile", False)
+    # shell.set_prompt_option("show_k8s_context", False)
 
     return None
 """
@@ -513,6 +534,11 @@ def test_default_prompt_options_match_contract() -> None:
         "show_node_version": True,
         "show_npm_version": True,
         "show_last_status": True,
+        "show_command_duration": True,
+        "show_ssh_indicator": True,
+        "show_aws_profile": False,
+        "show_k8s_context": False,
+        "command_duration_threshold": 0.5,
         "show_cwd": True,
         "cwd_style": "home",
         "prompt_layout": "two_line",
@@ -536,11 +562,26 @@ def test_default_prompt_options_match_contract() -> None:
         "show_rust_version",
         "show_node_version",
         "show_npm_version",
+        "show_command_duration",
+        "show_ssh_indicator",
+        "show_aws_profile",
+        "show_k8s_context",
     ],
 )
 def test_validate_prompt_bool_options_reject_non_bool(name: str) -> None:
     with pytest.raises(ConfigError):
         validate_prompt_option(name, "true")
+
+
+@pytest.mark.parametrize("value", [0, 0.5, 1, 2.25])
+def test_validate_prompt_duration_threshold_accepts_numbers(value: int | float) -> None:
+    validate_prompt_option("command_duration_threshold", value)
+
+
+@pytest.mark.parametrize("value", [True, False, "0.5", -0.1])
+def test_validate_prompt_duration_threshold_rejects_invalid(value: object) -> None:
+    with pytest.raises(ConfigError):
+        validate_prompt_option("command_duration_threshold", value)
 
 
 def test_validate_prompt_option_rejects_invalid_prompt_layout() -> None:
@@ -857,6 +898,127 @@ def test_pyshell_two_line_last_status_segment(monkeypatch) -> None:
     assert " [17]" in shell._prompt_info_line()
 
 
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [(0.7, "0.7s"), (4.2, "4.2s"), (60.0, "1m00s"), (65.0, "1m05s")],
+)
+def test_prompt_duration_formatter(seconds: float, expected: str) -> None:
+    assert _format_command_duration(seconds) == expected
+
+
+def test_pyshell_prompt_duration_threshold(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_command_duration", True)
+    shell.set_prompt_option("command_duration_threshold", 0.5)
+
+    shell._last_command_duration = 0.49
+    assert "0.5s" not in shell._prompt()
+
+    shell._last_command_duration = 0.5
+    assert "0.5s$ " in shell._prompt()
+
+    shell._last_command_duration = 65.0
+    assert "1m05s$ " in shell._prompt()
+
+
+def test_pyshell_prompt_duration_can_be_disabled(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell._last_command_duration = 65.0
+    assert "1m05s" not in shell._prompt()
+
+
+def test_sanitize_prompt_value_removes_escape_and_controls() -> None:
+    assert _sanitize_prompt_value("dev\x1b[31m\n\tcluster") == "devcluster"
+
+
+def test_pyshell_prompt_ssh_indicator_enabled_and_disabled(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SSH_TTY", "/dev/pts/1")
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_ssh_indicator", True)
+    assert " ssh$ " in shell._prompt()
+    shell.set_prompt_option("show_ssh_indicator", False)
+    assert " ssh$ " not in shell._prompt()
+
+
+def test_pyshell_prompt_aws_profile_enabled_and_disabled(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AWS_PROFILE", "dev\x1b[31m")
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_aws_profile", True)
+    assert " aws:dev$ " in shell._prompt()
+    shell.set_prompt_option("show_aws_profile", False)
+    assert "aws:dev" not in shell._prompt()
+
+
+def test_pyshell_prompt_k8s_context_enabled_and_disabled(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "kube.yaml"
+    config.write_text("apiVersion: v1\ncurrent-context: dev-cluster\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KUBECONFIG", str(config))
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_k8s_context", True)
+    assert " k8s:dev-cluster$ " in shell._prompt()
+    shell.set_prompt_option("show_k8s_context", False)
+    assert "k8s:dev-cluster" not in shell._prompt()
+
+
+def test_pyshell_prompt_k8s_missing_malformed_and_oversize_are_hidden(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_k8s_context", True)
+
+    missing = tmp_path / "missing"
+    monkeypatch.setenv("KUBECONFIG", str(missing))
+    assert "k8s:" not in shell._prompt()
+
+    malformed = tmp_path / "malformed.yaml"
+    malformed.write_text("---\ncurrent-context: dev\n---\n", encoding="utf-8")
+    monkeypatch.setenv("KUBECONFIG", str(malformed))
+    assert "k8s:" not in shell._prompt()
+
+    oversize = tmp_path / "oversize.yaml"
+    oversize.write_text("x" * (64 * 1024 + 1), encoding="utf-8")
+    monkeypatch.setenv("KUBECONFIG", str(oversize))
+    assert "k8s:" not in shell._prompt()
+
+
+def test_pyshell_prompt_k8s_multipath_precedence(monkeypatch, tmp_path: Path) -> None:
+    first = tmp_path / "first.yaml"
+    second = tmp_path / "second.yaml"
+    first.write_text("current-context: first\n", encoding="utf-8")
+    second.write_text("current-context: second\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KUBECONFIG", os.pathsep.join((str(first), str(second))))
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_k8s_context", True)
+    assert " k8s:first$ " in shell._prompt()
+
+    first.write_text("apiVersion: v1\n", encoding="utf-8")
+    assert " k8s:second$ " in shell._prompt()
+
+
 def test_pyshell_prompt_cwd_basename(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("USER", "tester")
     project = tmp_path / "project"
@@ -951,6 +1113,51 @@ def test_pyshell_prompt_git_obvious_dirty_state(monkeypatch, tmp_path: Path) -> 
     shell.set_prompt_option("show_git_branch", True)
     shell.set_prompt_option("show_git_dirty", True)
     assert " git:main*$ " in shell._prompt()
+
+
+def test_pyshell_prompt_git_malformed_metadata_is_hidden(monkeypatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").write_text("not-a-gitdir\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_git_branch", True)
+    assert " git:" not in shell._prompt()
+
+
+def test_pyshell_prompt_git_bare_repository(monkeypatch, tmp_path: Path) -> None:
+    bare = tmp_path / "repo.git"
+    (bare / "objects").mkdir(parents=True)
+    (bare / "refs").mkdir()
+    (bare / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (bare / "config").write_text("[core]\n\tbare = true\n", encoding="utf-8")
+    monkeypatch.chdir(bare)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_git_branch", True)
+    assert " git:main$ " in shell._prompt()
+
+
+def test_pyshell_prompt_git_read_error_is_hidden(monkeypatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    git_dir = repo / ".git"
+    git_dir.mkdir(parents=True)
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+
+    original_read_text = Path.read_text
+
+    def fake_read_text(path: Path, *args, **kwargs) -> str:  # noqa: ANN002,ANN003
+        if path == git_dir / "HEAD":
+            raise PermissionError("denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_git_branch", True)
+    assert " git:" not in shell._prompt()
 
 
 def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path) -> None:

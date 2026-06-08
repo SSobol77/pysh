@@ -158,14 +158,45 @@ def configure(shell):
     shell.set_prompt_option("show_uv_version", True)
     shell.set_prompt_option("show_ruff_version", True)
     shell.set_prompt_option("show_last_status", True)
+    shell.set_prompt_option("show_command_duration", True)
+    shell.set_prompt_option("command_duration_threshold", 0.5)
+    shell.set_prompt_option("show_ssh_indicator", True)
+    shell.set_prompt_option("show_aws_profile", False)
+    shell.set_prompt_option("show_k8s_context", False)
     shell.set_prompt_option("cwd_style", "home")
     shell.set_prompt_option("prompt_layout", "single")
 ```
 
 `cwd_style` accepts `full`, `home`, or `basename`. `prompt_layout` accepts
 `two_line` (default) or `single`. Git prompt metadata is read from `.git` files
-only; PySH does not invoke `git` while rendering prompts. uv and Ruff versions
-are detected with bounded subprocess calls and cached per shell instance.
+only; PySH does not invoke `git` while rendering prompts. uv, Ruff, rustc,
+Node.js, and npm versions are detected with bounded subprocess calls and cached
+per shell instance.
+
+Prompt Engine 2.0 also supports bounded context segments:
+
+- `show_command_duration` is enabled by default and renders only when the last
+  command duration is at least `command_duration_threshold` seconds.
+- `show_ssh_indicator` is enabled by default and renders `ssh` only when SSH
+  session environment variables are present.
+- `show_aws_profile` is disabled by default. When enabled, it displays
+  `AWS_PROFILE` or `AWS_DEFAULT_PROFILE`; it never calls the AWS CLI or reads
+  credentials.
+- `show_k8s_context` is disabled by default. When enabled, it reads
+  `KUBECONFIG` or `~/.kube/config` with stdlib-only bounded parsing and never
+  calls `kubectl`.
+
+AWS and Kubernetes prompt values are sanitized before rendering to remove
+control characters and terminal escape sequences.
+
+Prompt colors are segment-keyed. The additional Prompt Engine 2.0 color roles
+are `duration`, `ssh`, `aws`, and `k8s`; their defaults are `yellow`,
+`fuchsia`, `orange`, and `aqua`. Use `fuchsia` instead of `magenta`, and `aqua`
+instead of `cyan`; `magenta` and `cyan` are not valid names for PySH prompt
+color parsing.
+
+See [prompt.md](prompt.md) for the full prompt option matrix and manual
+validation checklist.
 
 The welcome banner and diagnostics use ANSI colors when:
 
