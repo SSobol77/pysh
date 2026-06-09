@@ -41,6 +41,9 @@ EXPECTED_CONTRACTS_API: frozenset[str] = frozenset({
     "CommandResolverView",
     "ConfigView",
     "EnvironmentView",
+    "PLUGIN_API_VERSION",
+    "PluginHooks",
+    "PluginMeta",
     "PluginRegistrar",
     "ShellStateView",
 })

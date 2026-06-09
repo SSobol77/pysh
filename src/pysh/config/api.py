@@ -268,6 +268,26 @@ class ConfigurableShell(Protocol):
         """Set a single validated history engine option."""
         ...
 
+    def enable_plugin(self, name: str) -> None:
+        """Record explicit intent to load a named Plugin API plugin."""
+        ...
+
+    def disable_plugin(self, name: str) -> None:
+        """Remove explicit intent to load a named Plugin API plugin."""
+        ...
+
+    def enable_project_plugins(self) -> None:
+        """Allow explicitly enabled project-local plugins to load."""
+        ...
+
+    def list_plugins(self) -> list[str]:
+        """Return discovered or explicitly configured plugin names."""
+        ...
+
+    def is_plugin_enabled(self, name: str) -> bool:
+        """Return whether a plugin name is explicitly enabled."""
+        ...
+
 
 def validate_prompt_option(name: str, value: object) -> None:
     """Validate a prompt option name/value pair.
@@ -681,6 +701,37 @@ class ShellConfigAPI:
         """
         validate_history_option(name, value)
         self._shell.set_history_option(name, value)
+
+    def enable_plugin(self, name: str) -> None:
+        """Explicitly enable a trusted Python plugin by name.
+
+        This records intent only. Plugin modules are discovered and loaded
+        after ``configure(shell)`` returns, so plugin code does not execute
+        during configuration mutation.
+        """
+        if not isinstance(name, str):
+            raise ConfigError("enable_plugin() requires name: str")
+        self._shell.enable_plugin(name)
+
+    def disable_plugin(self, name: str) -> None:
+        """Disable a plugin name previously enabled in configuration."""
+        if not isinstance(name, str):
+            raise ConfigError("disable_plugin() requires name: str")
+        self._shell.disable_plugin(name)
+
+    def enable_project_plugins(self) -> None:
+        """Allow explicitly enabled ``.pysh/plugins/*.py`` project plugins."""
+        self._shell.enable_project_plugins()
+
+    def list_plugins(self) -> list[str]:
+        """Return known plugin names without importing plugin modules."""
+        return self._shell.list_plugins()
+
+    def is_plugin_enabled(self, name: str) -> bool:
+        """Return whether a plugin name is explicitly enabled."""
+        if not isinstance(name, str):
+            raise ConfigError("is_plugin_enabled() requires name: str")
+        return self._shell.is_plugin_enabled(name)
 
 
 # --------------------------------------------------------------- default file

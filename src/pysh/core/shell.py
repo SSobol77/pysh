@@ -110,6 +110,7 @@ from pysh.parsing.parser import (
 )
 from pysh.parsing.path_expansion import expand_tilde, tokenize_and_glob_expand
 from pysh.parsing.redirection import RedirectionSpec, parse_redirections
+from pysh.plugins.manager import PluginManager
 from pysh.prompt.colors import color_to_hex, colorize, parse_color
 from pysh.prompt.system_profile import (
     apt_check,
@@ -303,10 +304,13 @@ class PyShell:
         self._last_command_duration: float | None = None
         self._k8s_context_cache_key: tuple[tuple[str, int, int] | tuple[str, str], ...] | None = None
         self._k8s_context_cache_value: str | None = None
+        self.plugin_manager = PluginManager(builtin_names=self.BUILTINS)
         self.completer = Completer(
             lambda: list(self.aliases.keys()),
             get_locals=lambda: dict(self.local_vars),
             get_job_ids=lambda: [job.job_id for job in self.job_table.all_jobs() if job.is_alive()],
+            get_plugin_commands=lambda: self.plugin_manager.command_names(),
+            complete_plugin_command=self.plugin_manager.complete_command,
         )
         self.history = HistoryManager(self.HISTORY_PATH)
         self.history_options: dict[str, object] = dict(DEFAULT_HISTORY_OPTIONS)
@@ -353,6 +357,8 @@ class PyShell:
         if ensure_default_config():
             print(f"pysh: created {PYSHRC_PY_PATH}")
         load_python_config(self)
+        self.plugin_manager.discover_and_load()
+        self.plugin_manager.run_startup_hooks()
         self._apply_cursor_color()
         # Job control: open /dev/tty and set SIGTSTP to SIG_IGN so the shell
         # itself is never suspended by Ctrl+Z; the foreground child resets it.
@@ -451,6 +457,7 @@ class PyShell:
                 except _ExitShell as exit_signal:
                     return exit_signal.code
         finally:
+            self.plugin_manager.run_shutdown_hooks()
             self._reset_cursor_color()
             self._save_history()
             # Clean up tty fd and restore SIGTSTP.
@@ -990,6 +997,16 @@ class PyShell:
             status = self._dispatch_builtin(cmd_argv)
             self.trace.emit(DiagnosticStage.EXECUTE_PLAN, "command finished", status=status)
             return status
+        if self.plugin_manager.has_command(cmd_argv[0]):
+            self.trace.emit(
+                DiagnosticStage.RESOLVE,
+                "command resolved",
+                command=cmd_argv[0],
+                kind="plugin",
+            )
+            status = self.plugin_manager.run_command(cmd_argv[0], cmd_argv[1:])
+            self.trace.emit(DiagnosticStage.EXECUTE_PLAN, "command finished", status=status)
+            return status
         resolved_path = shutil.which(cmd_argv[0])
         self.trace.emit(
             DiagnosticStage.RESOLVE,
@@ -1467,18 +1484,17 @@ class PyShell:
             if assignment:
                 name, raw = assignment
                 value = self._unquote_value(raw)
-                os.environ[name] = value
-                # Keep local_vars in sync so that ${NAME} expansion sees it.
-                self.local_vars[name] = value
-                if name == "PYSH_ZSH_FALLBACK":
-                    self.zsh_fallback_enabled = value == "1"
+                self._set_exported_environment(name, value, notify_plugins=True)
             else:
                 if token in self.local_vars:
-                    os.environ[token] = self.local_vars[token]
-                    if token == "PYSH_ZSH_FALLBACK":
-                        self.zsh_fallback_enabled = self.local_vars[token] == "1"
+                    self._set_exported_environment(
+                        token,
+                        self.local_vars[token],
+                        notify_plugins=True,
+                    )
                 else:
-                    os.environ.setdefault(token, "")
+                    if token not in os.environ:
+                        self._set_exported_environment(token, "", notify_plugins=True)
         return 0
 
     def _builtin_command(self, args: list[str]) -> int:
@@ -1509,12 +1525,17 @@ class PyShell:
             return self._builtin_command(args[1:])
         if name in self.BUILTINS:
             return self._dispatch_builtin(args)
+        if self.plugin_manager.has_command(name):
+            return self.plugin_manager.run_command(name, args[1:])
         return self._run_external(args, RedirectionSpec(), original_stage=" ".join(args))
 
     def _print_command_resolution(self, name: str, *, verbose: bool) -> bool:
         """Print POSIX-style command resolution details for ``command -v/-V``."""
         if name in self.BUILTINS:
             print(f"{name} is a PySH builtin" if verbose else name)
+            return True
+        if self.plugin_manager.has_command(name):
+            print(f"{name} is a PySH plugin command" if verbose else name)
             return True
         alias = self.aliases.get(name)
         if alias is not None:
@@ -1767,7 +1788,11 @@ class PyShell:
 
     # ---------------------------------------------------------- command planning
     def _builtin_plan(self, args: list[str]) -> int:
-        return run_plan(args, builtins=self.BUILTINS)
+        return run_plan(
+            args,
+            builtins=self.BUILTINS,
+            plugin_commands=self.plugin_manager.command_names(),
+        )
 
     def _builtin_secure(self, args: list[str]) -> int:
         if not args:
@@ -2070,10 +2095,7 @@ class PyShell:
             if name == "PYSH_ZSH_FALLBACK":
                 self.zsh_fallback_enabled = value == "1"
         for name, value in result.exports.items():
-            os.environ[name] = value
-            self.local_vars[name] = value
-            if name == "PYSH_ZSH_FALLBACK":
-                self.zsh_fallback_enabled = value == "1"
+            self._set_exported_environment(name, value, notify_plugins=True)
         print(
             f"aliases={len(result.aliases)} exports={len(result.exports)} "
             f"vars={len(result.variables)} skipped={result.skipped} file={target}"
@@ -2248,10 +2270,43 @@ class PyShell:
         Mirrors the behaviour of the ``export NAME=value`` builtin so that
         ``$NAME`` / ``${NAME}`` expansion sees the value immediately.
         """
+        self._set_exported_environment(name, value, notify_plugins=True)
+
+    def _set_exported_environment(
+        self,
+        name: str,
+        value: str,
+        *,
+        notify_plugins: bool,
+    ) -> None:
+        """Set an exported variable through the central mutation path."""
+        old = os.environ.get(name)
         os.environ[name] = value
         self.local_vars[name] = value
         if name == "PYSH_ZSH_FALLBACK":
             self.zsh_fallback_enabled = value == "1"
+        if notify_plugins and old != value:
+            self.plugin_manager.notify_env_change(name, old, value)
+
+    def enable_plugin(self, name: str) -> None:
+        """Record explicit intent to load a trusted Python plugin."""
+        self.plugin_manager.enable_plugin(name)
+
+    def disable_plugin(self, name: str) -> None:
+        """Remove explicit intent to load a trusted Python plugin."""
+        self.plugin_manager.disable_plugin(name)
+
+    def enable_project_plugins(self) -> None:
+        """Allow explicitly enabled project-local plugins to execute."""
+        self.plugin_manager.enable_project_plugins()
+
+    def list_plugins(self) -> list[str]:
+        """Return plugin names known from config/discovery state."""
+        return self.plugin_manager.list_plugins()
+
+    def is_plugin_enabled(self, name: str) -> bool:
+        """Return whether a plugin name is explicitly enabled."""
+        return self.plugin_manager.is_plugin_enabled(name)
 
     def set_prompt_option(self, name: str, value: object) -> None:
         """Set a validated prompt option (ConfigurableShell contract).
@@ -2462,9 +2517,15 @@ class PyShell:
         elif cwd_str:
             segments.append(self._color_prompt_segment(cwd_str, "cwd"))
 
+        for value in self.plugin_manager.prompt_segments("before_cwd"):
+            segments.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
+
         git_segment = self._prompt_git_segment(options)
         if git_segment:
             segments.append(self._color_prompt_segment(git_segment, "git"))
+
+        for value in self.plugin_manager.prompt_segments("after_git"):
+            segments.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
 
         if bool(options.get("show_python_version", False)):
             py = ".".join(str(p) for p in sys.version_info[:2])
@@ -2481,6 +2542,9 @@ class PyShell:
 
         for text, role in self._prompt_context_segments(options):
             segments.append(self._color_prompt_segment(text, role))
+
+        for value in self.plugin_manager.prompt_segments("end"):
+            segments.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
 
         if self.pending_multiline_paste is not None:
             lines = self._pending_multiline_paste_line_count()
@@ -2538,9 +2602,15 @@ class PyShell:
                     self._color_prompt_segment(f"[{cwd_str}]", "cwd")
                 )
 
+        for value in self.plugin_manager.prompt_segments("before_cwd"):
+            line1_segs.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
+
         git_seg = self._prompt_git_segment(options)
         if git_seg:
             line1_segs.append(self._color_prompt_segment(git_seg, "git"))
+
+        for value in self.plugin_manager.prompt_segments("after_git"):
+            line1_segs.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
 
         if bool(options.get("show_last_status", False)) and self.last_status != 0:
             line1_segs.append(
@@ -2549,6 +2619,9 @@ class PyShell:
 
         for text, role in self._prompt_context_segments(options):
             line1_segs.append(self._color_prompt_segment(text, role))
+
+        for value in self.plugin_manager.prompt_segments("end"):
+            line1_segs.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
 
         if self.pending_multiline_paste is not None:
             count = self._pending_multiline_paste_line_count()

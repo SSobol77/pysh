@@ -56,6 +56,9 @@ docs/
 ├── python/                            ← Python execution layer
 │   ├── python-runtime.md
 │   └── python-command-execution-layer.md
+├── plugins/                           ← trusted Python Plugin API
+│   ├── plugin-api.md
+│   └── plugin-guide.md
 ├── compatibility/                     ← compatibility contracts and scope (Issue #4)
 │   ├── README.md
 │   ├── shell-compatibility-contract.md
@@ -138,6 +141,17 @@ Documentation for PySH's Python execution and runtime bridge.
 | -------- | ----------- |
 | [python-runtime.md](python/python-runtime.md) | `py` builtin: persistent per-session Python runtime context |
 | [python-command-execution-layer.md](python/python-command-execution-layer.md) | `#py` interactive mode: REPL, source buffer, file directives, highlighting |
+
+---
+
+## Plugins
+
+Trusted Python Plugin API documentation.
+
+| Document | Description |
+| -------- | ----------- |
+| [plugin-api.md](plugins/plugin-api.md) | Plugin API 1.0 contract, trust model, versioning, directories, registration API |
+| [plugin-guide.md](plugins/plugin-guide.md) | Local plugin smoke test, project-local opt-in, troubleshooting |
 
 ---
 
