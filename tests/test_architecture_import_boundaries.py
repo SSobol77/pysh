@@ -47,6 +47,7 @@ DOMAIN_PACKAGES: frozenset[str] = frozenset({
     "pysh.services",
     "pysh.security",
     "pysh.diagnostics",
+    "pysh.plugins",
     "pysh.contracts",
     "pysh.cli",
     "pysh.shell",
@@ -66,6 +67,7 @@ IMPLEMENTATION_PACKAGES: frozenset[str] = frozenset({
     "pysh.services",
     "pysh.security",
     "pysh.diagnostics",
+    "pysh.plugins",
 })
 
 # Heavy modules that package __init__.py files must not import at the
@@ -351,6 +353,7 @@ _PERMITTED_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("pysh.editor", _PARSING_SHARED_LEAF),
     ("pysh.editor", "pysh.contracts"),
     ("pysh.diagnostics", _PARSING_SHARED_LEAF),
+    ("pysh.plugins", "pysh.contracts"),
     ("pysh.script_runner", _PARSING_SHARED_LEAF),
 })
 

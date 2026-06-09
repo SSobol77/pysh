@@ -105,6 +105,9 @@ validated primarily on **Debian 13** and Unix-like systems.
   and execute a command without running it.
 - Startup file `~/.pyshrc` plus a **plugin directory** at `~/.pyshrc.d/`
   whose `*.pysh` files load in deterministic lexicographic order.
+- **Plugin API 1.0** for trusted local Python plugins under
+  `~/.config/pysh/plugins/`, enabled explicitly from `~/.pyshrc.py`;
+  project-local `.pysh/plugins/` code is never loaded by default.
 - **Mini rc-interpreter** for control flow inside `~/.pyshrc` and plugins:
   `if`/`else`/`fi`, `for`/`do`/`done`, `while`/`do`/`done` (with a hard
   iteration safety limit).
@@ -224,6 +227,11 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 
 - [Python runtime](https://github.com/SSobol77/pysh/blob/main/docs/python/python-runtime.md) — persistent Python-native `py` execution context.
 - [Python command execution layer](https://github.com/SSobol77/pysh/blob/main/docs/python/python-command-execution-layer.md) — interactive `#py` mode with full REPL, source buffer, and file directives.
+
+**Plugins**
+
+- [Plugin API 1.0](https://github.com/SSobol77/pysh/blob/main/docs/plugins/plugin-api.md) — trusted-code model, versioning, explicit enablement, commands, completion, prompt segments, and hooks.
+- [Plugin guide](https://github.com/SSobol77/pysh/blob/main/docs/plugins/plugin-guide.md) — local smoke test and project-local opt-in validation.
 
 **Migration**
 

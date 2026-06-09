@@ -50,7 +50,12 @@ class CommandPlan:
         )
 
 
-def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
+def classify(
+    line: str,
+    *,
+    builtins: Iterable[str] = (),
+    plugin_commands: Iterable[str] = (),
+) -> CommandPlan:
     """Classify ``line`` into a :class:`CommandPlan`. No execution happens."""
     text = line.rstrip("\n").rstrip("\r")
     display_text = DEFAULT_REDACTION_POLICY.redact_text(text)
@@ -63,6 +68,7 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
             reason="empty input",
         )
     builtin_set = frozenset(builtins)
+    plugin_command_set = frozenset(plugin_commands)
 
     if is_block_opener(text):
         return CommandPlan(
@@ -85,7 +91,10 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
 
     chain = split_chain(text)
     if len(chain) > 1:
-        kinds = [classify(elem.command, builtins=builtin_set) for elem in chain]
+        kinds = [
+            classify(elem.command, builtins=builtin_set, plugin_commands=plugin_command_set)
+            for elem in chain
+        ]
         risk = _max_risk(p.risk for p in kinds)
         ops = ", ".join(_op_name(elem.operator) for elem in chain if elem.operator)
         return CommandPlan(
@@ -98,7 +107,10 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
 
     pipeline = split_pipeline(text)
     if len(pipeline) > 1:
-        stages = [classify(stage, builtins=builtin_set) for stage in pipeline]
+        stages = [
+            classify(stage, builtins=builtin_set, plugin_commands=plugin_command_set)
+            for stage in pipeline
+        ]
         risk = _max_risk(stage.risk for stage in stages)
         return CommandPlan(
             original=display_text,
@@ -156,6 +168,15 @@ def classify(line: str, *, builtins: Iterable[str] = ()) -> CommandPlan:
             reason=reason or f"{head} is a PySH builtin",
         )
 
+    if head in plugin_command_set:
+        return CommandPlan(
+            original=display_text,
+            kind="plugin",
+            execution="plugin",
+            risk=risk,
+            reason=reason or f"{head} is a PySH plugin command",
+        )
+
     return CommandPlan(
         original=display_text,
         kind="external",
@@ -169,6 +190,7 @@ def plan(
     args: list[str],
     *,
     builtins: Iterable[str] = (),
+    plugin_commands: Iterable[str] = (),
     stream: IO[str] | None = None,
 ) -> int:
     """Run ``plan <command...>``. Returns 0 on success and 2 when args are missing."""
@@ -177,7 +199,7 @@ def plan(
         print("plan: usage: plan <command...>", file=sys.stderr)
         return 2
     line = " ".join(args)
-    result = classify(line, builtins=builtins)
+    result = classify(line, builtins=builtins, plugin_commands=plugin_commands)
     print(result.format(), file=out)
     return 0
 

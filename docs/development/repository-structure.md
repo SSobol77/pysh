@@ -49,6 +49,7 @@ canonical repository-relative path for the file.
 │       │   └── lineedit/
 │       ├── migration/
 │       ├── parsing/
+│       ├── plugins/
 │       ├── prompt/
 │       ├── python_layer/
 │       ├── security/
@@ -73,6 +74,7 @@ canonical repository-relative path for the file.
 | `src/pysh/editor/` | Interactive editor adapters, history, highlighting, and completion integration. |
 | `src/pysh/editor/lineedit/` | Raw-mode line editor implementation, pure completion engine, key handling, buffer logic, highlighting, and autosuggestion. |
 | `src/pysh/python_layer/` | Python command mode, persistent runtime, highlighting, and display rendering. |
+| `src/pysh/plugins/` | Trusted Python Plugin API 1.0: versioned metadata validation, discovery, file loading, registration, lifecycle hooks, command/completion/prompt extension records. |
 | `tests/` | Deterministic pytest suite covering parser, runtime, docs, packaging contracts, completion, line editing, services, and compatibility behavior. |
 
 ## Files with Similar Names

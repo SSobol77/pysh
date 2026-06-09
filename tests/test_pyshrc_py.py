@@ -43,6 +43,8 @@ class FakeShell:
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
         self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
+        self.enabled_plugins: set[str] = set()
+        self.project_plugins_enabled = False
 
     def register_alias(self, name: str, value: str) -> None:
         self.aliases[name] = value
@@ -79,6 +81,21 @@ class FakeShell:
     def set_prompt_color_mode(self, name: str, value: object) -> None:
         validate_prompt_color_mode(name, value)
         self.prompt_color_modes[name] = value
+
+    def enable_plugin(self, name: str) -> None:
+        self.enabled_plugins.add(name)
+
+    def disable_plugin(self, name: str) -> None:
+        self.enabled_plugins.discard(name)
+
+    def enable_project_plugins(self) -> None:
+        self.project_plugins_enabled = True
+
+    def list_plugins(self) -> list[str]:
+        return sorted(self.enabled_plugins)
+
+    def is_plugin_enabled(self, name: str) -> bool:
+        return name in self.enabled_plugins
 
 
 def _write(path: Path, body: str) -> Path:
@@ -475,6 +492,19 @@ def test_api_env_registration() -> None:
     shell = FakeShell()
     ShellConfigAPI(shell).env("EDITOR", "nano")
     assert shell.environment == {"EDITOR": "nano"}
+
+
+def test_api_plugin_enablement_is_recorded_not_loaded() -> None:
+    shell = FakeShell()
+    api = ShellConfigAPI(shell)
+
+    api.enable_plugin("example")
+    api.enable_project_plugins()
+
+    assert shell.enabled_plugins == {"example"}
+    assert shell.project_plugins_enabled is True
+    assert api.list_plugins() == ["example"]
+    assert api.is_plugin_enabled("example") is True
 
 
 @pytest.mark.parametrize("name", ["bad name", "", "a=b"])

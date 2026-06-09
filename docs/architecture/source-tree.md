@@ -74,6 +74,17 @@ src/pysh/
 │   ├── colors.py            ← color parsing: colorize, color_to_hex, parse_color
 │   └── system_profile.py   ← sys_info, env_audit, path_audit, which_all, apt_*
 │
+├── plugins/
+│   ├── __init__.py          ← side-effect-light Plugin API package exports
+│   ├── version.py           ← Plugin API version compatibility checks
+│   ├── errors.py            ← plugin exception hierarchy
+│   ├── names.py             ← plugin/command/segment name validation
+│   ├── models.py            ← plugin dataclasses, enums, callback type aliases
+│   ├── registry.py          ← deterministic discovery and explicit enablement records
+│   ├── loader.py            ← controlled file-based plugin module loading
+│   ├── api.py               ← public registration API passed to plugin classes
+│   └── manager.py           ← plugin lifecycle orchestration and callback dispatch
+│
 ├── python_layer/
 │   ├── highlighting.py      ← Pygments-based Python syntax renderer
 │   ├── mode.py              ← #py interactive Python command mode
@@ -126,6 +137,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.editor` | Interactive line editor (coordinator) | `Completer`, `HistoryManager`, `colors_enabled`, `diagnostic`, ANSI `paint` helper | Shell state, prompt rendering |
 | `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder`, Completion Engine v1 | Higher-level shell concepts, history persistence |
 | `pysh.prompt` | Prompt segment rendering | `colorize`, `color_to_hex`, `parse_color`, two-line prompt assembly, `system_profile` Debian helpers | Shell state, RC parsing |
+| `pysh.plugins` | Trusted local Plugin API 1.0 | Version compatibility, name validation, file discovery, controlled loading, registration API, plugin command/completion/prompt/lifecycle records | Shell command dispatch internals, config parsing, network access, auto-installation |
 | `pysh.python_layer` | Python command execution layer | `PythonRuntime` (persistent namespace), `py` builtin logic, `#py` interactive mode, Python syntax highlighting, `iter_logical_lines`, block detection | Shell builtins outside the Python layer, config loading |
 | `pysh.config` | Configuration and startup | RC file execution, mini rc-interpreter, plugin directory loader, `ConfigAPI` (prompt/cursor/color settings) | Runtime command dispatch, builtin logic |
 | `pysh.compat` | Transition and compatibility helpers | Zsh bridge (`ZshBridge`), zsh/sh alias file parser, static profile importer, MC environment detection | Core shell execution, prompt rendering |
@@ -165,6 +177,14 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.editor.lineedit.completion` | `CompletionEngine`, `CompletionContext`, `CompletionCandidate`, `CompletionResult`, `apply_single_completion`: PySH-native completion |
 | `pysh.prompt.colors` | `colorize`, `color_to_hex`, `parse_color`: VGA + truecolor; `NO_COLOR` awareness |
 | `pysh.prompt.system_profile` | `sys_info`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search` |
+| `pysh.plugins.version` | `PLUGIN_API_VERSION` compatibility checks for Plugin API 1.0 |
+| `pysh.plugins.errors` | Plugin-specific exception hierarchy |
+| `pysh.plugins.names` | Strict plugin, command and prompt segment identifier validation |
+| `pysh.plugins.models` | Plugin metadata, source/state enums, and extension record dataclasses |
+| `pysh.plugins.registry` | Deterministic direct-file discovery and explicit enablement state |
+| `pysh.plugins.loader` | Controlled `importlib` file loading, metadata validation, class discovery and registration containment |
+| `pysh.plugins.api` | Public registration object passed to plugin `register(api)` methods |
+| `pysh.plugins.manager` | Plugin manager lifecycle, callback dispatch, error containment and shell integration boundary |
 | `pysh.python_layer.runtime` | `PythonRuntime`: `exec`/`eval` in persistent namespace; `py` builtin, multiline block logic |
 | `pysh.python_layer.mode` | `#py` interactive Python command mode: REPL loop, directives, source buffer |
 | `pysh.python_layer.highlighting` | `PythonSyntaxRenderer`, Pygments integration, `pygments_available` |
@@ -204,6 +224,7 @@ pysh.core.shell
     │   └── pysh.editor.lineedit  (reader, buffer, highlight, autosuggest, keys)
     │       └── pysh.parsing  (split_paste_commands)
     ├── pysh.prompt           (colors, system_profile)
+    ├── pysh.plugins          (Plugin API manager; trusted local extensions)
     ├── pysh.python_layer     (runtime, mode, render, highlighting)
     │   └── pysh.editor.lineedit  (lineedit primitives used by #py mode)
     ├── pysh.config           (api, rc, plugins)
