@@ -222,16 +222,16 @@ active = "developer"
 active = "catppuccin-mocha"
 
 [prompt]
-style = "two-line"
+prompt_layout = "two_line"
 show_user = true
 show_host = true
 show_cwd = true
-show_git = true
-show_python = true
-show_rust = true
-show_node = true
-show_status = true
-show_duration = true
+show_git_branch = true
+show_python_version = true
+show_rust_version = true
+show_node_version = true
+show_last_status = true
+show_command_duration = true
 
 [editor]
 line_editor = "raw"
@@ -249,7 +249,7 @@ menu = "compact"
 enabled = true
 path = "~/.local/share/pysh/history"
 max_length = 10000
-dedupe_mode = "consecutive"
+dedup_mode = "consecutive"
 
 [colors.prompt]
 user = "aqua"
@@ -467,12 +467,12 @@ theme = "nord"
 description = "Quiet profile for writing and focused work"
 
 [profiles.focus.prompt]
-style = "single-line"
-show_git = true
-show_python = false
-show_node = false
-show_rust = false
-show_duration = true
+prompt_layout = "single"
+show_git_branch = true
+show_python_version = false
+show_node_version = false
+show_rust_version = false
+show_command_duration = true
 
 [profiles.focus.editor]
 autosuggest = true
