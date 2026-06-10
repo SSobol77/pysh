@@ -129,11 +129,11 @@ def _read_nonblocking(master_fd: int, settle: float, timeout: float) -> bytes:
 
 
 def _wait_for_prompt(master_fd: int, timeout: float = _PROMPT_TIMEOUT) -> bytes:
-    """Read from *master_fd* until the PySH prompt symbol (``>``) is visible
-    in ANSI-stripped output, or *timeout* expires.
+    """Read from *master_fd* until the PySH command prompt is visible.
 
     Returns all bytes collected so far (including the prompt).
     """
+    prompt_markers = (b"> ", "❯ ".encode(), b"`- > ")
     buf = bytearray()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -147,7 +147,8 @@ def _wait_for_prompt(master_fd: int, timeout: float = _PROMPT_TIMEOUT) -> bytes:
                 if not chunk:
                     break
                 buf.extend(chunk)
-                if b"> " in _strip_ansi(bytes(buf)):
+                visible = _strip_ansi(bytes(buf))
+                if any(marker in visible for marker in prompt_markers):
                     # Drain a bit more to let the prompt fully render.
                     buf.extend(_read_nonblocking(master_fd, settle=0.15, timeout=0.5))
                     return bytes(buf)

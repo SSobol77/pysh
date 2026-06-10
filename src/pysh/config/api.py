@@ -39,6 +39,7 @@ from typing import Protocol, runtime_checkable
 
 from pysh.editor.history import DEFAULT_HISTORY_LENGTH, DEFAULT_HISTORY_PATH
 from pysh.editor.lineedit.buffer import _display_width
+from pysh.editor.lineedit.highlight import HIGHLIGHT_COLOR_ROLES
 from pysh.prompt.colors import color_to_hex, parse_color
 
 # Canonical location of the Python-native user configuration file.
@@ -252,6 +253,10 @@ class ConfigurableShell(Protocol):
         """Set a single validated prompt color mode."""
         ...
 
+    def set_highlight_color(self, role: str, color: str) -> None:
+        """Set a single validated live-input highlight color."""
+        ...
+
     def set_sensitive_input_indicator(self, name: str, value: object) -> None:
         """Set a single validated secure-indicator option."""
         ...
@@ -368,6 +373,21 @@ def validate_prompt_color(segment: str, color: str) -> None:
     if not isinstance(color, str):
         raise ConfigError(
             f"prompt color for {segment!r} expects str, got {type(color).__name__}"
+        )
+    try:
+        parse_color(color)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+
+
+def validate_highlight_color(role: str, color: str) -> None:
+    """Validate a live-input syntax highlight color assignment."""
+    if role not in HIGHLIGHT_COLOR_ROLES:
+        known = ", ".join(sorted(HIGHLIGHT_COLOR_ROLES))
+        raise ConfigError(f"unknown highlight role {role!r} (known: {known})")
+    if not isinstance(color, str):
+        raise ConfigError(
+            f"highlight color for {role!r} expects str, got {type(color).__name__}"
         )
     try:
         parse_color(color)
@@ -631,6 +651,26 @@ class ShellConfigAPI:
         validate_prompt_color_mode(name, value)
         self._shell.set_prompt_color_mode(name, value)
 
+    def set_highlight_color(self, role: str, color: str) -> None:
+        """Set one live input syntax-highlight color.
+
+        ``role`` must be one of PySH's semantic highlight roles:
+        ``builtin``, ``alias``, ``command_valid``, ``command_invalid``,
+        ``string``, ``operator``, ``option``, ``variable``, ``path``,
+        ``comment``, ``heredoc``, ``error``, ``continuation``, ``paste``, or
+        ``reverse_search``. ``color`` accepts the same validated color
+        vocabulary as prompt colors.
+
+        Example::
+
+            shell.set_highlight_color("builtin", "aqua")
+            shell.set_highlight_color("alias", "fuchsia")
+            shell.set_highlight_color("comment", "gray")
+            shell.set_highlight_color("heredoc", "yellow")
+        """
+        validate_highlight_color(role, color)
+        self._shell.set_highlight_color(role, color)
+
     def set_sensitive_input_indicator(self, name: str, value: object) -> None:
         """Configure the explicit ``secure <cmd>`` keypress indicator.
 
@@ -865,6 +905,34 @@ def configure(shell):
     shell.set_prompt_color("aws", "orange")
     shell.set_prompt_color("k8s", "aqua")
     shell.set_prompt_color("symbol", "white")
+
+    # ----------------------------------------------------------------------
+    # Live input syntax highlighting
+    # ----------------------------------------------------------------------
+    # Highlight colors use the same color vocabulary as prompt colors.
+    # The highlighter never mutates the command buffer and never executes
+    # commands while classifying input.
+    #
+    # Available roles:
+    # builtin, alias, command_valid, command_invalid, string, operator,
+    # option, variable, path, comment, heredoc, error, continuation, paste,
+    # reverse_search.
+
+    shell.set_highlight_color("builtin", "aqua")
+    shell.set_highlight_color("alias", "fuchsia")
+    shell.set_highlight_color("command_valid", "lime")
+    shell.set_highlight_color("command_invalid", "red")
+    shell.set_highlight_color("string", "green")
+    shell.set_highlight_color("operator", "yellow")
+    shell.set_highlight_color("option", "aqua")
+    shell.set_highlight_color("variable", "fuchsia")
+    shell.set_highlight_color("path", "aqua")
+    shell.set_highlight_color("comment", "gray")
+    shell.set_highlight_color("heredoc", "yellow")
+    shell.set_highlight_color("error", "red")
+    shell.set_highlight_color("continuation", "yellow")
+    shell.set_highlight_color("paste", "yellow")
+    shell.set_highlight_color("reverse_search", "fuchsia")
 
     # ----------------------------------------------------------------------
     # Terminal cursor color

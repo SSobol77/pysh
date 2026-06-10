@@ -66,8 +66,14 @@ def configure(shell):
     shell.set_editor_option("autosuggest", True)
     shell.set_editor_option("syntax_highlight", True)
 
+    # Live input highlighting
+    shell.set_highlight_color("builtin", "aqua")
+    shell.set_highlight_color("alias", "fuchsia")
+    shell.set_highlight_color("comment", "gray")
+    shell.set_highlight_color("heredoc", "yellow")
+
     # Aliases
-    shell.register_alias("ll", "ls --color=auto -laF")
+    shell.alias("ll", "ls --color=auto -laF")
 
     # History engine options (History Engine 2.0 — Issue #28)
     # shell.set_history_option("max_length", 10000)
@@ -223,6 +229,28 @@ When the stdlib raw-mode editor is active, PySH can colorize the editable input
 line and show history autosuggestions. If the terminal is not capable, if
 `TERM=dumb`, if `NO_COLOR` is set, or if `line_editor="readline"` is configured,
 PySH falls back to the classic readline/input path without live input coloring.
+
+Live syntax-highlight colors are role-keyed and configured with
+`set_highlight_color(role, color)`. The method validates role names and uses
+the same color parser as prompt colors. Available roles are `builtin`, `alias`,
+`command_valid`, `command_invalid`, `string`, `operator`, `option`, `variable`,
+`path`, `comment`, `heredoc`, `error`, `continuation`, `paste`, and
+`reverse_search`.
+
+Example:
+
+```python
+def configure(shell):
+    shell.set_highlight_color("builtin", "aqua")
+    shell.set_highlight_color("alias", "fuchsia")
+    shell.set_highlight_color("comment", "gray")
+    shell.set_highlight_color("heredoc", "yellow")
+```
+
+Highlighting is presentation only. It does not mutate the command buffer,
+expand variables, evaluate Python, execute commands, or run plugins. See
+[syntax-highlighting.md](syntax-highlighting.md) for role details, no-color
+behavior, visual states, and manual validation.
 
 ## Cursor Color
 
