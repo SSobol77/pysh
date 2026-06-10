@@ -43,6 +43,7 @@ docs/
 │   ├── prompt.md
 │   ├── completion.md
 │   ├── syntax-highlighting.md
+│   ├── themes.md
 │   ├── builtins.md
 │   ├── operators.md
 │   ├── configuration.md
@@ -94,6 +95,7 @@ docs/
 │   ├── history-engine.md
 │   ├── prompt-engine.md
 │   ├── completion-engine.md
+│   ├── configuration-system.md
 │   ├── syntax-highlighting.md
 │   ├── repository-structure.md
 │   ├── release.md
@@ -114,9 +116,10 @@ Documentation for people who install and use PySH day to day.
 | [prompt.md](user/prompt.md) | Prompt options, context segments, colors, and validation |
 | [completion.md](user/completion.md) | TAB completion behavior, repeated TAB, path and Python symbol completion |
 | [syntax-highlighting.md](user/syntax-highlighting.md) | Live input highlighting, visual states, color roles, no-color behavior |
+| [themes.md](user/themes.md) | Planned Issue #31 profiles, themes, alias packs, accessibility, no-color behavior |
 | [builtins.md](user/builtins.md) | Every builtin: syntax, examples, exit codes, limitations |
 | [operators.md](user/operators.md) | Chain, pipeline, redirection, substitution, quoting semantics |
-| [configuration.md](user/configuration.md) | `~/.pyshrc`, plugin directory `~/.pyshrc.d/`, aliases, prompt |
+| [configuration.md](user/configuration.md) | Current config behavior and planned Issue #31 TOML strategy |
 | [history.md](user/history.md) | Persistent JSONL history, dedup modes, sensitive filtering, Ctrl+R backends |
 | [limitations.md](user/limitations.md) | Explicit non-goals and compatibility boundaries |
 | [midnight-commander.md](user/midnight-commander.md) | MC integration policy and the `mc` builtin |
@@ -221,6 +224,7 @@ Documentation for contributors, maintainers, and the release process.
 | [development.md](development/development.md) | Test suite, linting, build commands, repository layout |
 | [prompt-engine.md](development/prompt-engine.md) | Prompt Engine 2.0 implementation invariants and validation |
 | [completion-engine.md](development/completion-engine.md) | Completion Engine 2.0 architecture, cache contract, manual validation |
+| [configuration-system.md](development/configuration-system.md) | Planned Issue #31 TOML configuration architecture and phases |
 | [syntax-highlighting.md](development/syntax-highlighting.md) | Live highlighter architecture, invariants, config API, validation |
 | [repository-structure.md](development/repository-structure.md) | Repository-relative path map and guidance for similarly named files |
 | [release.md](development/release.md) | Release checklist, tagging, PyPI Trusted Publishing via GitHub Actions |

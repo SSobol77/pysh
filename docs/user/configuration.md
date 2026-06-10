@@ -12,431 +12,659 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Configuration
 
-PySH loads two layers of startup files on every interactive launch:
+This page describes PySH's current configuration behavior and the Issue #31
+configuration strategy. Status labels are intentional:
 
-1. `~/.pyshrc` — your personal startup file.
-2. `~/.pyshrc.d/*.pysh` — plugin snippets, loaded in deterministic
-   **lexicographic order** after `~/.pyshrc`.
+- **Current behavior** means implemented in the current codebase.
+- **Issue #31 planned behavior** means the target design for the next
+  configuration-system implementation.
+- **Future / out of scope** means intentionally not part of Issue #31.
 
-Both layers go through the same mini-interpreter, so they support the same
-syntax: ordinary commands, `alias`, `export`, `source`, pipelines,
-redirection, command substitution, and the `if` / `for` / `while`
-constructs documented below.
+## Configuration Model
 
-A failing line is reported on stderr and the next line is still executed.
-A broken plugin does not prevent later plugins from loading.
+### Current behavior
 
-## Python-native configuration: ~/.pyshrc.py
+PySH currently supports three startup layers:
 
-PySH supports a Python-native configuration file at `~/.pyshrc.py`. On the
-first interactive launch, PySH creates this file automatically from a
-production-quality commented template — if and only if the file does not already
-exist. **An existing `~/.pyshrc.py` is never overwritten.**
+1. `~/.pyshrc` - shell-syntax startup file interpreted by PySH.
+2. `~/.pyshrc.d/*.pysh` - shell-syntax drop-ins loaded in deterministic
+   lexicographic order.
+3. `~/.pyshrc.py` - Python-native configuration through `ShellConfigAPI`.
 
-The file is loaded last, after `~/.pyshrc` and after all plugins in
-`~/.pyshrc.d/`, so Python-native settings have the final word over the
-shell-syntax startup layers.
+PySH creates `~/.pyshrc.py` from a commented template on first interactive
+launch only when the file does not already exist. Existing user configuration
+is not overwritten.
 
-The generated template documents every configurable option inline with
-comments. Open it to see the current options:
+### Issue #31 planned behavior
 
-```sh
-${EDITOR:-nano} ~/.pyshrc.py
-```
+Issue #31 introduces a two-layer primary configuration model:
 
-The file exports a single `configure(shell)` function. PySH calls it once
-with the live shell instance:
+1. Declarative TOML configuration:
+   - `${XDG_CONFIG_HOME}/pysh/config.toml`
+   - fallback: `~/.config/pysh/config.toml`
+   - drop-ins: `~/.config/pysh/conf.d/*.toml`
+2. Advanced Python configuration:
+   - `~/.pyshrc.py`
+   - `ShellConfigAPI`
+   - startup hooks and programmable behavior
 
-```python
-def configure(shell):
-    # Prompt segments
-    shell.set_prompt_option("show_git_branch", True)
-    shell.set_prompt_option("show_last_status", True)
-    shell.set_prompt_option("cwd_style", "home")
+TOML is planned as the primary safe declarative format. `.pyshrc.py` remains
+the advanced programmable layer. Existing `.pyshrc`, `.pyshrc.d`, and
+`.pyshrc.py` compatibility must remain intact.
 
-    # Per-segment prompt colors (named colors or #RRGGBB)
-    shell.set_prompt_color("cwd", "cyan")
-    shell.set_prompt_color("git", "#888888")
+## Load Order
 
-    # Terminal cursor color (disabled by default)
-    shell.set_cursor_color_enabled(True)
-    shell.set_cursor_color("#FFA500")
+### Current behavior
 
-    # Line editor behavior
-    shell.set_editor_option("autosuggest", True)
-    shell.set_editor_option("syntax_highlight", True)
+Current interactive startup loads:
 
-    # Live input highlighting
-    shell.set_highlight_color("builtin", "aqua")
-    shell.set_highlight_color("alias", "fuchsia")
-    shell.set_highlight_color("comment", "gray")
-    shell.set_highlight_color("heredoc", "yellow")
+1. built-in defaults;
+2. `~/.pyshrc`;
+3. `~/.pyshrc.d/*.pysh` in lexical order;
+4. `~/.pyshrc.py`;
+5. Plugin API startup hooks after plugin discovery.
 
-    # Aliases
-    shell.alias("ll", "ls --color=auto -laF")
+Invalid legacy rc lines are reported and the remaining file continues where
+possible. A broken Python config is reported on stderr and does not terminate
+the shell.
 
-    # History engine options (History Engine 2.0 — Issue #28)
-    # shell.set_history_option("max_length", 10000)
-    # shell.set_history_option("dedup_mode", "global")
-    # shell.set_history_option("ignore_space_prefix", True)
-    # shell.set_history_option("ignore_patterns", ["password", "secret", "token", "api_key"])
-```
+### Issue #31 planned behavior
 
-The `configure` function is optional; an empty file or a file that defines no
-`configure` function is silently ignored without error.
+The planned load order is:
 
-## Terminal Color Overrides
+1. built-in defaults;
+2. built-in profile, theme, and alias-pack definitions;
+3. `${XDG_CONFIG_HOME}/pysh/config.toml` or `~/.config/pysh/config.toml`;
+4. `~/.config/pysh/conf.d/*.toml` in lexical order;
+5. legacy compatibility files where retained by startup policy;
+6. `~/.pyshrc.py` advanced overrides;
+7. runtime session changes.
 
-PySH enables ANSI colors by default on capable TTYs and disables them for
-`TERM=dumb`, non-TTY output, and `NO_COLOR`.
+Later layers override earlier layers only through validated configuration
+interfaces. Runtime changes do not rewrite user files automatically.
 
-- `NO_COLOR`: disable ANSI color output.
-- `PYSH_COLOR=0`: disable PySH ANSI color output.
-- `PYSH_COLOR=1`: enable colors when the terminal is capable.
-- `PYSH_COLOR=always`: force ANSI output, useful for terminal smoke tests.
+## TOML Declarative Configuration
 
-## Aliases
+### Current behavior
 
-```sh
-alias ll="ls -la --color=auto -F"
-alias gs="git status -sb"
+PySH does not currently load `config.toml` or `conf.d/*.toml`.
 
-# Remove an alias:
-unalias ll
-```
+### Issue #31 planned behavior
 
-Aliases are expanded on the first word of each pipeline stage only.
-
-Simple zsh-compatible alias files can be imported without executing them:
-
-```sh
-source_zsh ~/.zsh_aliases
-source_zsh_profile ~/.zshrc
-source_sh_aliases ~/.bash_aliases
-```
-
-## Completion
-
-Completion Engine v1 is configured by current PySH state rather than foreign
-shell startup files. It uses PySH aliases, builtins, local variables,
-environment variable names, job IDs and local filesystem/PATH state.
-
-PySH does not source bash, zsh or fish completion scripts and does not support
-programmable shell completion hooks.
-
-`source_zsh` supports simple `alias NAME=VALUE` lines, ignores comments and
-blank lines, skips unsupported zsh constructs, and reports malformed alias
-lines deterministically.
-
-`source_zsh_profile` and `source_sh_aliases` use the current static profile
-importer. They support simple aliases, `export NAME=value` statements and
-local `NAME=value` assignments. They read files as text and never execute
-profile code, command substitution, shell functions, plugin loaders or
-external commands.
-
-## Exports and local variables
-
-```sh
-NAME=world           # local shell variable
-export EDITOR="nano" # exported environment variable
-echo "$EDITOR - $NAME"
-```
-
-Local variables shadow environment variables in `$NAME` / `${NAME}`
-expansion. Single quotes suppress expansion; double quotes do not.
-
-## Prompt
-
-The default prompt uses two lines: an informational line followed by a command
-line prompt. With no opt-in segments enabled it renders as:
+The primary declarative file is:
 
 ```text
-<icon> <user>:<cwd>
->
+${XDG_CONFIG_HOME}/pysh/config.toml
 ```
 
-`<cwd>` is the absolute current directory by default. The icon is the snake
-emoji on UTF-8 terminals and `$` otherwise.
+If `XDG_CONFIG_HOME` is unset, PySH uses:
 
-Python-native configuration can opt into additional prompt segments:
+```text
+~/.config/pysh/config.toml
+```
+
+Planned drop-ins:
+
+```text
+~/.config/pysh/conf.d/*.toml
+```
+
+Drop-ins load in lexical order. Later files override earlier declarative
+values. Invalid TOML must report readable diagnostics and must not crash shell
+startup.
+
+Planned example:
+
+```toml
+# Planned Issue #31 syntax: ~/.config/pysh/config.toml
+
+[profile]
+active = "developer"
+
+[theme]
+active = "default"
+
+[prompt]
+prompt_layout = "two_line"
+show_git_branch = true
+show_python_version = true
+show_last_status = true
+
+[editor]
+line_editor = "auto"
+autosuggest = true
+syntax_highlight = true
+
+[history]
+max_length = 10000
+dedup_mode = "consecutive"
+ignore_space_prefix = true
+
+[colors.prompt]
+cwd = "yellow"
+git = "green"
+symbol = "white"
+
+[colors.highlight]
+builtin = "aqua"
+alias = "fuchsia"
+comment = "gray"
+heredoc = "yellow"
+
+[alias_packs]
+enabled = ["git", "python"]
+
+[aliases]
+ll = "ls -la --color=auto -F"
+gs = "git status --short"
+
+[env]
+EDITOR = "nano"
+PAGER = "less"
+```
+
+TOML is data only. It must not execute commands, evaluate shell expressions,
+evaluate Python expressions, expand variables, load plugins, or run startup
+hooks.
+
+## Advanced `.pyshrc.py` Configuration
+
+### Current behavior
+
+`~/.pyshrc.py` is implemented. It defines an optional `configure(shell)`
+function that receives a `ShellConfigAPI` instance:
 
 ```python
 def configure(shell):
-    shell.set_prompt_option("show_host", True)
-    shell.set_prompt_option("show_virtualenv", True)
+    shell.alias("ll", "ls -la --color=auto -F")
+    shell.env("EDITOR", "nano")
     shell.set_prompt_option("show_git_branch", True)
-    shell.set_prompt_option("show_git_dirty", True)
-    shell.set_prompt_option("show_python_version", True)
-    shell.set_prompt_option("show_uv_version", True)
-    shell.set_prompt_option("show_ruff_version", True)
-    shell.set_prompt_option("show_last_status", True)
-    shell.set_prompt_option("show_command_duration", True)
-    shell.set_prompt_option("command_duration_threshold", 0.5)
-    shell.set_prompt_option("show_ssh_indicator", True)
-    shell.set_prompt_option("show_aws_profile", False)
-    shell.set_prompt_option("show_k8s_context", False)
-    shell.set_prompt_option("cwd_style", "home")
-    shell.set_prompt_option("prompt_layout", "single")
+    shell.set_prompt_color("cwd", "yellow")
+    shell.set_editor_option("syntax_highlight", True)
+    shell.set_highlight_color("builtin", "aqua")
 ```
 
-`cwd_style` accepts `full`, `home`, or `basename`. `prompt_layout` accepts
-`two_line` (default) or `single`. Git prompt metadata is read from `.git` files
-only; PySH does not invoke `git` while rendering prompts. uv, Ruff, rustc,
-Node.js, and npm versions are detected with bounded subprocess calls and cached
-per shell instance.
+The Python file is trusted user code. Exceptions are caught and reported so a
+broken configuration does not terminate the shell session.
 
-Prompt Engine 2.0 also supports bounded context segments:
+### Issue #31 planned behavior
 
-- `show_command_duration` is enabled by default and renders only when the last
-  command duration is at least `command_duration_threshold` seconds.
-- `show_ssh_indicator` is enabled by default and renders `ssh` only when SSH
-  session environment variables are present.
-- `show_aws_profile` is disabled by default. When enabled, it displays
-  `AWS_PROFILE` or `AWS_DEFAULT_PROFILE`; it never calls the AWS CLI or reads
-  credentials.
-- `show_k8s_context` is disabled by default. When enabled, it reads
-  `KUBECONFIG` or `~/.kube/config` with stdlib-only bounded parsing and never
-  calls `kubectl`.
+`.pyshrc.py` remains the advanced programmable layer and runs after TOML. It
+may override TOML-applied settings through `ShellConfigAPI`.
 
-AWS and Kubernetes prompt values are sanitized before rendering to remove
-control characters and terminal escape sequences.
+Startup hooks belong only in `.pyshrc.py`, not TOML:
 
-Prompt colors are segment-keyed. The additional Prompt Engine 2.0 color roles
-are `duration`, `ssh`, `aws`, and `k8s`; their defaults are `yellow`,
-`fuchsia`, `orange`, and `aqua`. Use `fuchsia` instead of `magenta`, and `aqua`
-instead of `cyan`; `magenta` and `cyan` are not valid names for PySH prompt
-color parsing.
+```python
+# Planned Issue #31 API shape.
+def configure(shell):
+    def banner():
+        print("Welcome to PySH")
 
-See [prompt.md](prompt.md) for the full prompt option matrix and manual
-validation checklist.
+    shell.register_startup_hook(banner)
+```
 
-The welcome banner and diagnostics use ANSI colors when:
+Hook APIs are planned; do not rely on them until Issue #31 implementation
+lands.
 
-- stdout is a TTY,
-- `NO_COLOR` is not set,
-- `TERM` is set and is not `dumb`.
+## Legacy `.pyshrc` And `.pyshrc.d`
 
-Trace diagnostics are not configured from startup files. They are enabled only
-by explicit CLI flags such as `pysh --debug -c "echo hi"` or
-`pysh --trace -c "echo hi"`. Trace output goes to stderr and sensitive values
-are redacted.
+### Current behavior
 
-Script mode does not load extra startup files for each script. It executes the
-explicit script path supplied on the command line and does not source
-`.bashrc`, `.zshrc` or `.profile`.
-
-When the stdlib raw-mode editor is active, PySH can colorize the editable input
-line and show history autosuggestions. If the terminal is not capable, if
-`TERM=dumb`, if `NO_COLOR` is set, or if `line_editor="readline"` is configured,
-PySH falls back to the classic readline/input path without live input coloring.
-
-Live syntax-highlight colors are role-keyed and configured with
-`set_highlight_color(role, color)`. The method validates role names and uses
-the same color parser as prompt colors. Available roles are `builtin`, `alias`,
-`command_valid`, `command_invalid`, `string`, `operator`, `option`, `variable`,
-`path`, `comment`, `heredoc`, `error`, `continuation`, `paste`, and
-`reverse_search`.
+`~/.pyshrc` and `~/.pyshrc.d/*.pysh` are implemented. They use PySH's
+mini-interpreter and support ordinary commands, `alias`, `export`, `source`,
+pipelines, redirection, command substitution, and the documented `if` / `for`
+ / `while` forms.
 
 Example:
-
-```python
-def configure(shell):
-    shell.set_highlight_color("builtin", "aqua")
-    shell.set_highlight_color("alias", "fuchsia")
-    shell.set_highlight_color("comment", "gray")
-    shell.set_highlight_color("heredoc", "yellow")
-```
-
-Highlighting is presentation only. It does not mutate the command buffer,
-expand variables, evaluate Python, execute commands, or run plugins. See
-[syntax-highlighting.md](syntax-highlighting.md) for role details, no-color
-behavior, visual states, and manual validation.
-
-## Cursor Color
-
-Python-native configuration can request a terminal cursor color:
-
-```python
-def configure(shell):
-    shell.set_cursor_color_enabled(True)
-    shell.set_cursor_color("#FF9900")
-```
-
-Cursor color is disabled by default. When enabled, PySH emits OSC 12 after
-`~/.pyshrc.py` is loaded and resets the cursor with OSC 112 on shell exit. The
-control sequence is emitted only for interactive TTY output when `TERM` is set
-and not `dumb`, and `NO_COLOR` is not set. Terminals that do not implement OSC
-12 simply ignore the request.
-
-`set_cursor_color()` accepts the same named colors and `#RRGGBB` values as
-prompt colors. Named colors are stored as canonical uppercase hex; for example,
-`orange` becomes `#FFA500`.
-
-## `~/.pyshrc` example
 
 ```sh
 export EDITOR="nano"
 export PAGER="less"
-export LANG="pl_PL.UTF-8"
-export PYTHONDONTWRITEBYTECODE="1"
 
-alias rm="rm -i"
-alias cp="cp -i"
-alias mv="mv -i"
-alias python="python3.13"
-alias pip="pip3.13"
-
-if [ -d /opt/local/bin ]; then
-    export PATH="/opt/local/bin:$PATH"
-fi
-
-for dir in ~/bin ~/.local/bin; do
-    if [ -d "$dir" ]; then
-        export PATH="$dir:$PATH"
-    fi
-done
-
-echo "PySH current release | Python 3.13+"
-```
-
-Plugins may also contain multiline Python automation blocks. The block
-opener `py {` starts a deterministic multiline collection that ends at the
-next line containing `}`:
-
-```sh
-# ~/.pyshrc.d/30-py-banner.pysh
-py {
-    import platform
-    print(f"# host={platform.node()} python={platform.python_version()}")
-}
-```
-
-To opt into zsh fallback for one interactive session, set the variable or use
-the builtin explicitly. Fallback is off unless configured:
-
-```sh
-PYSH_ZSH_FALLBACK=1
-zsh_fallback on
-```
-
-This is a transition setting. It does not turn PySH into a zsh clone; it only
-allows commands PySH cannot parse or execute natively to be delegated through
-the zsh compatibility bridge.
-
-## Midnight Commander
-
-PySH wraps the `mc` command so Midnight Commander is launched with a policy that
-matches MC's shell-specific subshell support.  MC does not generically support
-arbitrary custom shells as concurrent subshells; `$SHELL=/path/to/pysh` alone is
-not sufficient.
-
-Configure the policy in `~/.pyshrc.py`:
-
-```python
-def configure(shell):
-    shell.set_mc_integration("auto")
-    shell.set_mc_warning_enabled(True)
-```
-
-Modes:
-
-| Mode | Behavior |
-|---|---|
-| `auto` | Default.  Use safe no-subshell launch behavior when PySH is not a supported MC subshell. |
-| `safe` | Always add `-u` / disable MC concurrent subshell for wrapped `mc`. |
-| `subshell` | Pass wrapped `mc` through unchanged. |
-| `off` | Disable PySH's wrapper policy. |
-
-`mc -u` disables MC's concurrent subshell.  Explicit paths such as `/usr/bin/mc`
-bypass the PySH builtin wrapper.  In `mc -u`, Ctrl+O only shows the previous
-terminal screen; it is not a live interactive PySH prompt.
-
-`auto` mode prints one explanatory warning per PySH session.  Suppress it with:
-
-```python
-def configure(shell):
-    shell.set_mc_warning_enabled(False)
-```
-
-## Plugin directory: `~/.pyshrc.d/*.pysh`
-
-Files in `~/.pyshrc.d/` are loaded **after** `~/.pyshrc`, in
-lexicographic order. Use a numeric prefix to control layering:
-
-```
-~/.pyshrc.d/
-├── 10-aliases.pysh
-├── 20-exports.pysh
-└── 90-overrides.pysh
-```
-
-Example `~/.pyshrc.d/10-aliases.pysh`:
-
-```sh
+alias ll="ls -la --color=auto -F"
 alias gs="git status -sb"
-alias gd="git diff"
-alias gl="git log --oneline --decorate"
+```
 
-if [ -f ~/.work_aliases ]; then
-    source ~/.work_aliases
-fi
+### Issue #31 planned behavior
+
+Legacy files remain compatible. They are not the primary new configuration
+format, but Issue #31 must not break existing users.
+
+## Profiles
+
+### Current behavior
+
+Named configuration profiles are not implemented.
+
+### Issue #31 planned behavior
+
+Profiles define behavior and prompt layout. They do not define aliases.
+Minimum planned built-in profiles:
+
+| Profile | Purpose |
+| ------- | ------- |
+| `default` | Current PySH default behavior. |
+| `minimal` | Quiet prompt and minimal visual noise. |
+| `developer` | Daily software engineering prompt and editor behavior. |
+| `server` | Remote/server-oriented prompt with clear user/host state. |
+| `presentation` | Clean demo-friendly prompt. |
+| `plain` | No icons and low ANSI dependence. |
+
+Planned TOML:
+
+```toml
+[profile]
+active = "developer"
+```
+
+Custom profiles are planned under `[profiles.NAME]`. See
+[themes.md](themes.md) for planned profile and theme examples.
+
+## Themes
+
+### Current behavior
+
+Named themes are not implemented. Current visual configuration is done through
+prompt color and syntax-highlight color APIs in `~/.pyshrc.py`.
+
+### Issue #31 planned behavior
+
+Themes define visual style only. They are independent from profiles. A profile
+may reference a theme, but users must be able to combine any profile with any
+theme.
+
+Planned TOML:
+
+```toml
+[theme]
+active = "default"
+```
+
+See [themes.md](themes.md) for planned built-in themes, custom theme syntax,
+accessibility rules, no-color behavior, and relation to Issue #30 syntax
+highlighting.
+
+## Alias Packs
+
+### Current behavior
+
+Alias packs are not implemented. Users define aliases with `alias` in
+`~/.pyshrc`, `~/.pyshrc.d/*.pysh`, or `shell.alias()` in `~/.pyshrc.py`.
+
+### Issue #31 planned behavior
+
+Alias packs define named groups of simple aliases. Planned built-in packs
+include `git`, `python`, `project`, and `files`.
+
+Planned TOML:
+
+```toml
+[alias_packs]
+enabled = ["git", "python", "files"]
 ```
 
 Rules:
 
-- Only regular files whose name ends with `.pysh` are loaded.
-- Directories and other suffixes are ignored.
-- One broken plugin does not abort the loading loop; the error is reported
-  and the next plugin still runs.
+- packs are additive;
+- alias values are strings only;
+- aliases are not executed during config load;
+- unknown pack names are validation errors;
+- no destructive aliases are enabled by default;
+- project-local alias packs are not auto-enabled.
 
-## Mini rc-interpreter
+## Prompt Configuration
 
-| Construct                                  | Notes                                |
-| ------------------------------------------ | ------------------------------------ |
-| `if [ <cond> ]; then ... fi`               | `else` block is optional             |
-| `for VAR in a b c; do ... done`            | Iterates literal words               |
-| `while [ <cond> ]; do ... done`            | Bounded by a safety iteration limit  |
+### Current behavior
 
-The canonical else keyword is `else`. The form `else:` is accepted as a
-compatibility alias.
+Prompt options are configured through `ShellConfigAPI`:
 
-Supported test operators:
-
-| Test                  | Meaning                              |
-| --------------------- | ------------------------------------ |
-| `[ -f path ]`         | path exists and is a regular file    |
-| `[ -d path ]`         | path exists and is a directory       |
-| `[ -e path ]`         | path exists                          |
-| `[ -z "$VAR" ]`       | `$VAR` is empty                      |
-| `[ -n "$VAR" ]`       | `$VAR` is non-empty                  |
-| `[ "$A" = "$B" ]`     | string equality                      |
-| `[ "$A" == "$B" ]`    | string equality (alias)              |
-| `[ "$A" != "$B" ]`    | string inequality                    |
-| `[ ! -f path ]` etc.  | negate any of the above              |
-
-## PyInit service metadata
-
-`~/.config/pyinit/services/*.service` files describe services that the
-`svc` builtin can manage:
-
-```
-name: example
-command: python3.13 -m http.server 8080
-depends: [network]
+```python
+def configure(shell):
+    shell.set_prompt_option("prompt_layout", "two_line")
+    shell.set_prompt_option("show_git_branch", True)
+    shell.set_prompt_option("show_last_status", True)
+    shell.set_prompt_color("cwd", "yellow")
+    shell.set_prompt_color("git", "green")
 ```
 
-Recognised fields:
+`prompt_layout` accepts `single` or `two_line`. `cwd_style` accepts `full`,
+`home`, or `basename`. Prompt color names use the existing PySH color parser.
 
-- `name`     — required identifier.
-- `command`  — required launch command line.
-- `depends`  — optional list of dependency names; accepts `[a, b]` or
-  comma-separated form.
+### Issue #31 planned behavior
 
-This is metadata support for PyInit integration, **not** a complete
-replacement for systemd.
+TOML will provide the declarative prompt layer while `.pyshrc.py` remains the
+advanced override layer:
 
-## History
+```toml
+[prompt]
+prompt_layout = "two_line"
+show_user = true
+show_host = true
+show_cwd = true
+show_git_branch = true
+show_last_status = true
 
-Persistent history is written to `~/.pysh_history`. Length is capped at
-10,000 entries. **Ctrl+R** opens reverse incremental search in the raw editor
-and through GNU readline when the readline fallback editor is active.
+[colors.prompt]
+user = "lime"
+host = "aqua"
+cwd = "yellow"
+git = "green"
+symbol = "white"
+```
+
+## Syntax-Highlight Color Configuration
+
+### Current behavior
+
+Issue #30 live-input highlight colors are configured in `~/.pyshrc.py`:
+
+```python
+def configure(shell):
+    shell.set_highlight_color("builtin", "aqua")
+    shell.set_highlight_color("alias", "fuchsia")
+    shell.set_highlight_color("comment", "gray")
+    shell.set_highlight_color("heredoc", "yellow")
+```
+
+See [syntax-highlighting.md](syntax-highlighting.md).
+
+### Issue #31 planned behavior
+
+TOML will expose the same semantic roles declaratively:
+
+```toml
+[colors.highlight]
+builtin = "aqua"
+alias = "fuchsia"
+command_valid = "lime"
+command_invalid = "red"
+string = "green"
+operator = "yellow"
+option = "aqua"
+variable = "fuchsia"
+path = "aqua"
+comment = "gray"
+heredoc = "yellow"
+error = "red"
+continuation = "yellow"
+paste = "yellow"
+reverse_search = "fuchsia"
+```
+
+Invalid roles and invalid color values must be validation errors.
+
+## Completion Configuration
+
+### Current behavior
+
+Completion is configured by shell state. It uses builtins, aliases, local
+variables, environment variable names, job IDs, plugins, local paths, and safe
+`PATH` lookup. There is no TOML completion configuration yet.
+
+### Issue #31 planned behavior
+
+Planned TOML:
+
+```toml
+[completion]
+enabled = true
+case_sensitive = false
+show_hidden = false
+menu = "compact"
+```
+
+Completion configuration must not source bash, zsh, or fish completion scripts.
+
+## History Configuration
+
+### Current behavior
+
+History is stored as JSONL at `~/.pysh_history` by default. Options are
+configured through `ShellConfigAPI`:
+
+```python
+def configure(shell):
+    shell.set_history_option("max_length", 10000)
+    shell.set_history_option("dedup_mode", "consecutive")
+    shell.set_history_option("ignore_space_prefix", True)
+    shell.set_history_option("ignore_patterns", ["password", "secret", "token", "api_key"])
+```
+
+### Issue #31 planned behavior
+
+Planned TOML:
+
+```toml
+[history]
+max_length = 10000
+dedup_mode = "consecutive"
+ignore_space_prefix = true
+ignore_patterns = ["password", "secret", "token", "api_key"]
+```
+
+Diagnostics must not print sensitive history filter values in a way that leaks
+secrets.
+
+## Environment Configuration
+
+### Current behavior
+
+Environment variables can be configured with `export` in rc files or
+`shell.env()` in `.pyshrc.py`:
+
+```python
+def configure(shell):
+    shell.env("EDITOR", "nano")
+    shell.env("PAGER", "less")
+```
+
+### Issue #31 planned behavior
+
+Planned TOML:
+
+```toml
+[env]
+EDITOR = "nano"
+PAGER = "less"
+```
+
+Keys must be valid environment variable names and values must be strings.
+TOML environment values must not perform shell expansion, command
+substitution, or Python evaluation. Diagnostics must mask likely secret values.
+
+## Startup Hooks Through `.pyshrc.py` Only
+
+### Current behavior
+
+General user startup hook registration through `ShellConfigAPI` is not
+implemented. Plugin API startup hooks exist for trusted enabled plugins.
+
+### Issue #31 planned behavior
+
+User startup hooks belong only in `.pyshrc.py`. TOML must not define executable
+hooks.
+
+```python
+# Planned Issue #31 API shape.
+def configure(shell):
+    def after_startup():
+        print("ready")
+
+    shell.register_startup_hook(after_startup)
+```
+
+Hooks must not run during TOML parsing, TOML validation-only checks, syntax
+highlighting, or documentation examples.
+
+## Config Diagnostics
+
+### Current behavior
+
+Issue #31 config diagnostic builtins are not implemented.
+
+### Issue #31 planned behavior
+
+Planned diagnostic builtins:
+
+```text
+config_check
+config_reset
+config_profile
+config_theme
+config_alias_pack
+```
+
+These names are planned only. Until implemented, do not document them in
+[builtins.md](builtins.md) as current builtins.
+
+Expected diagnostic behavior:
+
+- identify file path, section, key, and reason where practical;
+- avoid printing secret values;
+- report invalid TOML without crashing startup;
+- show active config locations and effective values where safe.
+
+## Config Reset
+
+### Current behavior
+
+No `config_reset` builtin exists.
+
+### Issue #31 planned behavior
+
+`config_reset` is planned to reset runtime session state without overwriting
+user files. Any future file-writing reset must require an explicit flag and
+must create a backup first.
+
+## Security Model
+
+### Current behavior
+
+`.pyshrc` and `.pyshrc.d/*.pysh` execute through PySH's rc interpreter.
+`.pyshrc.py` is trusted Python user code. Static migration helpers read foreign
+profile files as text and do not execute them.
+
+### Issue #31 planned behavior
+
+TOML configuration must be non-executing:
+
+- no shell command execution;
+- no Python evaluation;
+- no shell expression evaluation;
+- no command substitution;
+- no plugin execution;
+- no project-local config auto-enable;
+- no destructive aliases by default;
+- no runtime dependency addition.
+
+Issue #31 implementation should use Python 3.13 stdlib `tomllib` for reading
+TOML.
+
+## Invalid Config Recovery
+
+### Current behavior
+
+Broken `.pyshrc.py` is caught and reported without terminating the shell.
+Legacy rc parsing reports errors and continues where possible.
+
+### Issue #31 planned behavior
+
+Invalid TOML must not crash PySH. The shell should fall back to defaults and
+valid later layers where possible. Diagnostics should include:
+
+- file path;
+- section;
+- key;
+- safe value representation where appropriate;
+- reason;
+- valid values where practical.
+
+Likely secret values must be redacted for names containing `TOKEN`, `SECRET`,
+`PASSWORD`, `PASS`, `KEY`, `PRIVATE`, or `CREDENTIAL`.
+
+## Migration From `.pyshrc.py`-Only Usage
+
+### Current behavior
+
+Users configure PySH behavior primarily through `.pyshrc.py` and legacy rc
+files.
+
+### Issue #31 planned behavior
+
+Users should move stable preferences into TOML and keep programmable behavior
+in `.pyshrc.py`.
+
+Example migration:
+
+Current `.pyshrc.py`:
+
+```python
+def configure(shell):
+    shell.set_prompt_option("show_git_branch", True)
+    shell.set_editor_option("autosuggest", True)
+    shell.set_highlight_color("builtin", "aqua")
+    shell.alias("gs", "git status --short")
+```
+
+Planned TOML:
+
+```toml
+[prompt]
+show_git_branch = true
+
+[editor]
+autosuggest = true
+
+[colors.highlight]
+builtin = "aqua"
+
+[aliases]
+gs = "git status --short"
+```
+
+Keep `.pyshrc.py` for logic that cannot be represented as declarative data.
+
+## Future / Out Of Scope
+
+These are not part of the current behavior and are not required for Issue #31
+Part 1 documentation:
+
+- browser or GUI configuration;
+- theme marketplace;
+- automatic project-local config enablement;
+- writing TOML from every runtime setting;
+- `config_check --fix`;
+- destructive alias packs;
+- requiring Nerd Fonts by default.
+
+## Manual Validation Checklist
+
+### Current behavior
+
+```sh
+uv run pysh -c "echo ok"
+uv run pysh -c "exit"
+uv run pysh -c "quit"
+```
+
+Manual checks:
+
+- confirm `~/.pyshrc.py` is not overwritten when it already exists;
+- confirm `shell.set_prompt_option()` errors are readable;
+- confirm `shell.set_highlight_color()` rejects invalid roles and colors;
+- confirm `NO_COLOR=1 uv run pysh` remains readable;
+- confirm `TERM=dumb uv run pysh` falls back safely.
+
+### Issue #31 planned behavior
+
+After implementation, validate:
+
+- `${XDG_CONFIG_HOME}/pysh/config.toml` load path;
+- fallback `~/.config/pysh/config.toml` load path;
+- lexical `conf.d/*.toml` override order;
+- invalid TOML diagnostics;
+- invalid profile/theme/alias-pack diagnostics;
+- no execution from TOML values;
+- `.pyshrc.py` overrides after TOML;
+- user files are not overwritten;
+- planned config diagnostic builtins do not print secret values.
