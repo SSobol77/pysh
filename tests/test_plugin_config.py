@@ -273,9 +273,13 @@ def test_pyshell_get_plugin_config_returns_copy(tmp_path: Path, monkeypatch) -> 
 
     result = shell.get_plugin_config("myplugin")
     assert result == {"settings": {"foo": 1}}
-    # Mutating the returned copy must not affect internal state
+    # Mutating top-level keys must not affect internal state
     result["injected"] = "bad"
     assert "injected" not in shell.get_plugin_config("myplugin")
+    # Mutating nested dict values must not affect internal state (deep copy)
+    result2 = shell.get_plugin_config("myplugin")
+    result2["settings"]["foo"] = 999
+    assert shell.get_plugin_config("myplugin")["settings"]["foo"] == 1
 
 
 def test_pyshell_get_plugin_config_does_not_execute_toml(tmp_path: Path, monkeypatch) -> None:

@@ -21,6 +21,7 @@ import termios
 import time
 import uuid
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -2688,7 +2689,7 @@ class PyShell:
         The returned value is always a fresh copy; callers may not mutate
         internal state through it.
         """
-        return dict(self.plugin_configs.get(name, {}))
+        return deepcopy(self.plugin_configs.get(name, {}))
 
     def register_startup_hook(self, fn: Callable[[], None]) -> None:
         """Register a trusted Python startup hook from ``~/.pyshrc.py``."""
