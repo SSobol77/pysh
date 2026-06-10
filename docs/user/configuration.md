@@ -24,20 +24,24 @@ configuration strategy. Status labels are intentional:
 
 ### Current behavior
 
-PySH currently supports three startup layers:
+PySH currently supports four startup layers:
 
-1. `~/.pyshrc` - shell-syntax startup file interpreted by PySH.
-2. `~/.pyshrc.d/*.pysh` - shell-syntax drop-ins loaded in deterministic
+1. `${XDG_CONFIG_HOME}/pysh/config.toml` or `~/.config/pysh/config.toml` -
+   declarative TOML data loaded without command execution.
+2. `~/.config/pysh/conf.d/*.toml` - declarative TOML drop-ins loaded in
+   deterministic lexical order.
+3. `~/.pyshrc` - shell-syntax startup file interpreted by PySH.
+4. `~/.pyshrc.d/*.pysh` - shell-syntax drop-ins loaded in deterministic
    lexicographic order.
-3. `~/.pyshrc.py` - Python-native configuration through `ShellConfigAPI`.
+5. `~/.pyshrc.py` - Python-native configuration through `ShellConfigAPI`.
 
 PySH creates `~/.pyshrc.py` from a commented template on first interactive
 launch only when the file does not already exist. Existing user configuration
 is not overwritten.
 
-### Issue #31 planned behavior
+### Current Issue #31 behavior
 
-Issue #31 introduces a two-layer primary configuration model:
+Issue #31 implements a two-layer primary configuration model:
 
 1. Declarative TOML configuration:
    - `${XDG_CONFIG_HOME}/pysh/config.toml`
@@ -48,9 +52,9 @@ Issue #31 introduces a two-layer primary configuration model:
    - `ShellConfigAPI`
    - startup hooks and programmable behavior
 
-TOML is planned as the primary safe declarative format. `.pyshrc.py` remains
-the advanced programmable layer. Existing `.pyshrc`, `.pyshrc.d`, and
-`.pyshrc.py` compatibility must remain intact.
+TOML is the primary safe declarative format. `.pyshrc.py` remains the advanced
+programmable layer. Existing `.pyshrc`, `.pyshrc.d`, and `.pyshrc.py`
+compatibility remains intact.
 
 ## Load Order
 
@@ -61,35 +65,21 @@ Current interactive startup loads:
 1. built-in defaults;
 2. `~/.pyshrc`;
 3. `~/.pyshrc.d/*.pysh` in lexical order;
-4. `~/.pyshrc.py`;
-5. Plugin API startup hooks after plugin discovery.
+4. `${XDG_CONFIG_HOME}/pysh/config.toml` or `~/.config/pysh/config.toml`;
+5. `~/.config/pysh/conf.d/*.toml` in lexical order;
+6. `~/.pyshrc.py`;
+7. Python config startup hooks;
+8. Plugin API startup hooks after plugin discovery.
 
 Invalid legacy rc lines are reported and the remaining file continues where
 possible. A broken Python config is reported on stderr and does not terminate
 the shell.
 
-### Issue #31 planned behavior
-
-The planned load order is:
-
-1. built-in defaults;
-2. built-in profile, theme, and alias-pack definitions;
-3. `${XDG_CONFIG_HOME}/pysh/config.toml` or `~/.config/pysh/config.toml`;
-4. `~/.config/pysh/conf.d/*.toml` in lexical order;
-5. legacy compatibility files where retained by startup policy;
-6. `~/.pyshrc.py` advanced overrides;
-7. runtime session changes.
-
-Later layers override earlier layers only through validated configuration
-interfaces. Runtime changes do not rewrite user files automatically.
+Runtime session changes do not rewrite user files automatically.
 
 ## TOML Declarative Configuration
 
 ### Current behavior
-
-PySH does not currently load `config.toml` or `conf.d/*.toml`.
-
-### Issue #31 planned behavior
 
 The primary declarative file is:
 
@@ -110,13 +100,13 @@ Planned drop-ins:
 ```
 
 Drop-ins load in lexical order. Later files override earlier declarative
-values. Invalid TOML must report readable diagnostics and must not crash shell
+values. Invalid TOML reports readable diagnostics and does not crash shell
 startup.
 
-Planned example:
+Example:
 
 ```toml
-# Planned Issue #31 syntax: ~/.config/pysh/config.toml
+# ~/.config/pysh/config.toml
 
 [profile]
 active = "developer"
@@ -163,9 +153,74 @@ EDITOR = "nano"
 PAGER = "less"
 ```
 
-TOML is data only. It must not execute commands, evaluate shell expressions,
+TOML is data only. It does not execute commands, evaluate shell expressions,
 evaluate Python expressions, expand variables, load plugins, or run startup
 hooks.
+
+## Plugin Configuration Files
+
+### Current behavior
+
+Each plugin may optionally have a dedicated TOML configuration file stored
+next to the main config directory:
+
+```text
+${XDG_CONFIG_HOME}/pysh/plugins/<plugin-name>.toml
+~/.config/pysh/plugins/<plugin-name>.toml  (fallback)
+```
+
+Plugin config files are discovered automatically.  A missing file is not an
+error.  An invalid file produces diagnostics on startup and is skipped without
+crashing the shell.
+
+Example plugin config file:
+
+```toml
+# ~/.config/pysh/plugins/example.toml
+
+[plugin]
+name = "example"
+
+[settings]
+enabled_feature = true
+mode = "safe"
+max_items = 100
+
+[colors]
+status = "aqua"
+
+[env]
+# plugin-specific environment-like settings (not applied to the process
+# environment unless the plugin code does so explicitly)
+```
+
+**Security rules for plugin TOML files:**
+
+- Plugin TOML files are **data only**.
+- They do **not** execute commands.
+- They do **not** evaluate shell or Python expressions.
+- They do **not** load or enable plugin code by themselves.
+- They do **not** enable project-local plugins.
+- They do **not** access the network.
+- Invalid plugin TOML does not crash shell startup.
+- Secret-like values (`TOKEN`, `SECRET`, `KEY`, etc.) are masked in diagnostics.
+
+**Plugin activation remains separate from plugin configuration.**  A plugin
+TOML file may configure a plugin, but it does not cause the plugin to load or
+execute.  Plugins are enabled only through `shell.enable_plugin("name")` in
+`~/.pyshrc.py`.
+
+Plugin config files are read through the same non-executing TOML loader as the
+main config.  Plugin settings are available to the plugin at runtime through
+`shell.get_plugin_config("name")` or `ShellConfigAPI.get_plugin_config("name")`.
+
+Plugin file stem names must be safe identifiers: lowercase letters, digits,
+`_`, `-`, and `.`.  Uppercase names and path separators are rejected.
+
+If `[plugin].name` is declared in the file, it must match the file stem.  A
+mismatch is a diagnostic, not a crash.
+
+Use `config_check --locations` to see all discovered plugin config files.
 
 ## Advanced `.pyshrc.py` Configuration
 
@@ -187,15 +242,12 @@ def configure(shell):
 The Python file is trusted user code. Exceptions are caught and reported so a
 broken configuration does not terminate the shell session.
 
-### Issue #31 planned behavior
-
 `.pyshrc.py` remains the advanced programmable layer and runs after TOML. It
 may override TOML-applied settings through `ShellConfigAPI`.
 
 Startup hooks belong only in `.pyshrc.py`, not TOML:
 
 ```python
-# Planned Issue #31 API shape.
 def configure(shell):
     def banner():
         print("Welcome to PySH")
@@ -203,8 +255,7 @@ def configure(shell):
     shell.register_startup_hook(banner)
 ```
 
-Hook APIs are planned; do not rely on them until Issue #31 implementation
-lands.
+Hook APIs do not run during TOML parsing or validation-only checks.
 
 ## Legacy `.pyshrc` And `.pyshrc.d`
 
@@ -225,8 +276,6 @@ alias ll="ls -la --color=auto -F"
 alias gs="git status -sb"
 ```
 
-### Issue #31 planned behavior
-
 Legacy files remain compatible. They are not the primary new configuration
 format, but Issue #31 must not break existing users.
 
@@ -234,12 +283,8 @@ format, but Issue #31 must not break existing users.
 
 ### Current behavior
 
-Named configuration profiles are not implemented.
-
-### Issue #31 planned behavior
-
 Profiles define behavior and prompt layout. They do not define aliases.
-Minimum planned built-in profiles:
+Built-in profiles:
 
 | Profile | Purpose |
 | ------- | ------- |
@@ -250,37 +295,32 @@ Minimum planned built-in profiles:
 | `presentation` | Clean demo-friendly prompt. |
 | `plain` | No icons and low ANSI dependence. |
 
-Planned TOML:
+TOML:
 
 ```toml
 [profile]
 active = "developer"
 ```
 
-Custom profiles are planned under `[profiles.NAME]`. See
-[themes.md](themes.md) for planned profile and theme examples.
+Custom profiles are defined under `[profiles.NAME]`. See
+[themes.md](themes.md) for profile and theme examples.
 
 ## Themes
 
 ### Current behavior
 
-Named themes are not implemented. Current visual configuration is done through
-prompt color and syntax-highlight color APIs in `~/.pyshrc.py`.
-
-### Issue #31 planned behavior
-
 Themes define visual style only. They are independent from profiles. A profile
 may reference a theme, but users must be able to combine any profile with any
 theme.
 
-Planned TOML:
+TOML:
 
 ```toml
 [theme]
 active = "default"
 ```
 
-See [themes.md](themes.md) for planned built-in themes, custom theme syntax,
+See [themes.md](themes.md) for built-in themes, custom theme syntax,
 accessibility rules, no-color behavior, and relation to Issue #30 syntax
 highlighting.
 
@@ -288,15 +328,10 @@ highlighting.
 
 ### Current behavior
 
-Alias packs are not implemented. Users define aliases with `alias` in
-`~/.pyshrc`, `~/.pyshrc.d/*.pysh`, or `shell.alias()` in `~/.pyshrc.py`.
-
-### Issue #31 planned behavior
-
-Alias packs define named groups of simple aliases. Planned built-in packs
+Alias packs define named groups of simple aliases. Built-in packs
 include `git`, `python`, `project`, and `files`.
 
-Planned TOML:
+TOML:
 
 ```toml
 [alias_packs]
@@ -330,9 +365,9 @@ def configure(shell):
 `prompt_layout` accepts `single` or `two_line`. `cwd_style` accepts `full`,
 `home`, or `basename`. Prompt color names use the existing PySH color parser.
 
-### Issue #31 planned behavior
+### Current behavior
 
-TOML will provide the declarative prompt layer while `.pyshrc.py` remains the
+TOML provides the declarative prompt layer while `.pyshrc.py` remains the
 advanced override layer:
 
 ```toml
@@ -368,9 +403,9 @@ def configure(shell):
 
 See [syntax-highlighting.md](syntax-highlighting.md).
 
-### Issue #31 planned behavior
+### Current behavior
 
-TOML will expose the same semantic roles declaratively:
+TOML exposes the same semantic roles declaratively:
 
 ```toml
 [colors.highlight]
@@ -399,11 +434,9 @@ Invalid roles and invalid color values must be validation errors.
 
 Completion is configured by shell state. It uses builtins, aliases, local
 variables, environment variable names, job IDs, plugins, local paths, and safe
-`PATH` lookup. There is no TOML completion configuration yet.
+`PATH` lookup. TOML supports the same declarative completion options.
 
-### Issue #31 planned behavior
-
-Planned TOML:
+TOML:
 
 ```toml
 [completion]
@@ -430,9 +463,9 @@ def configure(shell):
     shell.set_history_option("ignore_patterns", ["password", "secret", "token", "api_key"])
 ```
 
-### Issue #31 planned behavior
+### Current behavior
 
-Planned TOML:
+TOML:
 
 ```toml
 [history]
@@ -458,9 +491,9 @@ def configure(shell):
     shell.env("PAGER", "less")
 ```
 
-### Issue #31 planned behavior
+### Current behavior
 
-Planned TOML:
+TOML:
 
 ```toml
 [env]
@@ -476,16 +509,10 @@ substitution, or Python evaluation. Diagnostics must mask likely secret values.
 
 ### Current behavior
 
-General user startup hook registration through `ShellConfigAPI` is not
-implemented. Plugin API startup hooks exist for trusted enabled plugins.
-
-### Issue #31 planned behavior
-
 User startup hooks belong only in `.pyshrc.py`. TOML must not define executable
 hooks.
 
 ```python
-# Planned Issue #31 API shape.
 def configure(shell):
     def after_startup():
         print("ready")
@@ -500,11 +527,7 @@ highlighting, or documentation examples.
 
 ### Current behavior
 
-Issue #31 config diagnostic builtins are not implemented.
-
-### Issue #31 planned behavior
-
-Planned diagnostic builtins:
+Diagnostic builtins:
 
 ```text
 config_check
@@ -513,9 +536,6 @@ config_profile
 config_theme
 config_alias_pack
 ```
-
-These names are planned only. Until implemented, do not document them in
-[builtins.md](builtins.md) as current builtins.
 
 Expected diagnostic behavior:
 
@@ -528,13 +548,9 @@ Expected diagnostic behavior:
 
 ### Current behavior
 
-No `config_reset` builtin exists.
-
-### Issue #31 planned behavior
-
-`config_reset` is planned to reset runtime session state without overwriting
-user files. Any future file-writing reset must require an explicit flag and
-must create a backup first.
+`config_reset` resets runtime session state without overwriting user files.
+Any future file-writing reset must require an explicit flag and must create a
+backup first.
 
 ## Security Model
 
@@ -543,8 +559,6 @@ must create a backup first.
 `.pyshrc` and `.pyshrc.d/*.pysh` execute through PySH's rc interpreter.
 `.pyshrc.py` is trusted Python user code. Static migration helpers read foreign
 profile files as text and do not execute them.
-
-### Issue #31 planned behavior
 
 TOML configuration must be non-executing:
 
@@ -557,8 +571,7 @@ TOML configuration must be non-executing:
 - no destructive aliases by default;
 - no runtime dependency addition.
 
-Issue #31 implementation should use Python 3.13 stdlib `tomllib` for reading
-TOML.
+PySH uses Python 3.13 stdlib `tomllib` for reading TOML.
 
 ## Invalid Config Recovery
 
@@ -566,8 +579,6 @@ TOML.
 
 Broken `.pyshrc.py` is caught and reported without terminating the shell.
 Legacy rc parsing reports errors and continues where possible.
-
-### Issue #31 planned behavior
 
 Invalid TOML must not crash PySH. The shell should fall back to defaults and
 valid later layers where possible. Diagnostics should include:
@@ -588,8 +599,6 @@ Likely secret values must be redacted for names containing `TOKEN`, `SECRET`,
 
 Users configure PySH behavior primarily through `.pyshrc.py` and legacy rc
 files.
-
-### Issue #31 planned behavior
 
 Users should move stable preferences into TOML and keep programmable behavior
 in `.pyshrc.py`.

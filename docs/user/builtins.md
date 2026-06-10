@@ -110,6 +110,118 @@ Return behavior: returns 0 for supported export forms.
 Limitations: complex shell export syntax such as `export -f` is not
 implemented.
 
+## `config_check`
+
+Syntax: `config_check [--validate|--diff|--locations]`
+
+Purpose: Inspect declarative TOML configuration without executing TOML values
+or writing configuration files.
+
+Examples:
+
+```sh
+config_check
+config_check --validate
+config_check --diff
+config_check --locations
+```
+
+`--locations` reports all loaded configuration files, including:
+
+- the primary `config.toml`;
+- any `conf.d/*.toml` drop-ins;
+- any `plugins/<name>.toml` plugin configuration files.
+
+`--validate` checks main config and plugin config for errors.  Secret-like
+values are masked in all diagnostic output.
+
+Return behavior: returns 0 when the checked configuration has no errors and 1
+when validation errors are present. Returns 2 for usage errors.
+
+Limitations: `--diff` reports runtime summary state; it does not rewrite TOML.
+
+## `config_reset`
+
+Syntax: `config_reset [target]`
+
+Purpose: Reset runtime configuration state in memory. Supported targets are
+`all`, `prompt`, `editor`, `history`, `completion`, `colors`, `highlight`,
+`cursor`, and `aliases`.
+
+Example:
+
+```sh
+config_reset prompt
+```
+
+Return behavior: returns 0 when the target is reset, 1 for an unknown target,
+and 2 for usage errors.
+
+Limitations: never writes or repairs user TOML files.
+
+## `config_profile`
+
+Syntax: `config_profile list|show NAME|use NAME`
+
+Purpose: List, inspect, or apply Issue #31 configuration profiles for the
+current shell session.
+
+Examples:
+
+```sh
+config_profile list
+config_profile show developer
+config_profile use minimal
+```
+
+Return behavior: returns 0 on success, 1 for an unknown profile, and 2 for
+usage errors.
+
+Limitations: `use` changes only the current runtime session and does not write
+configuration files.
+
+## `config_theme`
+
+Syntax: `config_theme list|show NAME|preview NAME|use NAME`
+
+Purpose: List, inspect, preview, or apply Issue #31 themes. Preview is
+non-executing and does not write configuration files.
+
+Examples:
+
+```sh
+config_theme list
+config_theme preview nord
+config_theme use plain
+```
+
+Return behavior: returns 0 on success, 1 for an unknown theme, and 2 for usage
+errors.
+
+Limitations: themes affect visual state only and do not change command parsing
+or execution semantics.
+
+## `config_alias_pack`
+
+Syntax: `config_alias_pack list|show NAME|load NAME`
+
+Purpose: List, inspect, or load built-in alias packs. Built-in packs are `git`,
+`python`, `project`, and `files`.
+
+Examples:
+
+```sh
+config_alias_pack list
+config_alias_pack show git
+config_alias_pack load python
+```
+
+Return behavior: returns 0 on success, 1 for an unknown pack, and 2 for usage
+errors.
+
+Limitations: alias values are registered as strings and are not executed during
+pack loading. No destructive alias pack is enabled by default.
+
 ## `source`
 
 Syntax: `source FILE`

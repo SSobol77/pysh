@@ -98,6 +98,10 @@ class CompletionOptions:
     job_ids: tuple[int, ...] = ()
     python_namespace: Mapping[str, object] | None = None
     path_cache: _PathCache | None = None
+    enabled: bool = True
+    case_sensitive: bool = False
+    show_hidden: bool = False
+    menu: str = "compact"
 
 
 @dataclass(frozen=True)
@@ -209,7 +213,7 @@ class CompletionEngine:
     def complete(self, line: str, cursor: int) -> CompletionResult:
         """Return completion candidates for ``line`` at ``cursor``."""
         context = parse_completion_context(line, cursor)
-        if context.in_comment:
+        if not self.options.enabled or context.in_comment:
             return CompletionResult(
                 context.token_start,
                 context.token_end,
@@ -252,7 +256,7 @@ class CompletionEngine:
         prefix = context.prefix
         candidates: list[CompletionCandidate] = []
         for name in sorted(self.options.builtins, key=str.casefold):
-            match_type = _match_type(name, prefix)
+            match_type = _match_type(name, prefix, case_sensitive=self.options.case_sensitive)
             if match_type is not None:
                 candidates.append(
                     CompletionCandidate(
@@ -263,7 +267,7 @@ class CompletionEngine:
                     )
                 )
         for name in sorted(self.options.aliases, key=str.casefold):
-            match_type = _match_type(name, prefix)
+            match_type = _match_type(name, prefix, case_sensitive=self.options.case_sensitive)
             if match_type is not None:
                 candidates.append(
                     CompletionCandidate(
@@ -282,7 +286,7 @@ class CompletionEngine:
         cache = self.options.path_cache if self.options.path_cache is not None else _GLOBAL_PATH_CACHE
         out: list[CompletionCandidate] = []
         for name in cache.commands(path_value):
-            match_type = _match_type(name, prefix)
+            match_type = _match_type(name, prefix, case_sensitive=self.options.case_sensitive)
             if match_type is None:
                 continue
             out.append(
@@ -311,12 +315,16 @@ class CompletionEngine:
             return []
 
         out: list[CompletionCandidate] = []
-        include_hidden = name_prefix.startswith(".")
+        include_hidden = self.options.show_hidden or name_prefix.startswith(".")
         for entry in entries:
             name = entry.name
             if name.startswith(".") and not include_hidden:
                 continue
-            match_type = _match_type(name, name_prefix)
+            match_type = _match_type(
+                name,
+                name_prefix,
+                case_sensitive=self.options.case_sensitive,
+            )
             if match_type is None:
                 continue
             try:
@@ -344,7 +352,11 @@ class CompletionEngine:
             names.update(self.options.locals)
         out: list[CompletionCandidate] = []
         for name in sorted(names):
-            match_type = _match_type(name, context.variable_prefix)
+            match_type = _match_type(
+                name,
+                context.variable_prefix,
+                case_sensitive=self.options.case_sensitive,
+            )
             if match_type is None:
                 continue
             if context.variable_style == "brace":
@@ -367,7 +379,11 @@ class CompletionEngine:
         out: list[CompletionCandidate] = []
         for job_id in sorted(self.options.job_ids):
             value = str(job_id)
-            match_type = _match_type(value, prefix)
+            match_type = _match_type(
+                value,
+                prefix,
+                case_sensitive=self.options.case_sensitive,
+            )
             if match_type is not CompletionMatchType.PREFIX:
                 continue
             if value.startswith(prefix):
@@ -392,7 +408,11 @@ class CompletionEngine:
         out: list[CompletionCandidate] = []
         if dotted is None:
             for name in sorted(namespace, key=str.casefold):
-                match_type = _match_type(name, prefix)
+                match_type = _match_type(
+                    name,
+                    prefix,
+                    case_sensitive=self.options.case_sensitive,
+                )
                 if match_type is None:
                     continue
                 out.append(
@@ -410,7 +430,11 @@ class CompletionEngine:
         if obj is None:
             return []
         for attr_name in _safe_attribute_names(obj):
-            match_type = _match_type(attr_name, attr_prefix)
+            match_type = _match_type(
+                attr_name,
+                attr_prefix,
+                case_sensitive=self.options.case_sensitive,
+            )
             if match_type is None:
                 continue
             out.append(
@@ -437,6 +461,10 @@ def complete_line(
     cwd: Path | None = None,
     python_namespace: Mapping[str, object] | None = None,
     path_cache: _PathCache | None = None,
+    enabled: bool = True,
+    case_sensitive: bool = False,
+    show_hidden: bool = False,
+    menu: str = "compact",
 ) -> CompletionResult:
     """Return completion candidates for ``line`` at ``cursor``."""
     engine = CompletionEngine(
@@ -450,6 +478,10 @@ def complete_line(
             job_ids=tuple(job_ids),
             python_namespace=python_namespace,
             path_cache=path_cache,
+            enabled=enabled,
+            case_sensitive=case_sensitive,
+            show_hidden=show_hidden,
+            menu=menu,
         )
     )
     return engine.complete(line, cursor)
@@ -761,12 +793,17 @@ def _dedupe_candidates(values: Sequence[CompletionCandidate]) -> list[Completion
     return out
 
 
-def _match_type(value: str, prefix: str) -> CompletionMatchType | None:
+def _match_type(
+    value: str,
+    prefix: str,
+    *,
+    case_sensitive: bool = False,
+) -> CompletionMatchType | None:
     """Return prefix/substring match type using case-insensitive matching."""
     if not prefix:
         return CompletionMatchType.PREFIX
-    folded_value = value.casefold()
-    folded_prefix = prefix.casefold()
+    folded_value = value if case_sensitive else value.casefold()
+    folded_prefix = prefix if case_sensitive else prefix.casefold()
     if folded_value.startswith(folded_prefix):
         return CompletionMatchType.PREFIX
     if folded_prefix in folded_value:

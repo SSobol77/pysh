@@ -197,6 +197,24 @@ DEFAULT_HISTORY_OPTIONS: dict[str, object] = {
     "path": str(DEFAULT_HISTORY_PATH),
 }
 
+DEFAULT_COMPLETION_OPTIONS: dict[str, object] = {
+    "enabled": True,
+    "case_sensitive": False,
+    "show_hidden": False,
+    "menu": "compact",
+}
+
+COMPLETION_OPTION_TYPES: dict[str, type] = {
+    "enabled": bool,
+    "case_sensitive": bool,
+    "show_hidden": bool,
+    "menu": str,
+}
+
+COMPLETION_OPTION_VALUES: dict[str, frozenset[str]] = {
+    "menu": frozenset({"compact", "list", "none"}),
+}
+
 _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # Monotonic counter guarantees a fresh module object on every load, which
@@ -273,6 +291,46 @@ class ConfigurableShell(Protocol):
         """Set a single validated history engine option."""
         ...
 
+    def set_completion_option(self, name: str, value: object) -> None:
+        """Set a single validated completion option."""
+        ...
+
+    def set_profile(self, name: str) -> None:
+        """Apply a named configuration profile."""
+        ...
+
+    def get_profiles(self) -> list[str]:
+        """Return known configuration profile names."""
+        ...
+
+    def set_theme(self, name: str) -> None:
+        """Apply a named theme."""
+        ...
+
+    def get_themes(self) -> list[str]:
+        """Return known theme names."""
+        ...
+
+    def preview_theme(self, name: str) -> str:
+        """Return a non-executing preview for a theme."""
+        ...
+
+    def load_alias_pack(self, name: str) -> None:
+        """Load a named alias pack."""
+        ...
+
+    def get_alias_packs(self) -> list[str]:
+        """Return known alias-pack names."""
+        ...
+
+    def register_startup_hook(self, fn: object) -> None:
+        """Register a user startup hook."""
+        ...
+
+    def reset_config(self, target: str = "all") -> None:
+        """Reset runtime configuration state."""
+        ...
+
     def enable_plugin(self, name: str) -> None:
         """Record explicit intent to load a named Plugin API plugin."""
         ...
@@ -291,6 +349,10 @@ class ConfigurableShell(Protocol):
 
     def is_plugin_enabled(self, name: str) -> bool:
         """Return whether a plugin name is explicitly enabled."""
+        ...
+
+    def get_plugin_config(self, name: str) -> dict[str, object]:
+        """Return a copy of the loaded plugin TOML configuration for *name*."""
         ...
 
 
@@ -525,6 +587,23 @@ def validate_history_option(name: str, value: object) -> None:
     raise ConfigError(f"unknown history option {name!r} (known: {known})")
 
 
+def validate_completion_option(name: str, value: object) -> None:
+    """Validate a completion option name/value pair."""
+    expected = COMPLETION_OPTION_TYPES.get(name)
+    if expected is None:
+        known = ", ".join(sorted(COMPLETION_OPTION_TYPES))
+        raise ConfigError(f"unknown completion option {name!r} (known: {known})")
+    if not isinstance(value, expected):
+        raise ConfigError(
+            f"completion option {name!r} expects {expected.__name__}, "
+            f"got {type(value).__name__}"
+        )
+    allowed = COMPLETION_OPTION_VALUES.get(name)
+    if allowed is not None and value not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise ConfigError(f"completion option {name!r} must be one of: {allowed_text}")
+
+
 def _validate_alias_name(name: str) -> None:
     if not name or any(ch.isspace() for ch in name) or "=" in name:
         raise ConfigError(f"invalid alias name: {name!r}")
@@ -742,6 +821,63 @@ class ShellConfigAPI:
         validate_history_option(name, value)
         self._shell.set_history_option(name, value)
 
+    def set_completion_option(self, name: str, value: object) -> None:
+        """Set a single completion option."""
+        validate_completion_option(name, value)
+        self._shell.set_completion_option(name, value)
+
+    def set_env(self, name: str, value: str) -> None:
+        """Alias for :meth:`env` for TOML/config API symmetry."""
+        self.env(name, value)
+
+    def set_profile(self, name: str) -> None:
+        """Apply a named configuration profile."""
+        if not isinstance(name, str):
+            raise ConfigError("set_profile() requires name: str")
+        self._shell.set_profile(name)
+
+    def get_profiles(self) -> list[str]:
+        """Return known profile names."""
+        return self._shell.get_profiles()
+
+    def set_theme(self, name: str) -> None:
+        """Apply a named theme."""
+        if not isinstance(name, str):
+            raise ConfigError("set_theme() requires name: str")
+        self._shell.set_theme(name)
+
+    def get_themes(self) -> list[str]:
+        """Return known theme names."""
+        return self._shell.get_themes()
+
+    def preview_theme(self, name: str) -> str:
+        """Return a non-executing theme preview."""
+        if not isinstance(name, str):
+            raise ConfigError("preview_theme() requires name: str")
+        return self._shell.preview_theme(name)
+
+    def load_alias_pack(self, name: str) -> None:
+        """Load a named alias pack into the current session."""
+        if not isinstance(name, str):
+            raise ConfigError("load_alias_pack() requires name: str")
+        self._shell.load_alias_pack(name)
+
+    def get_alias_packs(self) -> list[str]:
+        """Return known alias-pack names."""
+        return self._shell.get_alias_packs()
+
+    def register_startup_hook(self, fn: object) -> None:
+        """Register a trusted Python startup hook from ``~/.pyshrc.py``."""
+        if not callable(fn):
+            raise ConfigError("register_startup_hook() requires a callable")
+        self._shell.register_startup_hook(fn)
+
+    def reset_config(self, target: str = "all") -> None:
+        """Reset runtime configuration state without writing user files."""
+        if not isinstance(target, str):
+            raise ConfigError("reset_config() requires target: str")
+        self._shell.reset_config(target)
+
     def enable_plugin(self, name: str) -> None:
         """Explicitly enable a trusted Python plugin by name.
 
@@ -772,6 +908,23 @@ class ShellConfigAPI:
         if not isinstance(name, str):
             raise ConfigError("is_plugin_enabled() requires name: str")
         return self._shell.is_plugin_enabled(name)
+
+    def get_plugin_config(self, name: str) -> dict[str, object]:
+        """Return a copy of the loaded plugin TOML configuration for *name*.
+
+        The returned dict is always a fresh copy.  Returns an empty dict when
+        no plugin config file was discovered for *name*.  Plugin config is
+        data only — it does not execute plugin code, load plugins, or enable
+        project-local plugins.
+
+        Example::
+
+            cfg = shell.get_plugin_config("example")
+            mode = cfg.get("settings", {}).get("mode", "safe")
+        """
+        if not isinstance(name, str):
+            raise ConfigError("get_plugin_config() requires name: str")
+        return self._shell.get_plugin_config(name)
 
 
 # --------------------------------------------------------------- default file

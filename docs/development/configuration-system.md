@@ -12,14 +12,12 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Configuration System Architecture
 
-This document defines the planned Issue #31 configuration-system architecture.
-It is a strategy document, not an implementation record. Current implementation
-still uses legacy rc files and `~/.pyshrc.py`.
+This document defines the Issue #31 configuration-system architecture.
 
 ## Status Labels
 
 - **Current behavior**: implemented now.
-- **Issue #31 planned behavior**: implementation target.
+- **Issue #31 behavior**: implemented Issue #31 configuration behavior.
 - **Future / out of scope**: intentionally deferred.
 
 ## Current Behavior
@@ -28,31 +26,40 @@ Current startup configuration is owned by:
 
 - `src/pysh/config/rc.py` for `~/.pyshrc` and `.pyshrc.d/*.pysh`;
 - `src/pysh/config/api.py` for `ShellConfigAPI`;
+- `src/pysh/config/paths.py` for XDG path resolution;
+- `src/pysh/config/toml_loader.py` for non-executing TOML parsing;
+- `src/pysh/config/schema.py` for declarative validation and application;
+- `src/pysh/config/profiles.py` for profile definitions and inheritance;
+- `src/pysh/config/themes.py` for theme definitions and inheritance;
+- `src/pysh/config/alias_packs.py` for built-in alias packs;
+- `src/pysh/config/diagnostics.py` for config diagnostics;
 - `src/pysh/core/shell.py` for applying shell state;
 - plugin loading after user configuration.
 
-There is no TOML loader, profile registry, theme registry, or alias-pack
-registry yet.
+TOML parsing, validation, diagnostics, registries, and shell application are
+kept as separate responsibilities.
 
-## Issue #31 Planned Load Order
+## Issue #31 Load Order
 
-Planned load order:
+Implemented interactive load order:
 
 1. built-in defaults;
 2. built-in profile, theme, and alias-pack definitions;
-3. primary TOML: `${XDG_CONFIG_HOME}/pysh/config.toml`, falling back to
+3. legacy compatibility files;
+4. primary TOML: `${XDG_CONFIG_HOME}/pysh/config.toml`, falling back to
    `~/.config/pysh/config.toml`;
-4. TOML drop-ins: `~/.config/pysh/conf.d/*.toml` in lexical order;
-5. legacy compatibility files where retained by startup policy;
+5. TOML drop-ins: `~/.config/pysh/conf.d/*.toml` in lexical order;
 6. `~/.pyshrc.py` advanced overrides through `ShellConfigAPI`;
-7. runtime session changes.
+7. Python config startup hooks;
+8. plugin startup hooks;
+9. runtime session changes.
 
 Invalid TOML must not crash startup. Valid later layers should still apply
 where possible.
 
-## Planned Module Ownership
+## Module Ownership
 
-Expected modules:
+Implemented modules:
 
 | Module | Ownership |
 | ------ | --------- |
@@ -64,11 +71,11 @@ Expected modules:
 | `src/pysh/config/alias_packs.py` | Built-in alias packs and alias-pack validation. |
 | `src/pysh/config/diagnostics.py` | User-facing diagnostic records and formatting. |
 
-Implementation should keep parsing, validation, and application separate.
+Parsing, validation, and application remain separate.
 
 ## TOML Loading
 
-Issue #31 must use Python 3.13 stdlib `tomllib` for TOML reading.
+Issue #31 uses Python 3.13 stdlib `tomllib` for TOML reading.
 
 Forbidden runtime dependencies:
 
@@ -80,12 +87,12 @@ Forbidden runtime dependencies:
 - `hydra`;
 - any other configuration framework.
 
-`toml_loader.py` should parse files as data only. It must not execute commands,
+`toml_loader.py` parses files as data only. It does not execute commands,
 perform shell expansion, evaluate Python, load plugins, or mutate `PyShell`.
 
 ## Validation Ownership
 
-`schema.py` should own declarative validation:
+`schema.py` owns declarative validation:
 
 - unknown sections;
 - unknown keys;
@@ -131,7 +138,7 @@ Diagnostics must be readable on dumb terminals and must not require ANSI color.
 
 ## Interaction With `ShellConfigAPI`
 
-TOML application should use the same validated mutation paths as
+TOML application uses the same validated mutation paths as
 `ShellConfigAPI` where practical. `.pyshrc.py` remains the advanced override
 layer and runs after TOML.
 
@@ -140,15 +147,15 @@ hooks.
 
 ## Interaction With `PyShell`
 
-`PyShell` should orchestrate configuration load order but should not own TOML
-parsing or schema validation. It should receive validated settings and apply
+`PyShell` orchestrates configuration load order but does not own TOML
+parsing or schema validation. It receives validated settings and applies
 them through explicit mutation paths.
 
 Runtime session changes must not rewrite TOML automatically.
 
 ## Interaction With Prompt Colors
 
-Prompt color configuration should reuse `src/pysh/prompt/colors.py` parsing and
+Prompt color configuration reuses `src/pysh/prompt/colors.py` parsing and
 the current prompt color role validation in `src/pysh/config/api.py`.
 
 TOML examples should use supported color names such as `aqua`, `fuchsia`,
@@ -156,7 +163,7 @@ TOML examples should use supported color names such as `aqua`, `fuchsia`,
 
 ## Interaction With Issue #30 Highlight Colors
 
-Issue #30 introduced semantic live-highlight roles. Issue #31 should expose
+Issue #30 introduced semantic live-highlight roles. Issue #31 exposes
 those roles declaratively under `[colors.highlight]` while preserving
 `shell.set_highlight_color(role, color)` in `.pyshrc.py`.
 
@@ -165,7 +172,7 @@ layer and must not change command parsing or execution semantics.
 
 ## Profiles
 
-`profiles.py` should model built-in and user-defined profiles. Profiles define
+`profiles.py` models built-in and user-defined profiles. Profiles define
 behavior and layout, not aliases.
 
 Validation rules:
@@ -178,7 +185,7 @@ Validation rules:
 
 ## Themes
 
-`themes.py` should model built-in and user-defined themes. Themes define visual
+`themes.py` models built-in and user-defined themes. Themes define visual
 style only.
 
 Validation rules:
@@ -187,14 +194,14 @@ Validation rules:
 - cycles in theme inheritance are errors;
 - unknown color keys are errors;
 - invalid color values are errors;
-- user theme collision with a built-in theme is rejected unless an explicit
-  override field is implemented.
+- user theme collision with a built-in theme is rejected unless
+  `override = true` is set.
 
 Themes must not require Nerd Fonts or external commands.
 
 ## Alias Packs
 
-`alias_packs.py` should model built-in alias packs. Packs are independent from
+`alias_packs.py` models built-in alias packs. Packs are independent from
 profiles and themes.
 
 Validation rules:
@@ -205,6 +212,127 @@ Validation rules:
 - alias values are never executed during config load;
 - no destructive aliases are enabled by default;
 - project-local alias packs are not auto-enabled.
+
+## Plugin Configuration Architecture
+
+### Paths
+
+Plugin configuration files live in a dedicated subdirectory of the PySH config
+directory:
+
+```text
+${XDG_CONFIG_HOME}/pysh/plugins/<plugin-name>.toml
+~/.config/pysh/plugins/<plugin-name>.toml  (XDG fallback)
+```
+
+Path resolution functions in `src/pysh/config/paths.py`:
+
+| Function | Purpose |
+| -------- | ------- |
+| `plugin_config_dir()` | Return the `plugins/` subdirectory path (XDG-aware). |
+| `plugin_config_path(name)` | Return the path for one named plugin config. |
+| `plugin_config_paths()` | Discover existing plugin TOML files in lexical order. |
+
+### Data Model
+
+`src/pysh/config/schema.py` defines:
+
+```python
+@dataclass(frozen=True)
+class PluginConfig:
+    name: str
+    path: Path
+    data: dict[str, Any]
+    diagnostics: tuple[ConfigDiagnostic, ...]
+```
+
+`load_plugin_config(path)` loads and structurally validates one file.
+`validate_plugin_name(name)` checks for safe plugin identifier syntax.
+
+### Runtime Orchestration
+
+`src/pysh/config/runtime.py` provides `load_plugin_configs()`, which:
+
+1. discovers plugin TOML files via `plugin_config_paths()`;
+2. skips and reports files with unsafe names;
+3. loads each file through the non-executing TOML loader;
+4. validates `[plugin].name` matches the file stem;
+5. returns `dict[str, PluginConfig]`.
+
+`apply_declarative_config()` calls `load_plugin_configs()` and stores the
+result on `PyShell.plugin_configs` as `dict[str, dict[str, object]]`.
+
+### Shell Runtime Storage
+
+`PyShell` stores plugin configs in:
+
+```python
+self.plugin_configs: dict[str, dict[str, object]] = {}
+```
+
+Access through:
+
+```python
+def get_plugin_config(self, name: str) -> dict[str, object]:
+    ...
+```
+
+The returned value is always a fresh copy. Callers may not mutate internal
+state through the returned dict.
+
+### API Surface
+
+`ConfigurableShell` protocol and `ShellConfigAPI` expose:
+
+```python
+def get_plugin_config(self, name: str) -> dict[str, object]:
+    ...
+```
+
+Plugin authors use this in `register(api)` to read their config data.
+
+### Plugin Name Validation
+
+Safe plugin names match the pattern:
+
+```
+^[a-z0-9][a-z0-9._-]*$
+```
+
+- Lowercase letters, digits, `_`, `-`, `.` only.
+- Must start with a letter or digit.
+- No uppercase, no path separators, no spaces.
+
+### Plugin Config vs Plugin Activation
+
+These are separate concerns:
+
+| Concern | Mechanism |
+| ------- | --------- |
+| Plugin configuration | `plugins/<name>.toml` — data only |
+| Plugin activation / trust | `shell.enable_plugin("name")` in `~/.pyshrc.py` |
+
+A plugin config file does not cause its plugin to load or execute.  A plugin
+file may be absent even when its plugin is enabled, and vice versa.
+
+### Security Rules For Plugin TOML
+
+Plugin TOML files must:
+
+- contain data only;
+- not execute commands;
+- not evaluate shell or Python expressions;
+- not enable project-local plugins;
+- not access the network;
+- not load plugin code by themselves;
+- not apply `env` values to the process environment directly (plugins must do
+  this explicitly from their `register` function if desired).
+
+Invalid plugin TOML produces diagnostics and is skipped.  Shell startup is
+not affected by a broken plugin config.
+
+Secret-like values in plugin TOML diagnostics are redacted using the same
+`safe_value_repr()` rules as main config diagnostics.
 
 ## Security Rules
 
@@ -223,7 +351,7 @@ TOML configuration must:
 
 ## Migration Rules
 
-Issue #31 should preserve existing users:
+Issue #31 preserves existing users:
 
 - keep `.pyshrc`;
 - keep `.pyshrc.d/*.pysh`;
@@ -251,20 +379,23 @@ Required test groups for implementation:
 - `.pyshrc.py` override order after TOML;
 - no command execution from TOML values;
 - no file overwrite during startup;
+- plugin config directory path resolution;
+- plugin config discovery order;
+- missing plugin config is not an error;
+- valid plugin TOML loads as data;
+- invalid plugin TOML produces diagnostic;
+- unsafe plugin filename is rejected with diagnostic;
+- `[plugin].name` mismatch produces diagnostic;
+- `get_plugin_config()` returns a copy;
+- plugin TOML does not enable or load plugins;
+- `config_check --locations` includes plugin config paths;
+- secret masking for plugin config diagnostics;
 - docs consistency and manual validation notes.
 
-## Implementation Phases
+## Implementation Notes
 
-Recommended sequence:
-
-1. Add path discovery and non-mutating TOML file reads.
-2. Add schema validation and diagnostics.
-3. Add built-in theme/profile/alias-pack registries.
-4. Add TOML application into existing shell mutation paths.
-5. Add `conf.d` deterministic override behavior.
-6. Add config diagnostics builtins.
-7. Add generation of a safe default `config.toml` template.
-8. Add migration documentation and validation matrix updates.
+Runtime application is intentionally one-way: session changes and builtins do
+not rewrite TOML files. `config_reset` resets in-memory state only.
 
 ## Future / Out Of Scope
 
