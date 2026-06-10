@@ -31,6 +31,7 @@ class Completer:
         get_job_ids: Callable[[], Iterable[int]] | None = None,
         get_plugin_commands: Callable[[], Iterable[str]] | None = None,
         complete_plugin_command: Callable[[str, list[str], int], Iterable[str]] | None = None,
+        get_options: Callable[[], dict[str, object]] | None = None,
     ) -> None:
         self._get_aliases = get_aliases
         self._get_locals = get_locals if get_locals is not None else dict
@@ -41,6 +42,7 @@ class Completer:
         self._complete_plugin_command = (
             complete_plugin_command if complete_plugin_command is not None else _no_plugin_completion
         )
+        self._get_options = get_options if get_options is not None else dict
         self._matches: list[str] = []
 
     def install(self) -> None:
@@ -70,6 +72,7 @@ class Completer:
 
     def raw_completion(self, line: str, cursor: int) -> CompletionResult:
         """Return raw-mode completion metadata."""
+        options = self._get_options()
         result = complete_line(
             line,
             cursor,
@@ -78,6 +81,10 @@ class Completer:
             env=os.environ,
             locals=self._get_locals(),
             job_ids=self._get_job_ids(),
+            enabled=bool(options.get("enabled", True)),
+            case_sensitive=bool(options.get("case_sensitive", False)),
+            show_hidden=bool(options.get("show_hidden", False)),
+            menu=str(options.get("menu", "compact")),
         )
         context = result.context
         if context is None:
@@ -132,6 +139,10 @@ class Completer:
             env={},
             locals={},
             job_ids=(),
+            enabled=bool(self._get_options().get("enabled", True)),
+            case_sensitive=bool(self._get_options().get("case_sensitive", False)),
+            show_hidden=bool(self._get_options().get("show_hidden", False)),
+            menu=str(self._get_options().get("menu", "compact")),
         )
         return list(result.candidates)
 

@@ -12,9 +12,8 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Themes And Profiles
 
-This page documents the planned Issue #31 user-facing profiles, themes, and
-alias packs. It also records current behavior so users do not mistake planned
-TOML examples for implemented commands.
+This page documents the Issue #31 user-facing profiles, themes, and alias
+packs.
 
 - **Current behavior** means implemented now.
 - **Issue #31 planned behavior** means planned configuration strategy.
@@ -32,9 +31,10 @@ def configure(shell):
     shell.set_highlight_color("alias", "fuchsia")
 ```
 
-Named themes, named profiles, and alias packs are not implemented yet.
+Named themes, named profiles, and alias packs are also available through
+declarative TOML.
 
-## Issue #31 Planned Behavior
+## Issue #31 Behavior
 
 Issue #31 separates three concepts:
 
@@ -47,7 +47,7 @@ Issue #31 separates three concepts:
 Profiles, themes, and alias packs are independent. A user should be able to
 combine any profile with any theme and then choose zero or more alias packs.
 
-Planned top-level TOML:
+Top-level TOML:
 
 ```toml
 [profile]
@@ -62,9 +62,7 @@ enabled = ["git", "python"]
 
 ## Built-In Profiles
 
-### Issue #31 planned behavior
-
-Minimum planned built-in profiles:
+Built-in profiles:
 
 | Profile | Purpose |
 | ------- | ------- |
@@ -80,8 +78,6 @@ Profiles should not define aliases. A profile may reference a theme.
 Custom profile example:
 
 ```toml
-# Planned Issue #31 syntax.
-
 [profiles.focus]
 base = "minimal"
 theme = "nord"
@@ -102,9 +98,7 @@ syntax_highlight = true
 
 ## Built-In Themes
 
-### Issue #31 planned behavior
-
-Minimum planned built-in themes:
+Built-in themes:
 
 ```text
 default
@@ -132,13 +126,9 @@ Theme rules:
 
 ## Custom Themes
 
-### Issue #31 planned behavior
-
-Custom themes are planned under `[themes.NAME]`:
+Custom themes are defined under `[themes.NAME]`:
 
 ```toml
-# Planned Issue #31 syntax.
-
 [themes.my-dark]
 base = "dark"
 description = "Personal dark terminal palette"
@@ -166,15 +156,12 @@ Validation rules:
 - unknown base theme is an error;
 - unknown color key is an error;
 - invalid color value is an error;
-- built-in theme name collisions are rejected unless Issue #31 implements an
-  explicit override field.
+- built-in theme name collisions are rejected unless `override = true` is set.
 
 ## Alias Packs
 
-### Issue #31 planned behavior
-
 Alias packs provide convenience aliases without coupling them to profiles or
-themes. Planned built-in packs include `git`, `python`, `project`, and `files`.
+themes. Built-in packs include `git`, `python`, `project`, and `files`.
 
 Example:
 
@@ -202,17 +189,13 @@ Safe default rules:
 PySH suppresses ANSI color output when `NO_COLOR` is set, when `PYSH_COLOR=0`,
 when output is not a capable TTY, or when `TERM=dumb`.
 
-### Issue #31 planned behavior
-
 Themes must preserve readable plain-text structure when color is disabled.
 Theme selection must not affect command execution, bracketed paste behavior, or
 line editor eligibility.
 
-The planned `plain` theme should avoid icons and minimize ANSI dependence.
+The `plain` theme avoids icons and minimizes ANSI dependence.
 
 ## Accessibility Rules
-
-### Issue #31 planned behavior
 
 Theme defaults must:
 
@@ -224,16 +207,11 @@ Theme defaults must:
 - keep prompt, diagnostics, paste preview, reverse search, and syntax
   highlighting distinguishable without color.
 
-## Theme Preview Concept
+## Theme Preview
 
-### Issue #31 planned behavior
-
-A planned `config_theme preview NAME` command may render sample prompt,
+`config_theme preview NAME` renders sample prompt,
 diagnostic, paste-preview, reverse-search, and syntax-highlight lines. Preview
 must be non-executing and must not write configuration files.
-
-This command is not implemented now and must not be treated as current
-behavior.
 
 ## Relation To Issue #30 Syntax Highlighting
 
@@ -250,9 +228,7 @@ def configure(shell):
     shell.set_highlight_color("comment", "gray")
 ```
 
-### Issue #31 planned behavior
-
-Themes should provide defaults for both prompt colors and syntax-highlight
+Themes provide defaults for both prompt colors and syntax-highlight
 colors:
 
 ```toml

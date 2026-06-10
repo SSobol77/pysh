@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from pysh.config.api import (
+    DEFAULT_COMPLETION_OPTIONS,
     DEFAULT_CURSOR_OPTIONS,
     DEFAULT_EDITOR_OPTIONS,
     DEFAULT_PROMPT_COLOR_MODES,
@@ -26,6 +27,7 @@ from pysh.config.api import (
     ShellConfigAPI,
     ensure_default_config,
     load_python_config,
+    validate_completion_option,
     validate_highlight_color,
     validate_prompt_color,
     validate_prompt_color_mode,
@@ -43,11 +45,13 @@ class FakeShell:
         self.environment: dict[str, str] = {}
         self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
+        self.completion_options: dict[str, object] = dict(DEFAULT_COMPLETION_OPTIONS)
         self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
         self.highlight_colors: dict[str, str] = dict(DEFAULT_HIGHLIGHT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
         self.enabled_plugins: set[str] = set()
         self.project_plugins_enabled = False
+        self.startup_hooks: list[object] = []
 
     def register_alias(self, name: str, value: str) -> None:
         self.aliases[name] = value
@@ -64,6 +68,10 @@ class FakeShell:
 
         validate_editor_option(name, value)
         self.editor_options[name] = value
+
+    def set_completion_option(self, name: str, value: object) -> None:
+        validate_completion_option(name, value)
+        self.completion_options[name] = value
 
     def set_mc_integration(self, value: str) -> None:
         from pysh.config.api import validate_editor_option
@@ -103,6 +111,33 @@ class FakeShell:
 
     def is_plugin_enabled(self, name: str) -> bool:
         return name in self.enabled_plugins
+
+    def set_profile(self, name: str) -> None:
+        self.profile = name
+
+    def get_profiles(self) -> list[str]:
+        return ["default", "minimal"]
+
+    def set_theme(self, name: str) -> None:
+        self.theme = name
+
+    def get_themes(self) -> list[str]:
+        return ["default", "plain"]
+
+    def preview_theme(self, name: str) -> str:
+        return f"theme: {name}"
+
+    def load_alias_pack(self, name: str) -> None:
+        self.alias_pack = name
+
+    def get_alias_packs(self) -> list[str]:
+        return ["git", "python"]
+
+    def register_startup_hook(self, fn: object) -> None:
+        self.startup_hooks.append(fn)
+
+    def reset_config(self, target: str = "all") -> None:
+        self.reset_target = target
 
 
 def _write(path: Path, body: str) -> Path:
@@ -624,6 +659,42 @@ def test_api_set_highlight_color_accepts_and_rejects() -> None:
         api.set_highlight_color("unknown", "red")
     with pytest.raises(ConfigError):
         api.set_highlight_color("builtin", "red;")
+
+
+def test_api_set_completion_option_accepts_and_rejects() -> None:
+    shell = FakeShell()
+    api = ShellConfigAPI(shell)
+    api.set_completion_option("enabled", False)
+    api.set_completion_option("menu", "list")
+    assert shell.completion_options["enabled"] is False
+    assert shell.completion_options["menu"] == "list"
+    with pytest.raises(ConfigError):
+        api.set_completion_option("unknown", True)
+    with pytest.raises(ConfigError):
+        api.set_completion_option("menu", "wide")
+
+
+def test_api_register_startup_hook_requires_callable() -> None:
+    shell = FakeShell()
+    api = ShellConfigAPI(shell)
+
+    def hook() -> None:
+        return None
+
+    api.register_startup_hook(hook)
+    assert shell.startup_hooks == [hook]
+    with pytest.raises(ConfigError):
+        api.register_startup_hook("not-callable")
+
+
+def test_pyshell_user_startup_hook_failure_does_not_stop_later_hook(capsys) -> None:
+    events: list[str] = []
+    shell = PyShell()
+    shell.register_startup_hook(lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    shell.register_startup_hook(lambda: events.append("later"))
+    shell._run_user_startup_hooks()
+    assert events == ["later"]
+    assert "startup hook failed: boom" in capsys.readouterr().err
 
 
 def test_shell_highlight_color_scheme_uses_prompt_color_parser() -> None:

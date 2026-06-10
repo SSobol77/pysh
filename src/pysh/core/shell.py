@@ -21,6 +21,7 @@ import termios
 import time
 import uuid
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -39,7 +40,9 @@ from pysh.compat.zsh_diagnostics import (
     is_zsh_config_path,
     zsh_config_file_diagnostic,
 )
+from pysh.config.alias_packs import BUILTIN_ALIAS_PACKS, alias_pack_names
 from pysh.config.api import (
+    DEFAULT_COMPLETION_OPTIONS,
     DEFAULT_CURSOR_OPTIONS,
     DEFAULT_EDITOR_OPTIONS,
     DEFAULT_HISTORY_OPTIONS,
@@ -50,6 +53,7 @@ from pysh.config.api import (
     PYSHRC_PY_PATH,
     ensure_default_config,
     load_python_config,
+    validate_completion_option,
     validate_cursor_color,
     validate_cursor_color_enabled,
     validate_editor_option,
@@ -60,8 +64,17 @@ from pysh.config.api import (
     validate_prompt_option,
     validate_sensitive_input,
 )
+from pysh.config.diagnostics import safe_value_repr
 from pysh.config.plugins import PLUGIN_DIR, load_plugins
+from pysh.config.profiles import profile_names, resolve_profiles
 from pysh.config.rc import RC_PATH, execute_rc, load_default_rc
+from pysh.config.runtime import (
+    apply_declarative_config,
+    ensure_default_toml_config,
+    load_declarative_config,
+    load_plugin_configs,
+)
+from pysh.config.themes import resolve_themes, theme_names
 from pysh.contracts.builtins import BUILTIN_NAMES
 from pysh.core.errors import ExitCode
 from pysh.core.jobs import (
@@ -265,6 +278,32 @@ def _write_execution_stderr(
     print(message, file=sys.stderr)
 
 
+def _mapping_items(value: object) -> tuple[tuple[str, object], ...]:
+    """Return string-keyed mapping items for config application helpers."""
+    if not isinstance(value, dict):
+        return ()
+    return tuple((str(key), item) for key, item in value.items())
+
+
+def _append_mapping_diff(
+    lines: list[str],
+    prefix: str,
+    defaults: dict[str, object],
+    current: dict[str, object],
+) -> None:
+    """Append changed mapping keys using redacted value formatting."""
+    for key in sorted(set(defaults) | set(current)):
+        default_missing = key not in defaults
+        current_missing = key not in current
+        if current_missing:
+            value: object = "<unset>"
+        else:
+            value = current[key]
+        if not default_missing and not current_missing and defaults[key] == value:
+            continue
+        lines.append(f"{prefix}.{key}={safe_value_repr(key, value)}")
+
+
 class PyShell:
     """Python-first interactive shell with full Unix command support."""
 
@@ -307,7 +346,16 @@ class PyShell:
         self.highlight_colors: dict[str, str] = dict(DEFAULT_HIGHLIGHT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
+        self.completion_options: dict[str, object] = dict(DEFAULT_COMPLETION_OPTIONS)
         self.cursor_options: dict[str, object] = dict(DEFAULT_CURSOR_OPTIONS)
+        self.active_profile = "default"
+        self.active_theme = "default"
+        self.config_profiles: dict[str, dict[str, object]] = resolve_profiles({})[0]
+        self.config_themes: dict[str, dict[str, object]] = resolve_themes({})[0]
+        self.config_diagnostics: list[object] = []
+        self.config_loaded_paths: list[Path] = []
+        self.plugin_configs: dict[str, dict[str, object]] = {}
+        self._startup_hooks: list[Callable[[], None]] = []
         self._cursor_color_applied = False
         self._mc_auto_warning_emitted = False
         # Read only by the explicit secure <cmd> PTY wrapper. Normal command
@@ -325,6 +373,7 @@ class PyShell:
             get_job_ids=lambda: [job.job_id for job in self.job_table.all_jobs() if job.is_alive()],
             get_plugin_commands=lambda: self.plugin_manager.command_names(),
             complete_plugin_command=self.plugin_manager.complete_command,
+            get_options=lambda: dict(self.completion_options),
         )
         self.history = HistoryManager(self.HISTORY_PATH)
         self.history_options: dict[str, object] = dict(DEFAULT_HISTORY_OPTIONS)
@@ -368,6 +417,13 @@ class PyShell:
         self._export_interactive_shell_vars()
         load_default_rc(self.execute)
         load_plugins(self.execute, directory=PLUGIN_DIR)
+        if ensure_default_toml_config():
+            print("pysh: created declarative config")
+        declarative_config = apply_declarative_config(self)
+        self.config_profiles = declarative_config.profiles
+        self.config_themes = declarative_config.themes
+        self.config_diagnostics = list(declarative_config.diagnostics)
+        self.config_loaded_paths = list(declarative_config.loaded_paths)
         # Python-native configuration runs last so that ~/.pyshrc.py has the
         # final word over the legacy shell-syntax layers. Created on first
         # launch so the file is discoverable; the generated body is inert.
@@ -375,6 +431,7 @@ class PyShell:
             print(f"pysh: created {PYSHRC_PY_PATH}")
         load_python_config(self)
         self.plugin_manager.discover_and_load()
+        self._run_user_startup_hooks()
         self.plugin_manager.run_startup_hooks()
         self._apply_cursor_color()
         # Job control: open /dev/tty and set SIGTSTP to SIG_IGN so the shell
@@ -1421,6 +1478,11 @@ class PyShell:
             "source_sh_aliases": self._builtin_source_sh_aliases,
             "run_script": self._builtin_run_script,
             "compat_check": self._builtin_compat_check,
+            "config_check": self._builtin_config_check,
+            "config_reset": self._builtin_config_reset,
+            "config_profile": self._builtin_config_profile,
+            "config_theme": self._builtin_config_theme,
+            "config_alias_pack": self._builtin_config_alias_pack,
             "zsh": self._builtin_zsh,
             "zsh_fallback": self._builtin_zsh_fallback,
             "py": self._builtin_py,
@@ -1711,6 +1773,161 @@ class PyShell:
                 f"action={finding.action.value}"
             )
         return 2 if report.risky else 0
+
+    def _builtin_config_check(self, args: list[str]) -> int:
+        if len(args) > 1 or (args and args[0] not in {"--validate", "--diff", "--locations"}):
+            print("usage: config_check [--validate|--diff|--locations]", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        mode = args[0] if args else ""
+        config = load_declarative_config()
+        plugin_cfgs = load_plugin_configs()
+        plugin_diags = [diag for pc in plugin_cfgs.values() for diag in pc.diagnostics]
+        has_errors = any(d.severity == "error" for d in config.diagnostics) or any(
+            d.severity == "error" for d in plugin_diags
+        )
+        if mode == "--locations":
+            if config.loaded_paths:
+                for path in config.loaded_paths:
+                    print(f"loaded: {path}")
+            else:
+                print("loaded: <none>")
+            for pc in sorted(plugin_cfgs.values(), key=lambda p: str(p.path)):
+                print(f"plugin: {pc.path}")
+            return 1 if has_errors else 0
+        if mode == "--diff":
+            for line in self._config_diff_lines():
+                print(line)
+            return 1 if has_errors else 0
+        all_diags = list(config.diagnostics) + plugin_diags
+        for diagnostic_item in all_diags:
+            print(diagnostic_item.format(), file=sys.stderr)
+        if mode == "--validate":
+            if has_errors:
+                return 1
+            print("pysh: config: valid")
+            return 0
+        print(f"profile: {self.active_profile}")
+        print(f"theme: {self.active_theme}")
+        print(f"loaded files: {len(config.loaded_paths)}")
+        print(f"plugin config files: {len(plugin_cfgs)}")
+        print(f"diagnostics: {len(all_diags)}")
+        return 1 if has_errors else 0
+
+    def _config_diff_lines(self) -> list[str]:
+        """Return runtime configuration differences from built-in defaults."""
+        lines: list[str] = []
+        if self.active_profile != "default":
+            lines.append(f"profile.active={self.active_profile!r}")
+        if self.active_theme != "default":
+            lines.append(f"theme.active={self.active_theme!r}")
+        _append_mapping_diff(lines, "prompt", DEFAULT_PROMPT_OPTIONS, self.prompt_options)
+        _append_mapping_diff(lines, "editor", DEFAULT_EDITOR_OPTIONS, self.editor_options)
+        _append_mapping_diff(lines, "completion", DEFAULT_COMPLETION_OPTIONS, self.completion_options)
+        _append_mapping_diff(lines, "history", DEFAULT_HISTORY_OPTIONS, self.history_options)
+        _append_mapping_diff(lines, "colors.prompt", DEFAULT_PROMPT_COLORS, self.prompt_colors)
+        _append_mapping_diff(lines, "colors.highlight", DEFAULT_HIGHLIGHT_COLORS, self.highlight_colors)
+        _append_mapping_diff(lines, "colors.mode", DEFAULT_PROMPT_COLOR_MODES, self.prompt_color_modes)
+        _append_mapping_diff(lines, "cursor", DEFAULT_CURSOR_OPTIONS, self.cursor_options)
+        _append_mapping_diff(lines, "aliases", self.DEFAULT_ALIASES, self.aliases)
+        return lines
+
+    def _builtin_config_reset(self, args: list[str]) -> int:
+        if len(args) > 1:
+            print("usage: config_reset [target]", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        target = args[0] if args else "all"
+        try:
+            self.reset_config(target)
+        except ValueError as exc:
+            print(f"pysh: config_reset: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    def _builtin_config_profile(self, args: list[str]) -> int:
+        if not args or args[0] not in {"list", "show", "use"}:
+            print("usage: config_profile list|show NAME|use NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        action = args[0]
+        if action == "list":
+            if len(args) != 1:
+                print("usage: config_profile list", file=sys.stderr)
+                return ExitCode.BUILTIN_MISUSE
+            for name in self.get_profiles():
+                marker = "*" if name == self.active_profile else " "
+                print(f"{marker} {name}")
+            return 0
+        if len(args) != 2:
+            print(f"usage: config_profile {action} NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        name = args[1]
+        if name not in self.config_profiles:
+            print(f"pysh: config_profile: unknown profile: {name}", file=sys.stderr)
+            return 1
+        if action == "show":
+            print(f"profile: {name}")
+            for key, value in sorted(self.config_profiles[name].items()):
+                print(f"{key}: {value!r}")
+            return 0
+        self.set_profile(name)
+        return 0
+
+    def _builtin_config_theme(self, args: list[str]) -> int:
+        if not args or args[0] not in {"list", "show", "preview", "use"}:
+            print("usage: config_theme list|show NAME|preview NAME|use NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        action = args[0]
+        if action == "list":
+            if len(args) != 1:
+                print("usage: config_theme list", file=sys.stderr)
+                return ExitCode.BUILTIN_MISUSE
+            for name in self.get_themes():
+                marker = "*" if name == self.active_theme else " "
+                print(f"{marker} {name}")
+            return 0
+        if len(args) != 2:
+            print(f"usage: config_theme {action} NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        name = args[1]
+        if name not in self.config_themes:
+            print(f"pysh: config_theme: unknown theme: {name}", file=sys.stderr)
+            return 1
+        if action == "show":
+            print(f"theme: {name}")
+            for key, value in sorted(self.config_themes[name].items()):
+                print(f"{key}: {value!r}")
+            return 0
+        if action == "preview":
+            print(self.preview_theme(name))
+            return 0
+        self.set_theme(name)
+        return 0
+
+    def _builtin_config_alias_pack(self, args: list[str]) -> int:
+        if not args or args[0] not in {"list", "show", "load"}:
+            print("usage: config_alias_pack list|show NAME|load NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        action = args[0]
+        if action == "list":
+            if len(args) != 1:
+                print("usage: config_alias_pack list", file=sys.stderr)
+                return ExitCode.BUILTIN_MISUSE
+            for name in self.get_alias_packs():
+                print(name)
+            return 0
+        if len(args) != 2:
+            print(f"usage: config_alias_pack {action} NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        name = args[1]
+        pack = BUILTIN_ALIAS_PACKS.get(name)
+        if pack is None:
+            print(f"pysh: config_alias_pack: unknown alias pack: {name}", file=sys.stderr)
+            return 1
+        if action == "show":
+            for alias_name, value in sorted(pack.items()):
+                print(f"{alias_name}={value!r}")
+            return 0
+        self.load_alias_pack(name)
+        return 0
 
     def _execute_inline_migrate_if_needed(self, line: str) -> int | None:
         """Run ``migrate`` before normal shell expansion can execute input."""
@@ -2392,6 +2609,139 @@ class PyShell:
         validate_history_option(name, value)
         self.history_options[name] = value
         self.history_engine.set_option(name, value)
+
+    def set_completion_option(self, name: str, value: object) -> None:
+        """Set a validated completion option."""
+        validate_completion_option(name, value)
+        self.completion_options[name] = value
+
+    def set_profile(self, name: str) -> None:
+        """Apply a named profile to runtime configuration state."""
+        if name not in self.config_profiles:
+            raise ValueError(f"unknown profile: {name}")
+        profile = self.config_profiles[name]
+        self.active_profile = name
+        theme = profile.get("theme")
+        if isinstance(theme, str) and theme in self.config_themes:
+            self.set_theme(theme)
+        for key, value in _mapping_items(profile.get("prompt")):
+            self.set_prompt_option(key, value)
+        for key, value in _mapping_items(profile.get("editor")):
+            self.set_editor_option(key, value)
+        for key, value in _mapping_items(profile.get("completion")):
+            self.set_completion_option(key, value)
+        for key, value in _mapping_items(profile.get("history")):
+            self.set_history_option(key, value)
+
+    def get_profiles(self) -> list[str]:
+        """Return known profile names."""
+        return profile_names(self.config_profiles)
+
+    def set_theme(self, name: str) -> None:
+        """Apply a named theme to runtime color state."""
+        if name not in self.config_themes:
+            raise ValueError(f"unknown theme: {name}")
+        theme = self.config_themes[name]
+        self.active_theme = name
+        colors = theme.get("colors")
+        if not isinstance(colors, dict):
+            return
+        for key, value in _mapping_items(colors.get("prompt")):
+            if isinstance(value, str):
+                self.set_prompt_color(key, value)
+        for key, value in _mapping_items(colors.get("highlight")):
+            if isinstance(value, str):
+                self.set_highlight_color(key, value)
+
+    def get_themes(self) -> list[str]:
+        """Return known theme names."""
+        return theme_names(self.config_themes)
+
+    def preview_theme(self, name: str) -> str:
+        """Return a non-executing theme preview."""
+        if name not in self.config_themes:
+            raise ValueError(f"unknown theme: {name}")
+        return "\n".join(
+            (
+                f"theme: {name}",
+                "prompt: user@host [~/project] git:main",
+                "status: ok / error",
+                "highlight: builtin alias path string comment paste reverse_search",
+            )
+        )
+
+    def load_alias_pack(self, name: str) -> None:
+        """Load a built-in alias pack without executing alias values."""
+        pack = BUILTIN_ALIAS_PACKS.get(name)
+        if pack is None:
+            raise ValueError(f"unknown alias pack: {name}")
+        for alias_name, value in pack.items():
+            self.register_alias(alias_name, value)
+
+    def get_alias_packs(self) -> list[str]:
+        """Return known alias-pack names."""
+        return alias_pack_names()
+
+    def get_plugin_config(self, name: str) -> dict[str, object]:
+        """Return a copy of the loaded plugin TOML configuration for *name*.
+
+        Returns an empty dict when no plugin config file was found for *name*.
+        The returned value is always a fresh copy; callers may not mutate
+        internal state through it.
+        """
+        return deepcopy(self.plugin_configs.get(name, {}))
+
+    def register_startup_hook(self, fn: Callable[[], None]) -> None:
+        """Register a trusted Python startup hook from ``~/.pyshrc.py``."""
+        if not callable(fn):
+            raise ValueError("startup hook must be callable")
+        self._startup_hooks.append(fn)
+
+    def _run_user_startup_hooks(self) -> None:
+        """Run user startup hooks without preventing later hooks."""
+        for hook in tuple(self._startup_hooks):
+            try:
+                hook()
+            except Exception as exc:  # noqa: BLE001 - startup hooks are trusted user code
+                print(f"pysh: config: startup hook failed: {exc}", file=sys.stderr)
+
+    def reset_config(self, target: str = "all") -> None:
+        """Reset runtime configuration state without writing user files."""
+        valid = {
+            "all",
+            "prompt",
+            "editor",
+            "history",
+            "completion",
+            "colors",
+            "highlight",
+            "cursor",
+            "aliases",
+        }
+        if target not in valid:
+            raise ValueError(f"unknown config reset target: {target}")
+        if target == "all":
+            self.active_profile = "default"
+            self.active_theme = "default"
+        if target in {"all", "prompt"}:
+            self.prompt_options = dict(DEFAULT_PROMPT_OPTIONS)
+        if target in {"all", "editor"}:
+            self.editor_options = dict(DEFAULT_EDITOR_OPTIONS)
+        if target in {"all", "completion"}:
+            self.completion_options = dict(DEFAULT_COMPLETION_OPTIONS)
+        if target in {"all", "history"}:
+            self.history_options = dict(DEFAULT_HISTORY_OPTIONS)
+            for key, value in self.history_options.items():
+                self.history_engine.set_option(key, value)
+        if target in {"all", "colors"}:
+            self.prompt_colors = dict(DEFAULT_PROMPT_COLORS)
+            self.prompt_color_modes = dict(DEFAULT_PROMPT_COLOR_MODES)
+        if target in {"all", "highlight"}:
+            self.highlight_colors = dict(DEFAULT_HIGHLIGHT_COLORS)
+        if target in {"all", "cursor"}:
+            self.cursor_options = dict(DEFAULT_CURSOR_OPTIONS)
+        if target in {"all", "aliases"}:
+            self.aliases = dict(self.DEFAULT_ALIASES)
 
     def _apply_cursor_color(self) -> None:
         """Apply configured terminal cursor color when the terminal gate allows it."""
