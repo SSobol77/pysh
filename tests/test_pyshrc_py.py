@@ -26,11 +26,13 @@ from pysh.config.api import (
     ShellConfigAPI,
     ensure_default_config,
     load_python_config,
+    validate_highlight_color,
     validate_prompt_color,
     validate_prompt_color_mode,
     validate_prompt_option,
 )
 from pysh.core.shell import PyShell, _format_command_duration, _sanitize_prompt_value
+from pysh.editor.lineedit.highlight import DEFAULT_HIGHLIGHT_COLORS
 
 
 class FakeShell:
@@ -42,6 +44,7 @@ class FakeShell:
         self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
         self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
+        self.highlight_colors: dict[str, str] = dict(DEFAULT_HIGHLIGHT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
         self.enabled_plugins: set[str] = set()
         self.project_plugins_enabled = False
@@ -81,6 +84,10 @@ class FakeShell:
     def set_prompt_color_mode(self, name: str, value: object) -> None:
         validate_prompt_color_mode(name, value)
         self.prompt_color_modes[name] = value
+
+    def set_highlight_color(self, role: str, color: str) -> None:
+        validate_highlight_color(role, color)
+        self.highlight_colors[role] = color
 
     def enable_plugin(self, name: str) -> None:
         self.enabled_plugins.add(name)
@@ -275,6 +282,34 @@ def configure(shell):
     shell.set_prompt_color("aws", "orange")
     shell.set_prompt_color("k8s", "aqua")
     shell.set_prompt_color("symbol", "white")
+
+    # ----------------------------------------------------------------------
+    # Live input syntax highlighting
+    # ----------------------------------------------------------------------
+    # Highlight colors use the same color vocabulary as prompt colors.
+    # The highlighter never mutates the command buffer and never executes
+    # commands while classifying input.
+    #
+    # Available roles:
+    # builtin, alias, command_valid, command_invalid, string, operator,
+    # option, variable, path, comment, heredoc, error, continuation, paste,
+    # reverse_search.
+
+    shell.set_highlight_color("builtin", "aqua")
+    shell.set_highlight_color("alias", "fuchsia")
+    shell.set_highlight_color("command_valid", "lime")
+    shell.set_highlight_color("command_invalid", "red")
+    shell.set_highlight_color("string", "green")
+    shell.set_highlight_color("operator", "yellow")
+    shell.set_highlight_color("option", "aqua")
+    shell.set_highlight_color("variable", "fuchsia")
+    shell.set_highlight_color("path", "aqua")
+    shell.set_highlight_color("comment", "gray")
+    shell.set_highlight_color("heredoc", "yellow")
+    shell.set_highlight_color("error", "red")
+    shell.set_highlight_color("continuation", "yellow")
+    shell.set_highlight_color("paste", "yellow")
+    shell.set_highlight_color("reverse_search", "fuchsia")
 
     # ----------------------------------------------------------------------
     # Terminal cursor color
@@ -475,6 +510,7 @@ def test_default_template_applies_accepted_active_profile(tmp_path: Path, monkey
         **DEFAULT_PROMPT_COLORS,
         "rust": "#FF6600",
     }
+    assert shell.highlight_colors == DEFAULT_HIGHLIGHT_COLORS
     assert shell.prompt_color_modes == DEFAULT_PROMPT_COLOR_MODES
     assert shell.cursor_options == {**DEFAULT_CURSOR_OPTIONS, "enabled": True, "color": "#FF9900"}
     assert shell.editor_options == DEFAULT_EDITOR_OPTIONS
@@ -575,6 +611,28 @@ def test_api_set_prompt_color_mode_accepts_and_rejects() -> None:
         api.set_prompt_color_mode("unknown", True)
     with pytest.raises(ConfigError):
         api.set_prompt_color_mode("vga", "yes")  # type: ignore[arg-type]
+
+
+def test_api_set_highlight_color_accepts_and_rejects() -> None:
+    shell = FakeShell()
+    api = ShellConfigAPI(shell)
+    api.set_highlight_color("builtin", "aqua")
+    api.set_highlight_color("comment", "#888888")
+    assert shell.highlight_colors["builtin"] == "aqua"
+    assert shell.highlight_colors["comment"] == "#888888"
+    with pytest.raises(ConfigError):
+        api.set_highlight_color("unknown", "red")
+    with pytest.raises(ConfigError):
+        api.set_highlight_color("builtin", "red;")
+
+
+def test_shell_highlight_color_scheme_uses_prompt_color_parser() -> None:
+    shell = PyShell()
+    shell.set_prompt_color_mode("vga", False)
+    shell.set_highlight_color("builtin", "#33CCFF")
+    scheme = shell._highlight_color_scheme()
+    assert scheme.builtin == "\x1b[38;2;51;204;255m"
+    assert scheme.reset == "\x1b[0m"
 
 
 def test_default_prompt_options_match_contract() -> None:

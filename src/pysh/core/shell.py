@@ -53,6 +53,7 @@ from pysh.config.api import (
     validate_cursor_color,
     validate_cursor_color_enabled,
     validate_editor_option,
+    validate_highlight_color,
     validate_history_option,
     validate_prompt_color,
     validate_prompt_color_mode,
@@ -82,7 +83,12 @@ from pysh.editor.completion import Completer
 from pysh.editor.highlight import colors_enabled, diagnostic
 from pysh.editor.history import DEFAULT_HISTORY_PATH, HistoryEngine, HistoryManager
 from pysh.editor.lineedit.autosuggest import AutoSuggester
-from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
+from pysh.editor.lineedit.highlight import (
+    DEFAULT_HIGHLIGHT_COLORS,
+    DEFAULT_SCHEME,
+    ColorScheme,
+    LineHighlighter,
+)
 from pysh.editor.lineedit.reader import RawLineReader
 from pysh.migration.script import (
     analyze_migration,
@@ -111,7 +117,14 @@ from pysh.parsing.parser import (
 from pysh.parsing.path_expansion import expand_tilde, tokenize_and_glob_expand
 from pysh.parsing.redirection import RedirectionSpec, parse_redirections
 from pysh.plugins.manager import PluginManager
-from pysh.prompt.colors import color_to_hex, colorize, parse_color
+from pysh.prompt.colors import (
+    color_to_hex,
+    colorize,
+    parse_color,
+    sgr_ansi16,
+    sgr_reset,
+    sgr_truecolor,
+)
 from pysh.prompt.system_profile import (
     apt_check,
     apt_search,
@@ -291,6 +304,7 @@ class PyShell:
         self._tty_fd: int | None = None
         self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
         self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
+        self.highlight_colors: dict[str, str] = dict(DEFAULT_HIGHLIGHT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
         self.cursor_options: dict[str, object] = dict(DEFAULT_CURSOR_OPTIONS)
@@ -325,7 +339,10 @@ class PyShell:
         )
         self._last_execute_parse_ok: bool = True
         self.autosuggester = AutoSuggester()
-        self.line_highlighter = LineHighlighter(self.BUILTINS)
+        self.line_highlighter = LineHighlighter(
+            self.BUILTINS,
+            aliases=lambda: self.aliases.keys(),
+        )
         self.line_reader = RawLineReader()
         self.zsh_bridge = zsh_bridge if zsh_bridge is not None else ZshBridge()
         self.zsh_fallback_enabled = os.environ.get("PYSH_ZSH_FALLBACK") == "1"
@@ -546,7 +563,7 @@ class PyShell:
                     history=[],
                     suggester=self.autosuggester,
                     highlighter=self.line_highlighter,
-                    scheme=DEFAULT_SCHEME,
+                    scheme=self._highlight_color_scheme(),
                     options=options,
                     echo_queued=False,
                 )
@@ -2343,6 +2360,11 @@ class PyShell:
         validate_prompt_color_mode(name, value)
         self.prompt_color_modes[name] = value
 
+    def set_highlight_color(self, role: str, color: str) -> None:
+        """Set a validated live-input highlight color."""
+        validate_highlight_color(role, color)
+        self.highlight_colors[role] = color
+
     def set_cursor_color_enabled(self, value: bool) -> None:
         """Set validated terminal cursor color enable state."""
         validate_cursor_color_enabled(value)
@@ -2422,7 +2444,7 @@ class PyShell:
                     history=self.history_engine.entries(),
                     suggester=self.autosuggester,
                     highlighter=self.line_highlighter,
-                    scheme=DEFAULT_SCHEME,
+                    scheme=self._highlight_color_scheme(),
                     options=options,
                     on_multiline_paste=self._capture_multiline_paste,
                     completer=self.completer,
@@ -2474,6 +2496,18 @@ class PyShell:
             autosuggest=bool(self.editor_options.get("autosuggest", True)),
             syntax_highlight=bool(self.editor_options.get("syntax_highlight", True)),
         )
+
+    def _highlight_color_scheme(self) -> ColorScheme:
+        """Return the configured live-input color scheme."""
+        try:
+            values: dict[str, str] = {}
+            vga = bool(self.prompt_color_modes.get("vga", True))
+            for role, default_color in DEFAULT_HIGHLIGHT_COLORS.items():
+                rgb = parse_color(self.highlight_colors.get(role, default_color))
+                values[role] = sgr_ansi16(rgb) if vga else sgr_truecolor(rgb)
+            return ColorScheme(**values, reset=sgr_reset())
+        except ValueError:
+            return DEFAULT_SCHEME
 
     @staticmethod
     def _stdio_is_tty() -> bool:

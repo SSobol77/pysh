@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -15,6 +16,8 @@ from enum import StrEnum
 class Role(StrEnum):
     """Highlight roles assigned to spans."""
 
+    BUILTIN = "builtin"
+    ALIAS = "alias"
     COMMAND_VALID = "command_valid"
     COMMAND_INVALID = "command_invalid"
     STRING = "string"
@@ -22,6 +25,12 @@ class Role(StrEnum):
     OPTION = "option"
     VARIABLE = "variable"
     PATH = "path"
+    COMMENT = "comment"
+    HEREDOC = "heredoc"
+    ERROR = "error"
+    CONTINUATION = "continuation"
+    PASTE = "paste"
+    REVERSE_SEARCH = "reverse_search"
     DEFAULT = "default"
 
 
@@ -38,13 +47,21 @@ class Span:
 class ColorScheme:
     """ANSI SGR sequences used by the raw line editor."""
 
+    builtin: str = "\033[1;36m"
+    alias: str = "\033[1;35m"
     command_valid: str = "\033[32m"
-    command_invalid: str = "\033[31m"
-    string: str = "\033[33m"
-    operator: str = "\033[35m"
+    command_invalid: str = "\033[1;31m"
+    string: str = "\033[32m"
+    operator: str = "\033[33m"
     option: str = "\033[36m"
-    variable: str = "\033[34m"
-    path: str = ""
+    variable: str = "\033[35m"
+    path: str = "\033[36m"
+    comment: str = "\033[90m"
+    heredoc: str = "\033[33m"
+    error: str = "\033[1;31m"
+    continuation: str = "\033[33m"
+    paste: str = "\033[33m"
+    reverse_search: str = "\033[35m"
     default: str = ""
     suggestion: str = "\033[2m"
     reset: str = "\033[0m"
@@ -52,16 +69,44 @@ class ColorScheme:
 
 DEFAULT_SCHEME = ColorScheme()
 
-_VARIABLE_RE = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\}")
-_OPERATORS = ("&&", "||", ">>", "2>", "|", ";", ">", "<", "&")
+DEFAULT_HIGHLIGHT_COLORS: dict[str, str] = {
+    Role.BUILTIN.value: "aqua",
+    Role.ALIAS.value: "fuchsia",
+    Role.COMMAND_VALID.value: "lime",
+    Role.COMMAND_INVALID.value: "red",
+    Role.STRING.value: "green",
+    Role.OPERATOR.value: "yellow",
+    Role.OPTION.value: "aqua",
+    Role.VARIABLE.value: "fuchsia",
+    Role.PATH.value: "aqua",
+    Role.COMMENT.value: "gray",
+    Role.HEREDOC.value: "yellow",
+    Role.ERROR.value: "red",
+    Role.CONTINUATION.value: "yellow",
+    Role.PASTE.value: "yellow",
+    Role.REVERSE_SEARCH.value: "fuchsia",
+}
+
+HIGHLIGHT_COLOR_ROLES: frozenset[str] = frozenset(DEFAULT_HIGHLIGHT_COLORS)
+
+_VARIABLE_RE = re.compile(
+    r"\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[?@*#$0-9]"
+)
+_OPERATORS = ("&&", "||", ">>", "2>>", "2>", "<<-", "<<", "|", ";", ">", "<", "&")
 _COMMAND_SEPARATORS = {"|", "||", "&&", ";"}
 
 
 class LineHighlighter:
     """Tokenize and render a shell command line without terminal I/O."""
 
-    def __init__(self, builtins: set[str] | frozenset[str]) -> None:
+    def __init__(
+        self,
+        builtins: set[str] | frozenset[str],
+        *,
+        aliases: Iterable[str] | Callable[[], Iterable[str]] = (),
+    ) -> None:
         self._builtins = frozenset(builtins)
+        self._aliases = aliases
         self._which_cache: dict[str, bool] = {}
 
     def tokenize(self, line: str) -> list[Span]:
@@ -73,14 +118,14 @@ class LineHighlighter:
             assigned = role
             if role is Role.DEFAULT and text.strip():
                 if expect_command:
-                    assigned = (
-                        Role.COMMAND_VALID if self._is_command_valid(text) else Role.COMMAND_INVALID
-                    )
+                    assigned = self._classify_command(text)
                     expect_command = False
                 elif text.startswith("-"):
                     assigned = Role.OPTION
                 elif "/" in text or text.startswith(("~", ".")):
                     assigned = Role.PATH
+            elif role is Role.HEREDOC:
+                expect_command = False
             if assigned is Role.OPERATOR and text in _COMMAND_SEPARATORS:
                 expect_command = True
             elif assigned not in {Role.DEFAULT, Role.OPERATOR} and text.strip():
@@ -112,6 +157,17 @@ class LineHighlighter:
         self._which_cache[token] = found
         return found
 
+    def _classify_command(self, token: str) -> Role:
+        if token in self._builtins:
+            return Role.BUILTIN
+        if token in self._alias_names():
+            return Role.ALIAS
+        return Role.COMMAND_VALID if self._is_command_valid(token) else Role.COMMAND_INVALID
+
+    def _alias_names(self) -> frozenset[str]:
+        aliases = self._aliases() if callable(self._aliases) else self._aliases
+        return frozenset(aliases)
+
     def _scan_tokens(self, line: str) -> list[tuple[int, int, str, Role]]:
         tokens: list[tuple[int, int, str, Role]] = []
         i = 0
@@ -121,6 +177,9 @@ class LineHighlighter:
             if c.isspace():
                 i += 1
                 continue
+            if c == "#" and self._is_comment_start(line, i):
+                tokens.append((i, n, line[i:n], Role.COMMENT))
+                break
             if c in {"'", '"'}:
                 end = self._scan_string(line, i)
                 tokens.append((i, end, line[i:end], Role.STRING))
@@ -140,10 +199,28 @@ class LineHighlighter:
                 end = i + len(op)
                 tokens.append((i, end, op, Role.OPERATOR))
                 i = end
+                if op in {"<<", "<<-"}:
+                    delim_start = i
+                    while delim_start < n and line[delim_start].isspace():
+                        delim_start += 1
+                    delim_end = self._scan_heredoc_delimiter(line, delim_start)
+                    if delim_end > delim_start:
+                        tokens.append((
+                            delim_start,
+                            delim_end,
+                            line[delim_start:delim_end],
+                            Role.HEREDOC,
+                        ))
+                        i = delim_end
                 continue
             start = i
             while i < n:
-                if line[i].isspace() or line[i] in {"'", '"', "$"} or self._match_operator(line, i):
+                if (
+                    line[i].isspace()
+                    or line[i] in {"'", '"', "$"}
+                    or self._is_comment_start(line, i)
+                    or self._match_operator(line, i)
+                ):
                     break
                 i += 1
             tokens.append((start, i, line[start:i], Role.DEFAULT))
@@ -168,6 +245,23 @@ class LineHighlighter:
             if line.startswith(op, index):
                 return op
         return None
+
+    @staticmethod
+    def _is_comment_start(line: str, index: int) -> bool:
+        return line[index] == "#" and (index == 0 or line[index - 1].isspace())
+
+    @staticmethod
+    def _scan_heredoc_delimiter(line: str, start: int) -> int:
+        if start >= len(line):
+            return start
+        if line[start] in {"'", '"'}:
+            return LineHighlighter._scan_string(line, start)
+        i = start
+        while i < len(line):
+            if line[i].isspace() or LineHighlighter._match_operator(line, i):
+                break
+            i += 1
+        return i
 
     @staticmethod
     def _cover_defaults(line: str, spans: list[Span]) -> list[Span]:

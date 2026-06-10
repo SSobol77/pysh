@@ -42,6 +42,7 @@ docs/
 │   ├── usage.md
 │   ├── prompt.md
 │   ├── completion.md
+│   ├── syntax-highlighting.md
 │   ├── builtins.md
 │   ├── operators.md
 │   ├── configuration.md
@@ -93,6 +94,7 @@ docs/
 │   ├── history-engine.md
 │   ├── prompt-engine.md
 │   ├── completion-engine.md
+│   ├── syntax-highlighting.md
 │   ├── repository-structure.md
 │   ├── release.md
 │   └── packaging.md
@@ -111,6 +113,7 @@ Documentation for people who install and use PySH day to day.
 | [usage.md](user/usage.md) | Invocation, operators, pipelines, redirection, substitution, variables |
 | [prompt.md](user/prompt.md) | Prompt options, context segments, colors, and validation |
 | [completion.md](user/completion.md) | TAB completion behavior, repeated TAB, path and Python symbol completion |
+| [syntax-highlighting.md](user/syntax-highlighting.md) | Live input highlighting, visual states, color roles, no-color behavior |
 | [builtins.md](user/builtins.md) | Every builtin: syntax, examples, exit codes, limitations |
 | [operators.md](user/operators.md) | Chain, pipeline, redirection, substitution, quoting semantics |
 | [configuration.md](user/configuration.md) | `~/.pyshrc`, plugin directory `~/.pyshrc.d/`, aliases, prompt |
@@ -218,6 +221,7 @@ Documentation for contributors, maintainers, and the release process.
 | [development.md](development/development.md) | Test suite, linting, build commands, repository layout |
 | [prompt-engine.md](development/prompt-engine.md) | Prompt Engine 2.0 implementation invariants and validation |
 | [completion-engine.md](development/completion-engine.md) | Completion Engine 2.0 architecture, cache contract, manual validation |
+| [syntax-highlighting.md](development/syntax-highlighting.md) | Live highlighter architecture, invariants, config API, validation |
 | [repository-structure.md](development/repository-structure.md) | Repository-relative path map and guidance for similarly named files |
 | [release.md](development/release.md) | Release checklist, tagging, PyPI Trusted Publishing via GitHub Actions |
 | [packaging.md](development/packaging.md) | Canonical naming contract; PyPI / `.deb` / `.rpm` / `.pkg` artifact filenames and build scripts |
