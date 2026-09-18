@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import re
 
+from pysh.contracts.block_syntax import split_unquoted_pipe_stages
 from pysh.parsing.ast import ChainElement, ChainOp
 from pysh.parsing.errors import ParseError, UnsupportedSyntaxError
 
 _ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 _ASSIGNMENT_TOKEN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(=.*)$", re.DOTALL)
+_UNSUPPORTED_CONTROL_WORDS = frozenset(
+    {"case", "do", "done", "else", "esac", "fi", "for", "function", "if", "then", "while"}
+)
 
 
 def split_chain(line: str) -> list[ChainElement]:
@@ -104,62 +108,11 @@ def split_chain(line: str) -> list[ChainElement]:
 
 def split_pipeline(command: str) -> list[str]:
     """Split a single command on unquoted ``|`` and reject empty stages."""
-    if not command.strip():
-        return []
-    parts: list[str] = []
-    buf: list[str] = []
-    in_single = False
-    in_double = False
-    i = 0
-    n = len(command)
-    while i < n:
-        c = command[i]
-        if in_single:
-            buf.append(c)
-            if c == "'":
-                in_single = False
-            i += 1
-            continue
-        if in_double:
-            if c == "\\" and i + 1 < n and command[i + 1] in ('"', "\\", "$", "`"):
-                buf.append(c)
-                buf.append(command[i + 1])
-                i += 2
-                continue
-            buf.append(c)
-            if c == '"':
-                in_double = False
-            i += 1
-            continue
-        if c == "\\" and i + 1 < n:
-            buf.append(c)
-            buf.append(command[i + 1])
-            i += 2
-            continue
-        if c == "'":
-            in_single = True
-            buf.append(c)
-            i += 1
-            continue
-        if c == '"':
-            in_double = True
-            buf.append(c)
-            i += 1
-            continue
-        if c == "|":
-            if i + 1 < n and command[i + 1] == "|":
-                buf.append(c)
-                buf.append(command[i + 1])
-                i += 2
-                continue
-            _append_pipeline_stage(parts, buf)
-            buf = []
-            i += 1
-            continue
-        buf.append(c)
-        i += 1
-    _append_pipeline_stage(parts, buf)
-    return parts
+    stages = split_unquoted_pipe_stages(command)
+    for stage in stages:
+        if not stage:
+            raise ParseError("syntax error near unexpected '|'")
+    return stages
 
 
 def parse_assignment(line: str) -> tuple[str, str] | None:
@@ -185,20 +138,21 @@ def parse_leading_env_assignments(tokens: list[str]) -> tuple[dict[str, str], li
 
 def validate_unsupported_syntax(line: str) -> None:
     """Raise :class:`UnsupportedSyntaxError` for syntax owned by later issues."""
+    if _contains_unquoted(line, "<("):
+        raise UnsupportedSyntaxError("process substitution <(...)", owner="PySH 0.9.0")
     if _contains_unquoted(line, "$(("):
         raise UnsupportedSyntaxError("arithmetic expansion $((...))", owner="Issue #8")
     stripped = line.lstrip()
+    first_word = _first_word(stripped)
+    if first_word in _UNSUPPORTED_CONTROL_WORDS:
+        raise UnsupportedSyntaxError(
+            f"shell control-flow keyword {first_word!r}",
+            owner="PySH 0.9.0 compatibility contract",
+        )
     if stripped.startswith("(("):
         raise UnsupportedSyntaxError("arithmetic command ((...))", owner="Issue #8")
-    if _first_word(stripped) == "let":
+    if first_word == "let":
         raise UnsupportedSyntaxError("arithmetic let command", owner="Issue #8")
-
-
-def _append_pipeline_stage(parts: list[str], buf: list[str]) -> None:
-    stage = "".join(buf).strip()
-    if not stage:
-        raise ParseError("syntax error near unexpected '|'")
-    parts.append(stage)
 
 
 def _contains_unquoted(text: str, needle: str) -> bool:

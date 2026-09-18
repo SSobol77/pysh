@@ -30,6 +30,13 @@ def test_context_command_position() -> None:
     assert context.prefix == "ec"
 
 
+def test_context_command_position_after_operators() -> None:
+    for line in ("echo x | gi", "echo x; gi", "true && gi", "false || gi"):
+        context = parse_completion_context(line, len(line))
+        assert context.command_position
+        assert context.prefix == "gi"
+
+
 def test_context_argument_position() -> None:
     context = parse_completion_context("echo RE", 7)
     assert not context.command_position
@@ -85,7 +92,22 @@ def test_alias_completion_has_alias_kind(tmp_path: Path, monkeypatch) -> None:
     assert result.rich_candidates[0].labeled_menu_text == "gs [alias]"
 
 
-def test_prefix_matches_rank_before_substring_fallback(tmp_path: Path, monkeypatch) -> None:
+def test_duplicate_command_names_are_deduplicated(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = complete_line(
+        "ec",
+        2,
+        builtins=("echo",),
+        aliases=("echo",),
+        path="",
+    )
+    assert result.candidates == ("echo",)
+
+
+def test_command_completion_uses_prefix_without_substring_fallback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     monkeypatch.chdir(tmp_path)
     prefix = complete_line(
         "so",
@@ -107,14 +129,26 @@ def test_prefix_matches_rank_before_substring_fallback(tmp_path: Path, monkeypat
         aliases=(),
         path="",
     )
-    assert substring.candidates == ("source",)
-    assert substring.rich_candidates[0].match_type is CompletionMatchType.SUBSTRING
+    assert substring.candidates == ()
 
 
 def test_case_insensitive_matching_and_deterministic_sort(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     result = complete_line("so", 2, builtins=("Source", "sort", "Socks"), aliases=(), path="")
     assert result.candidates == ("Socks", "sort", "Source")
+
+
+def test_case_sensitive_command_matching(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = complete_line(
+        "so",
+        2,
+        builtins=("Source", "sort"),
+        aliases=(),
+        path="",
+        case_sensitive=True,
+    )
+    assert result.candidates == ("sort",)
 
 
 def test_no_builtin_completion_in_argument_position(tmp_path: Path, monkeypatch) -> None:

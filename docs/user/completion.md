@@ -24,6 +24,10 @@ At command position, PySH completes:
 - executable commands discovered from `PATH`;
 - local paths.
 
+Command-name matching is prefix-only. PySH never falls back to arbitrary
+substring matches. Aliases, builtins, plugin commands, and executable `PATH`
+commands share this rule, are deduplicated, and retain deterministic ordering.
+
 In argument position, PySH completes paths by default. After `cd` and `pushd`,
 only directories are completed. After `fg` and `bg`, job IDs are completed when
 jobs are available.
@@ -45,6 +49,15 @@ TAB behavior is deterministic:
 
 Candidate menus are displayed above a clean prompt redraw and do not modify the
 current input buffer.
+
+## Autosuggestion
+
+The raw editor first searches recent history for an entry beginning with the
+current line and displays only its missing tail. If history has no match at a
+command position, completion provides a fallback: one candidate contributes
+its remaining suffix, multiple candidates contribute only a longer common
+prefix, and unresolved ambiguity produces no suggestion. Suggestions never
+mutate the edit buffer until accepted.
 
 ## Path Rules
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import atexit
 import locale
 import os
+import pwd
 import re
 import shlex
 import shutil
@@ -21,6 +22,7 @@ import termios
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -128,7 +130,11 @@ from pysh.parsing.parser import (
     validate_unsupported_syntax,
 )
 from pysh.parsing.path_expansion import expand_tilde, tokenize_and_glob_expand
-from pysh.parsing.redirection import RedirectionSpec, parse_redirections
+from pysh.parsing.redirection import (
+    RedirectionActionKind,
+    RedirectionSpec,
+    parse_redirections,
+)
 from pysh.plugins.manager import PluginManager
 from pysh.prompt.colors import (
     color_to_hex,
@@ -189,6 +195,17 @@ class ToolVersionSpec:
     cache_attr: str
 
 
+@dataclass(frozen=True)
+class _ResolvedStage:
+    """One pipeline stage resolved before any process is started."""
+
+    kind: str
+    argv: tuple[str, ...]
+    spec: RedirectionSpec
+    env_overrides: dict[str, str] | None = None
+    python_source: str | None = None
+
+
 TOOL_VERSION_SPECS: tuple[ToolVersionSpec, ...] = (
     ToolVersionSpec("show_uv_version", "uv", "uv", "_uv_version_cache"),
     ToolVersionSpec("show_ruff_version", "ruff", "ruff", "_ruff_version_cache"),
@@ -247,7 +264,7 @@ def _tilde_expand_spec(spec: RedirectionSpec) -> RedirectionSpec:
     prevent unsafe multi-target behavior (e.g., ``> *.out`` must not redirect
     to multiple files).  Only ``~`` and ``~user`` are expanded.
     """
-    return RedirectionSpec(
+    expanded = RedirectionSpec(
         stdin_path=expand_tilde(spec.stdin_path) if spec.stdin_path else None,
         stdin_data=spec.stdin_data,
         stdout_path=expand_tilde(spec.stdout_path) if spec.stdout_path else None,
@@ -256,6 +273,86 @@ def _tilde_expand_spec(spec: RedirectionSpec) -> RedirectionSpec:
         stderr_append=spec.stderr_append,
         stderr_to_stdout=spec.stderr_to_stdout,
     )
+    expanded.actions = [
+        type(action)(
+            action.fd,
+            action.kind,
+            path=expand_tilde(action.path) if action.path else None,
+            append=action.append,
+            source_fd=action.source_fd,
+            data=action.data,
+        )
+        for action in spec.actions
+    ]
+    return expanded
+
+
+@contextmanager
+def _redirect_standard_fds(
+    spec: RedirectionSpec,
+    *,
+    stdin_fd: int | None = None,
+    stdout_fd: int | None = None,
+) -> object:
+    """Apply ordered redirections to fd 0/1/2 and restore them on return."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved = {fd: os.dup(fd) for fd in (0, 1, 2)}
+    opened: list[int] = []
+    original_streams = (sys.stdin, sys.stdout, sys.stderr)
+    redirected_streams: list[IO[str]] = []
+    try:
+        if stdin_fd is not None:
+            os.dup2(stdin_fd, 0)
+        if stdout_fd is not None:
+            os.dup2(stdout_fd, 1)
+        for action in spec.actions:
+            if action.kind is RedirectionActionKind.DUP:
+                assert action.source_fd is not None
+                os.dup2(action.source_fd, action.fd)
+                continue
+            if action.kind is RedirectionActionKind.DATA:
+                temp = tempfile.TemporaryFile("w+b")
+                temp.write(action.data or b"")
+                temp.seek(0)
+                duplicate = os.dup(temp.fileno())
+                temp.close()
+                opened.append(duplicate)
+                os.dup2(duplicate, action.fd)
+                continue
+            assert action.path is not None
+            if action.kind is RedirectionActionKind.READ:
+                flags = os.O_RDONLY
+                mode = 0
+            else:
+                flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if action.append else os.O_TRUNC)
+                mode = 0o666
+            opened_fd = os.open(action.path, flags, mode)
+            opened.append(opened_fd)
+            os.dup2(opened_fd, action.fd)
+        encoding = locale.getpreferredencoding(False) or "utf-8"
+        redirected_stdin = os.fdopen(os.dup(0), "r", encoding=encoding, errors="replace")
+        redirected_stdout = os.fdopen(os.dup(1), "w", encoding=encoding, errors="replace", buffering=1)
+        redirected_stderr = os.fdopen(os.dup(2), "w", encoding=encoding, errors="replace", buffering=1)
+        redirected_streams.extend((redirected_stdin, redirected_stdout, redirected_stderr))
+        sys.stdin = redirected_stdin
+        sys.stdout = redirected_stdout
+        sys.stderr = redirected_stderr
+        yield
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        sys.stdin, sys.stdout, sys.stderr = original_streams
+        for stream in redirected_streams:
+            stream.close()
+        for fd, duplicate in saved.items():
+            os.dup2(duplicate, fd)
+            os.close(duplicate)
+        for opened_fd in opened:
+            try:
+                os.close(opened_fd)
+            except OSError:
+                pass
 
 
 def _write_execution_stderr(
@@ -387,7 +484,9 @@ class PyShell:
             ignore_patterns=list(self.history_options.get("ignore_patterns", [])),  # type: ignore[arg-type]
         )
         self._last_execute_parse_ok: bool = True
-        self.autosuggester = AutoSuggester()
+        self._venv_restore_environment: dict[str, str | None] | None = None
+        self._venv_restore_locals: dict[str, str | None] | None = None
+        self.autosuggester = AutoSuggester(self.completer.raw_completion)
         self.line_highlighter = LineHighlighter(
             self.BUILTINS,
             aliases=lambda: self.aliases.keys(),
@@ -443,6 +542,7 @@ class PyShell:
                     signal.signal(signal.SIGTSTP, signal.SIG_IGN)
                 except OSError:
                     pass
+
         try:
             while True:
                 # Reap completed background jobs before showing the prompt.
@@ -546,6 +646,27 @@ class PyShell:
                     signal.signal(signal.SIGTSTP, signal.SIG_DFL)
                 except OSError:
                     pass
+
+    def run_batch(self, lines: IO[str]) -> int:
+        """Execute logical lines from non-interactive stdin without presentation.
+
+        Batch input deliberately does not initialize the interactive editor,
+        banner, prompt engine, or user startup hooks. It is therefore safe for
+        pipelines and automation and has the same last-command status contract
+        as native script mode.
+        """
+        from pysh.parsing.multiline import iter_logical_lines  # noqa: PLC0415
+
+        status = 0
+        try:
+            for logical_line in iter_logical_lines(lines):
+                if not logical_line.strip():
+                    continue
+                status = self.execute(logical_line)
+        except ValueError as exc:
+            print(f"pysh: stdin: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        return status
 
     def _collect_block_interactive(self, opener: str) -> str | None:
         """Read continuation lines until the ``py { ... }`` block closes.
@@ -875,6 +996,8 @@ class PyShell:
             return self._enter_python_mode()
         if self._is_python_block_text(line):
             return self._run_python_block(line)
+        if self._is_pipeline_python_block(line):
+            return self._run_python_block_pipeline(line)
         direct_migration_status = self._execute_inline_migrate_if_needed(line)
         if direct_migration_status is not None:
             return direct_migration_status
@@ -934,7 +1057,7 @@ class PyShell:
 
         py_code = self._extract_direct_py_code(line)
         if py_code is not None:
-            return self._run_python_code(py_code)
+            return self._run_direct_python(line, py_code)
 
         # Bare ``NAME=value`` assignment.
         if self._is_bare_assignment(line):
@@ -979,7 +1102,7 @@ class PyShell:
         background: bool = False,
     ) -> int:
         try:
-            stages = split_pipeline(command)
+            stages = self._split_pipeline_stages(command)
         except ParseError as exc:
             self.trace.error(
                 "split pipeline failed",
@@ -991,14 +1114,23 @@ class PyShell:
         if not stages:
             return 0
         self.trace.emit(DiagnosticStage.PARSE, "split pipeline", stages=len(stages))
-        # Alias expansion is applied per simple command (i.e. per pipe stage).
-        stages = [self._expand_alias(s) for s in stages]
+        # Alias and variable expansion apply to shell stages, never to the
+        # source body of a collected Python block stage.
+        stages = [
+            stage if self._is_python_block_stage(stage) else self._expand_alias(stage)
+            for stage in stages
+        ]
         # Variable expansion happens after alias expansion so that alias
         # bodies behave like literal text but user variables in arguments
         # are still substituted.  $? is passed as a special variable so it
         # expands to the last command exit status (Issue #5).
         _sv = self._special_vars()
-        stages = [expand_variables(s, self.local_vars, special_vars=_sv) for s in stages]
+        stages = [
+            stage
+            if self._is_python_block_stage(stage)
+            else expand_variables(stage, self.local_vars, special_vars=_sv)
+            for stage in stages
+        ]
         self.trace.emit(DiagnosticStage.EXPAND, "expanded variables", stages=len(stages))
         if len(stages) == 1:
             return self._run_simple(stages[0], heredoc_bodies, background=background)
@@ -1010,6 +1142,51 @@ class PyShell:
             heredoc_bodies=heredoc_bodies,
             background=background,
         )
+
+    @staticmethod
+    def _is_pipeline_python_block(command: str) -> bool:
+        """Return True for a collected pipeline whose final stage is ``py {``."""
+        lines = command.splitlines()
+        if len(lines) < 2 or lines[-1].strip() != "}":
+            return False
+        try:
+            stages = split_pipeline(lines[0])
+        except ParseError:
+            return False
+        return len(stages) > 1 and stages[-1].strip() == "py {"
+
+    @staticmethod
+    def _is_python_block_stage(stage: str) -> bool:
+        lines = stage.strip().splitlines()
+        return len(lines) >= 2 and lines[0].strip() == "py {" and lines[-1].strip() == "}"
+
+    def _run_python_block_pipeline(self, command: str) -> int:
+        """Execute a collected Python-block pipeline without expanding its body."""
+        lines = command.splitlines()
+        first_line = strip_comments(lines[0])
+        zsh_diagnostic = detect_unsupported_zsh_syntax(first_line)
+        if zsh_diagnostic is not None:
+            print(zsh_diagnostic.message, file=sys.stderr)
+            print(zsh_diagnostic.hint, file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        try:
+            validate_unsupported_syntax(first_line)
+        except ParseError as exc:
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        expanded_first_line = expand_command_substitution(first_line)
+        protected = "\n".join([expanded_first_line, *lines[1:]])
+        return self._run_chain_element(protected)
+
+    @classmethod
+    def _split_pipeline_stages(cls, command: str) -> list[str]:
+        """Split a pipeline while preserving a collected Python block body."""
+        if not cls._is_pipeline_python_block(command):
+            return split_pipeline(command)
+        lines = command.splitlines()
+        stages = split_pipeline(lines[0])
+        stages[-1] = "\n".join([stages[-1], *lines[1:]])
+        return stages
 
     def _run_simple(
         self,
@@ -1068,7 +1245,13 @@ class PyShell:
                 command=cmd_argv[0],
                 kind="builtin",
             )
-            status = self._dispatch_builtin(cmd_argv)
+            try:
+                redirection = _redirect_standard_fds(spec) if not spec.is_empty() else nullcontext()
+                with redirection:
+                    status = self._dispatch_builtin(cmd_argv)
+            except OSError as exc:
+                print(f"pysh: {exc}", file=sys.stderr)
+                return ExitCode.GENERAL_ERROR
             self.trace.emit(DiagnosticStage.EXECUTE_PLAN, "command finished", status=status)
             return status
         if self.plugin_manager.has_command(cmd_argv[0]):
@@ -1078,7 +1261,13 @@ class PyShell:
                 command=cmd_argv[0],
                 kind="plugin",
             )
-            status = self.plugin_manager.run_command(cmd_argv[0], cmd_argv[1:])
+            try:
+                redirection = _redirect_standard_fds(spec) if not spec.is_empty() else nullcontext()
+                with redirection:
+                    status = self.plugin_manager.run_command(cmd_argv[0], cmd_argv[1:])
+            except OSError as exc:
+                print(f"pysh: {exc}", file=sys.stderr)
+                return ExitCode.GENERAL_ERROR
             self.trace.emit(DiagnosticStage.EXECUTE_PLAN, "command finished", status=status)
             return status
         resolved_path = shutil.which(cmd_argv[0])
@@ -1096,8 +1285,21 @@ class PyShell:
             env_overrides=env_overrides if env_overrides else None,
             background=background,
         )
+        if status == ExitCode.COMMAND_NOT_FOUND and self._looks_like_python_source(cmd_argv[0]):
+            print("hint: Python code requires the 'py' prefix:", file=sys.stderr)
+            print("      pysh -c 'py print(\"hello\")'", file=sys.stderr)
         self.trace.emit(DiagnosticStage.EXECUTE_PLAN, "command finished", status=status)
         return status
+
+    @staticmethod
+    def _looks_like_python_source(command: str) -> bool:
+        """Return True for common Python statements misused as shell commands."""
+        return bool(
+            re.match(
+                r"^(?:print\s*\(|import\b|from\b|def\b|class\b|raise\b)",
+                command,
+            )
+        )
 
     def _run_pipeline(
         self,
@@ -1107,194 +1309,223 @@ class PyShell:
         heredoc_bodies: list[HereDocBody] | None = None,
         background: bool = False,
     ) -> int:
-        parsed: list[tuple[list[str], RedirectionSpec, dict[str, str] | None]] = []
+        """Resolve every stage, then execute it through one pipeline contract."""
+        resolved: list[_ResolvedStage] = []
         remaining_heredocs = heredoc_bodies if heredoc_bodies is not None else []
-        for s in stages:
-            try:
-                clean, spec = parse_redirections(s, remaining_heredocs)
-            except ParseError as exc:
-                print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
-                return ExitCode.BUILTIN_MISUSE
-            spec = _tilde_expand_spec(spec)
-            try:
-                argv = tokenize_and_glob_expand(clean, cwd=Path(os.getcwd()))
-            except ValueError as exc:
-                print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
-                return 2
-            if not argv:
-                print("pysh: syntax error near unexpected '|'", file=sys.stderr)
-                return 2
-            env_overrides, argv = parse_leading_env_assignments(argv)
-            if not argv:
-                print("pysh: syntax error: assignment without command before '|'", file=sys.stderr)
-                return 2
-            parsed.append((argv, spec, env_overrides if env_overrides else None))
+        for source in stages:
+            stage = self._resolve_execution_stage(source, remaining_heredocs)
+            if isinstance(stage, int):
+                return stage
+            resolved.append(stage)
+        if self.zsh_fallback_enabled:
+            missing_external = next(
+                (
+                    stage.argv[0]
+                    for stage in resolved
+                    if stage.kind == "external" and shutil.which(stage.argv[0]) is None
+                ),
+                None,
+            )
+            if missing_external is not None:
+                return self._run_zsh_fallback(original_command)
+        return self._execute_resolved_pipeline(
+            resolved,
+            original_command=original_command,
+            background=background,
+        )
 
-        procs: list[subprocess.Popen[bytes]] = []
-        opened: list[IO[bytes]] = []
-        prev_out: IO[bytes] | None = None
-        pipeline_pgid: int | None = None
-        jc_available = has_job_control()
-
+    def _resolve_execution_stage(
+        self,
+        source: str,
+        heredoc_bodies: list[HereDocBody],
+    ) -> _ResolvedStage | int:
+        """Parse and classify one pipeline stage without executing it."""
+        stripped = source.strip()
+        lines = stripped.splitlines()
+        if len(lines) >= 2 and lines[0].strip() == "py {" and lines[-1].strip() == "}":
+            return _ResolvedStage(
+                "python-block",
+                ("py",),
+                RedirectionSpec(),
+                python_source="\n".join(lines[1:-1]),
+            )
         try:
-            for i, (argv, spec, env_overrides) in enumerate(parsed):
-                is_first = i == 0
-                is_last = i == len(parsed) - 1
+            clean, spec = parse_redirections(source, heredoc_bodies)
+        except ParseError as exc:
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        spec = _tilde_expand_spec(spec)
+        python_source = self._extract_direct_py_code(clean)
+        if python_source is not None:
+            return _ResolvedStage(
+                "python-inline",
+                ("py",),
+                spec,
+                python_source=python_source,
+            )
+        try:
+            argv = tokenize_and_glob_expand(clean, cwd=Path(os.getcwd()))
+        except ValueError as exc:
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        if not argv:
+            print("pysh: syntax error near unexpected '|'", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        env_overrides, command_argv = parse_leading_env_assignments(argv)
+        if not command_argv:
+            print("pysh: syntax error: assignment without command before '|'", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        name = command_argv[0]
+        if name in self.BUILTINS:
+            kind = "builtin"
+        elif self.plugin_manager.has_command(name):
+            kind = "plugin"
+        else:
+            kind = "external"
+        return _ResolvedStage(
+            kind,
+            tuple(command_argv),
+            spec,
+            env_overrides if env_overrides else None,
+        )
 
-                child_env: dict[str, str] | None = None
-                if env_overrides:
-                    child_env = dict(os.environ)
-                    child_env.update(env_overrides)
-
-                stdin_arg: IO[bytes] | int | None
-                if spec.stdin_path:
-                    f = open(spec.stdin_path, "rb")
-                    opened.append(f)
-                    stdin_arg = f
-                elif spec.stdin_data is not None:
-                    f = tempfile.TemporaryFile("w+b")
-                    f.write(spec.stdin_data)
-                    f.seek(0)
-                    opened.append(f)
-                    stdin_arg = f
-                elif is_first:
-                    stdin_arg = None
-                else:
-                    stdin_arg = prev_out
-
-                stdout_arg: IO[bytes] | int | None
-                if spec.stdout_path:
-                    f = open(spec.stdout_path, "ab" if spec.stdout_append else "wb")
-                    opened.append(f)
-                    stdout_arg = f
-                elif is_last:
-                    stdout_arg = None
-                else:
-                    stdout_arg = subprocess.PIPE
-
-                stderr_arg: IO[bytes] | int | None
-                diagnostic_stdout: IO[bytes] | None = None
-                diagnostic_stderr: IO[bytes] | None = None
-                if spec.stderr_to_stdout:
-                    stderr_arg = subprocess.STDOUT
-                    diagnostic_stdout = stdout_arg if hasattr(stdout_arg, "write") else None
-                elif spec.stderr_path:
-                    f = open(spec.stderr_path, "ab" if spec.stderr_append else "wb")
-                    opened.append(f)
-                    stderr_arg = f
-                    diagnostic_stderr = f
-                else:
-                    stderr_arg = None
-
-                # Build preexec_fn for process-group assignment.
-                preexec_fn: Callable[[], None] | None = None
-                if jc_available:
-                    if is_first:
-                        preexec_fn = make_child_preexec
-                    else:
-                        # Subsequent stages join the first process's group.
-                        _target_pgid = pipeline_pgid
-                        def _join_pgid(pgid: int = _target_pgid) -> None:  # type: ignore[assignment]
-                            os.setpgid(0, pgid)
-                            reset_child_job_control_signals()
-                        preexec_fn = _join_pgid
-
-                try:
-                    proc = subprocess.Popen(  # noqa: S603 - user-issued command
-                        argv,
-                        env=child_env,
-                        stdin=stdin_arg,
-                        stdout=stdout_arg,
-                        stderr=stderr_arg,
-                        preexec_fn=preexec_fn,
-                    )
-                except FileNotFoundError:
-                    if self.zsh_fallback_enabled and argv[0] not in self.BUILTINS:
-                        if prev_out is not None:
-                            prev_out.close()
-                        for p in procs:
-                            p.terminate()
-                            p.wait()
-                        return self._run_zsh_fallback(original_command)
-                    self.trace.error(
-                        "command not found",
-                        command=argv[0],
-                        code=ExitCode.COMMAND_NOT_FOUND,
-                    )
-                    _write_execution_stderr(
-                        f"pysh: {argv[0]}: command not found",
-                        spec,
-                        stdout_stream=diagnostic_stdout,
-                        stderr_stream=diagnostic_stderr,
-                    )
-                    if prev_out is not None:
-                        prev_out.close()
-                    for p in procs:
-                        p.terminate()
-                        p.wait()
-                    return ExitCode.COMMAND_NOT_FOUND
-
-                if is_first and jc_available:
-                    pipeline_pgid = proc.pid
-                if jc_available and pipeline_pgid is not None:
+    def _execute_resolved_pipeline(
+        self,
+        stages: list[_ResolvedStage],
+        *,
+        original_command: str,
+        background: bool,
+    ) -> int:
+        """Fork isolated stages connected by OS pipes and return the last status."""
+        pids: list[int] = []
+        previous_read: int | None = None
+        pipeline_pgid: int | None = None
+        sys.stdout.flush()
+        sys.stderr.flush()
+        try:
+            for index, stage in enumerate(stages):
+                is_last = index == len(stages) - 1
+                next_read: int | None = None
+                next_write: int | None = None
+                if not is_last:
+                    next_read, next_write = os.pipe()
+                pid = os.fork()
+                if pid == 0:
                     try:
-                        os.setpgid(proc.pid, pipeline_pgid)
+                        os.setpgid(0, pipeline_pgid or 0)
+                        reset_child_job_control_signals()
                     except OSError:
                         pass
+                    try:
+                        with _redirect_standard_fds(
+                            stage.spec,
+                            stdin_fd=previous_read,
+                            stdout_fd=next_write,
+                        ):
+                            for fd in (previous_read, next_read, next_write):
+                                if fd is not None and fd > 2:
+                                    try:
+                                        os.close(fd)
+                                    except OSError:
+                                        pass
+                            status = self._execute_isolated_stage(stage)
+                            sys.stdout.flush()
+                            sys.stderr.flush()
+                    except BaseException as exc:  # noqa: BLE001 - child boundary
+                        print(f"pysh: pipeline: {exc}", file=sys.stderr)
+                        status = ExitCode.GENERAL_ERROR
+                    os._exit(int(status))
 
-                # The parent must close the read end of the previous pipe so
-                # that the child receives EOF after the upstream stage exits.
-                if prev_out is not None:
-                    prev_out.close()
-                prev_out = proc.stdout
-                procs.append(proc)
-
-            if not procs:
-                return ExitCode.SUCCESS
-
-            pids = [p.pid for p in procs]
-            pgid = pipeline_pgid or (procs[0].pid if procs else 0)
+                if pipeline_pgid is None:
+                    pipeline_pgid = pid
+                try:
+                    os.setpgid(pid, pipeline_pgid)
+                except OSError:
+                    pass
+                pids.append(pid)
+                if previous_read is not None:
+                    os.close(previous_read)
+                if next_write is not None:
+                    os.close(next_write)
+                previous_read = next_read
 
             if background:
-                # Register as background job; do not wait.
+                assert pipeline_pgid is not None
                 job = self.job_table.add_job(
-                    pgid, original_command, pids, background=True
+                    pipeline_pgid,
+                    original_command,
+                    pids,
+                    background=True,
                 )
                 print(f"[{job.job_id}] {pids[-1]}", flush=True)
                 return ExitCode.SUCCESS
 
-            # Foreground pipeline: give terminal, wait, restore terminal.
+            raw_statuses: dict[int, int] = {}
             tty_fd = self._tty_fd
-            if tty_fd is not None and pgid:
-                if not tcsetpgrp_safely(tty_fd, pgid):
+            if tty_fd is not None and pipeline_pgid is not None:
+                if not tcsetpgrp_safely(tty_fd, pipeline_pgid):
                     tty_fd = None
-
             try:
-                results = [p.wait() for p in procs]
+                for pid in pids:
+                    _, raw_statuses[pid] = os.waitpid(pid, 0)
             except KeyboardInterrupt:
-                for p in procs:
+                if pipeline_pgid is not None:
                     try:
-                        p.terminate()
+                        os.killpg(pipeline_pgid, signal.SIGINT)
                     except OSError:
                         pass
-                results = [p.wait() for p in procs]
+                for pid in pids:
+                    if pid not in raw_statuses:
+                        try:
+                            _, raw_statuses[pid] = os.waitpid(pid, 0)
+                        except OSError:
+                            pass
                 return ExitCode.SIGINT
             finally:
                 if tty_fd is not None:
                     tcsetpgrp_safely(tty_fd, os.getpgrp())
-
-            return returncode_to_exit_status(results[-1]) if results else ExitCode.SUCCESS
+            return _raw_to_exit(raw_statuses[pids[-1]])
+        except OSError as exc:
+            print(f"pysh: pipeline: {exc}", file=sys.stderr)
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    pass
+            return ExitCode.GENERAL_ERROR
         finally:
-            for f in opened:
+            if previous_read is not None:
                 try:
-                    f.close()
+                    os.close(previous_read)
                 except OSError:
                     pass
-            if prev_out is not None:
-                try:
-                    prev_out.close()
-                except OSError:
-                    pass
+
+    def _execute_isolated_stage(self, stage: _ResolvedStage) -> int:
+        """Execute one already-resolved stage in its isolated child process."""
+        if stage.env_overrides:
+            os.environ.update(stage.env_overrides)
+        if stage.kind == "builtin":
+            try:
+                return self._dispatch_builtin(list(stage.argv))
+            except _ExitShell as exc:
+                return exc.code
+        if stage.kind == "plugin":
+            return self.plugin_manager.run_command(stage.argv[0], list(stage.argv[1:]))
+        if stage.kind == "python-inline":
+            return self._run_python_code(stage.python_source or "")
+        if stage.kind == "python-block":
+            return self.python_runtime.execute_block(stage.python_source or "")
+        try:
+            os.execvpe(stage.argv[0], stage.argv, dict(os.environ))
+        except FileNotFoundError:
+            print(f"pysh: {stage.argv[0]}: command not found", file=sys.stderr)
+            return ExitCode.COMMAND_NOT_FOUND
+        except PermissionError as exc:
+            print(f"pysh: {stage.argv[0]}: {exc}", file=sys.stderr)
+            return ExitCode.CANNOT_EXECUTE
+        except OSError as exc:
+            print(f"pysh: {stage.argv[0]}: {exc}", file=sys.stderr)
+            return ExitCode.GENERAL_ERROR
 
     def _run_external(
         self,
@@ -1318,15 +1549,17 @@ class PyShell:
         preexec_fn: Callable[[], None] | None = make_child_preexec if jc_available else None
 
         try:
-            if spec.stdin_path:
+            if not spec.actions and spec.stdin_path:
                 stdin_f = open(spec.stdin_path, "rb")
-            elif spec.stdin_data is not None:
+            elif not spec.actions and spec.stdin_data is not None:
                 stdin_f = tempfile.TemporaryFile("w+b")
                 stdin_f.write(spec.stdin_data)
                 stdin_f.seek(0)
-            if spec.stdout_path:
+            if not spec.actions and spec.stdout_path:
                 stdout_f = open(spec.stdout_path, "ab" if spec.stdout_append else "wb")
-            if spec.stderr_to_stdout:
+            if spec.actions:
+                stderr_arg = None
+            elif spec.stderr_to_stdout:
                 stderr_arg = subprocess.STDOUT
             elif spec.stderr_path:
                 stderr_f = open(spec.stderr_path, "ab" if spec.stderr_append else "wb")
@@ -1334,14 +1567,16 @@ class PyShell:
             else:
                 stderr_arg = None
             try:
-                proc = subprocess.Popen(  # noqa: S603 - user-issued command
-                    argv,
-                    env=child_env,
-                    stdin=stdin_f,
-                    stdout=stdout_f,
-                    stderr=stderr_arg,
-                    preexec_fn=preexec_fn,
-                )
+                redirection = _redirect_standard_fds(spec) if spec.actions else nullcontext()
+                with redirection:
+                    proc = subprocess.Popen(  # noqa: S603 - user-issued command
+                        argv,
+                        env=child_env,
+                        stdin=stdin_f,
+                        stdout=stdout_f,
+                        stderr=stderr_arg,
+                        preexec_fn=preexec_fn,
+                    )
             except FileNotFoundError:
                 if self.zsh_fallback_enabled and original_stage is not None:
                     return self._run_zsh_fallback(original_stage)
@@ -1350,12 +1585,17 @@ class PyShell:
                     command=argv[0],
                     code=ExitCode.COMMAND_NOT_FOUND,
                 )
-                _write_execution_stderr(
-                    f"pysh: {argv[0]}: command not found",
-                    spec,
-                    stdout_stream=stdout_f,
-                    stderr_stream=stderr_f,
-                )
+                message = f"pysh: {argv[0]}: command not found"
+                if any(action.fd != 0 for action in spec.actions):
+                    with _redirect_standard_fds(spec):
+                        print(message, file=sys.stderr)
+                else:
+                    _write_execution_stderr(
+                        message,
+                        spec,
+                        stdout_stream=stdout_f,
+                        stderr_stream=stderr_f,
+                    )
                 return ExitCode.COMMAND_NOT_FOUND
             except PermissionError as exc:
                 self.trace.error(
@@ -1482,6 +1722,7 @@ class PyShell:
             "config_reset": self._builtin_config_reset,
             "config_profile": self._builtin_config_profile,
             "config_theme": self._builtin_config_theme,
+            "deactivate": self._builtin_deactivate,
             "config_alias_pack": self._builtin_config_alias_pack,
             "zsh": self._builtin_zsh,
             "zsh_fallback": self._builtin_zsh_fallback,
@@ -1634,12 +1875,84 @@ class PyShell:
             print("source: filename argument required", file=sys.stderr)
             return 2
         target = Path(os.path.expanduser(args[0]))
+        venv_root = self._validated_venv_activation_target(target)
+        if venv_root is not None:
+            return self._activate_virtualenv(venv_root)
+        if target.name == "activate" and target.parent.name == "bin":
+            print(f"source: {target}: invalid Python virtual environment", file=sys.stderr)
+            return 1
         if is_zsh_config_path(str(target)):
             diagnostic_info = zsh_config_file_diagnostic(str(target))
             print(diagnostic_info.message, file=sys.stderr)
             print(diagnostic_info.hint, file=sys.stderr)
             return 2
         return execute_rc(target, self.execute, quiet_missing=False)
+
+    @staticmethod
+    def _validated_venv_activation_target(target: Path) -> Path | None:
+        """Return the validated virtualenv root for a ``bin/activate`` target."""
+        try:
+            resolved = target.resolve(strict=True)
+        except OSError:
+            return None
+        if resolved.name != "activate" or resolved.parent.name != "bin":
+            return None
+        root = resolved.parent.parent
+        python = root / "bin" / "python"
+        if not (root / "pyvenv.cfg").is_file() or not python.is_file():
+            return None
+        if not os.access(python, os.X_OK):
+            return None
+        return root
+
+    def _activate_virtualenv(self, root: Path) -> int:
+        """Activate ``root`` transactionally without interpreting foreign code."""
+        if self._venv_restore_environment is None:
+            self._venv_restore_environment = {
+                name: os.environ.get(name)
+                for name in ("PATH", "PYTHONHOME", "VIRTUAL_ENV")
+            }
+            self._venv_restore_locals = {
+                name: self.local_vars.get(name)
+                for name in ("PATH", "PYTHONHOME", "VIRTUAL_ENV")
+            }
+        else:
+            self._restore_virtualenv_environment(clear_snapshot=False)
+
+        base_path = os.environ.get("PATH", "")
+        bin_path = str(root / "bin")
+        path_parts = [part for part in base_path.split(os.pathsep) if part != bin_path]
+        new_path = os.pathsep.join([bin_path, *path_parts])
+        self._set_exported_environment("PATH", new_path, notify_plugins=True)
+        self._set_exported_environment("VIRTUAL_ENV", str(root), notify_plugins=True)
+        self._unset_exported_environment("PYTHONHOME", notify_plugins=True)
+        return 0
+
+    def _builtin_deactivate(self, _args: list[str]) -> int:
+        """Restore the exact environment captured before native activation."""
+        if self._venv_restore_environment is None:
+            return 0
+        self._restore_virtualenv_environment(clear_snapshot=True)
+        return 0
+
+    def _restore_virtualenv_environment(self, *, clear_snapshot: bool) -> None:
+        snapshot = self._venv_restore_environment
+        if snapshot is None:
+            return
+        for name, value in snapshot.items():
+            if value is None:
+                self._unset_exported_environment(name, notify_plugins=True)
+            else:
+                self._set_exported_environment(name, value, notify_plugins=True)
+        local_snapshot = self._venv_restore_locals or {}
+        for name, value in local_snapshot.items():
+            if value is None:
+                self.local_vars.pop(name, None)
+            else:
+                self.local_vars[name] = value
+        if clear_snapshot:
+            self._venv_restore_environment = None
+            self._venv_restore_locals = None
 
     def _builtin_source_zsh(self, args: list[str]) -> int:
         if not args:
@@ -2382,6 +2695,25 @@ class PyShell:
     def _run_python_code(self, code: str) -> int:
         return self.python_runtime.execute(code)
 
+    def _run_direct_python(self, line: str, code: str) -> int:
+        """Execute direct Python with optional trailing shell redirections."""
+        try:
+            clean, spec = parse_redirections(line)
+        except ParseError as exc:
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        if spec.is_empty():
+            return self._run_python_code(code)
+        clean_code = self._extract_direct_py_code(clean)
+        if clean_code is None:
+            return self._run_python_code(code)
+        try:
+            with _redirect_standard_fds(_tilde_expand_spec(spec)):
+                return self._run_python_code(clean_code)
+        except OSError as exc:
+            print(f"pysh: {exc}", file=sys.stderr)
+            return ExitCode.GENERAL_ERROR
+
     def _run_python_block(self, text: str) -> int:
         try:
             body = extract_block_body(text)
@@ -2407,7 +2739,7 @@ class PyShell:
         if "\n" not in text:
             return False
         lines = text.split("\n")
-        if not is_block_opener(lines[0]):
+        if lines[0].strip() != "py {":
             return False
         return is_block_closer(lines[-1])
 
@@ -2521,6 +2853,13 @@ class PyShell:
             self.zsh_fallback_enabled = value == "1"
         if notify_plugins and old != value:
             self.plugin_manager.notify_env_change(name, old, value)
+
+    def _unset_exported_environment(self, name: str, *, notify_plugins: bool) -> None:
+        """Unset one exported variable through the central mutation path."""
+        old = os.environ.pop(name, None)
+        self.local_vars.pop(name, None)
+        if notify_plugins and old is not None:
+            self.plugin_manager.notify_env_change(name, old, None)
 
     def enable_plugin(self, name: str) -> None:
         """Record explicit intent to load a trusted Python plugin."""
@@ -3060,7 +3399,7 @@ class PyShell:
     @staticmethod
     def _prompt_identity(options: dict[str, object]) -> str:
         """Build the ``user`` / ``host`` / ``user@host`` identity segment."""
-        user = os.environ.get("USER") or os.environ.get("LOGNAME") or "user"
+        user = PyShell._effective_username()
         show_user = bool(options.get("show_user", True))
         show_host = bool(options.get("show_host", False))
         if show_user and show_host:
@@ -3074,7 +3413,7 @@ class PyShell:
     @staticmethod
     def _prompt_identity_segments(options: dict[str, object]) -> list[tuple[str, str | None]]:
         """Build color-aware identity segments."""
-        user = os.environ.get("USER") or os.environ.get("LOGNAME") or "user"
+        user = PyShell._effective_username()
         show_user = bool(options.get("show_user", True))
         show_host = bool(options.get("show_host", False))
         host = socket.gethostname()
@@ -3085,6 +3424,14 @@ class PyShell:
         if show_user:
             return [(user, "user")]
         return []
+
+    @staticmethod
+    def _effective_username() -> str:
+        """Return the passwd name for the effective process identity."""
+        try:
+            return pwd.getpwuid(os.geteuid()).pw_name
+        except (KeyError, OSError):
+            return str(os.geteuid())
 
     def _color_prompt_segment(self, text: str, segment: str | None) -> str:
         """Apply configured prompt color to one rendered segment."""

@@ -240,6 +240,21 @@ Limitations: `source` executes the file through PySH's rc interpreter. Do not
 use it for arbitrary zsh/bash profile migration; use `source_zsh_profile` or
 `source_sh_aliases` for static import.
 
+Exception: a validated path ending in `<venv>/bin/activate` is handled by the
+native transactional virtual-environment activator and is never interpreted as
+PySH or foreign shell source. Activation sets `VIRTUAL_ENV`, prepends the venv
+`bin` directory once, temporarily unsets `PYTHONHOME`, and exposes
+`deactivate`. Failed validation changes no environment state; `deactivate`
+restores the exact pre-activation values.
+
+## `deactivate`
+
+Syntax: `deactivate`
+
+Purpose: Restore `PATH`, `PYTHONHOME`, and `VIRTUAL_ENV` to their exact values
+before the first native virtual-environment activation. It succeeds silently
+when no native activation is active.
+
 ## `command`
 
 Syntax:

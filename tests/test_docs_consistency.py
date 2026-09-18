@@ -22,8 +22,19 @@ README = REPO_ROOT / "README.md"
 DOCS = REPO_ROOT / "docs"
 
 MARKDOWN_FILES: tuple[Path, ...] = (
-    README,
-    *tuple(sorted(DOCS.rglob("*.md"))),
+    *tuple(
+        sorted(
+            REPO_ROOT / line
+            for line in subprocess.run(
+                ["git", "ls-files", "README.md", "docs/*.md"],
+                cwd=REPO_ROOT,
+                check=True,
+                stdout=subprocess.PIPE,
+                text=True,
+            ).stdout.splitlines()
+            if line
+        )
+    ),
 )
 
 LOCAL_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")

@@ -355,6 +355,13 @@ _PERMITTED_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("pysh.diagnostics", _PARSING_SHARED_LEAF),
     ("pysh.plugins", "pysh.contracts"),
     ("pysh.script_runner", _PARSING_SHARED_LEAF),
+    # pysh.contracts.block_syntax is the canonical, dependency-free home for
+    # the `py { ... }` block-opener/closer predicate (including the
+    # pipeline-prefixed form). pysh.parsing.grammar.split_pipeline and
+    # pysh.python_layer.runtime both build on it so neither package depends
+    # on the other's domain for this one shared piece of syntax.
+    (_PARSING_SHARED_LEAF, "pysh.contracts"),
+    ("pysh.python_layer", "pysh.contracts"),
 })
 
 

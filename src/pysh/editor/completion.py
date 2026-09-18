@@ -91,9 +91,11 @@ class Completer:
             return result
         candidates = list(result.candidates)
         if context.command_position:
-            prefix = context.prefix.casefold()
+            case_sensitive = bool(options.get("case_sensitive", False))
+            prefix = context.prefix if case_sensitive else context.prefix.casefold()
             for name in sorted(self._get_plugin_commands(), key=str.casefold):
-                if name.casefold().startswith(prefix) and name not in candidates:
+                compared = name if case_sensitive else name.casefold()
+                if compared.startswith(prefix) and name not in candidates:
                     candidates.append(name)
         elif context.command_name:
             args = _split_completion_args(line[:cursor])

@@ -26,6 +26,7 @@ BUILTIN_NAMES: frozenset[str] = frozenset(
         "config_profile",
         "config_reset",
         "config_theme",
+        "deactivate",
         "dirs",
         "env_audit",
         "exit",

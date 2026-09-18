@@ -799,15 +799,13 @@ def _match_type(
     *,
     case_sensitive: bool = False,
 ) -> CompletionMatchType | None:
-    """Return prefix/substring match type using case-insensitive matching."""
+    """Return a deterministic prefix match using configured case handling."""
     if not prefix:
         return CompletionMatchType.PREFIX
     folded_value = value if case_sensitive else value.casefold()
     folded_prefix = prefix if case_sensitive else prefix.casefold()
     if folded_value.startswith(folded_prefix):
         return CompletionMatchType.PREFIX
-    if folded_prefix in folded_value:
-        return CompletionMatchType.SUBSTRING
     return None
 
 
@@ -815,19 +813,15 @@ def _rank_candidates(
     candidates: Sequence[CompletionCandidate],
     prefix: str,
 ) -> list[CompletionCandidate]:
-    """Return deterministic candidates with substring fallback semantics."""
+    """Return deterministic prefix candidates in stable kind/name order."""
     del prefix
     deduped = _dedupe_candidates(candidates)
     prefix_matches = [
         candidate for candidate in deduped
         if candidate.match_type is CompletionMatchType.PREFIX
     ]
-    selected = prefix_matches if prefix_matches else [
-        candidate for candidate in deduped
-        if candidate.match_type is CompletionMatchType.SUBSTRING
-    ]
     return sorted(
-        selected,
+        prefix_matches,
         key=lambda candidate: (
             _kind_rank(candidate.kind),
             candidate.menu_text.casefold(),

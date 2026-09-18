@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-2.0-only
 
 Project: PySH - Python-first interactive shell for Debian and Unix-like systems
-File: ROADMAP-v1-2.md
+File: docs/roadmap/ROADMAP-v1-2.md
 Repository: https://github.com/SSobol77/pysh
 PyPI: https://pypi.org/project/pysh-shell
 
@@ -17,8 +17,9 @@ backlog and organizes work into three milestones, with the **assurance
 and contract layer** (security, API stability, performance budgets,
 specification, supply chain) placed *before* feature expansion.
 
-Status reference: current release **PySH 0.8.1**, target **Python 3.13+**,
-validated on **Debian 13** and Unix-like systems, GPL-2.0-only.
+Status reference: released stable **PySH 0.8.2**, active development target
+**PySH 0.9.0**, target **Python 3.13+**, validated on **Debian 13** and
+Unix-like systems, GPL-2.0-only.
 
 ---
 

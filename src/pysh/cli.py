@@ -118,6 +118,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 list(args.script_args),
                 native_only=True,
             )
+        if not sys.stdin.isatty():
+            return shell.run_batch(sys.stdin)
         return shell.run()
     except _ExitShell as exc:
         return exc.code

@@ -305,6 +305,7 @@ documented.
 | `svc`      | Query / signal PyInit services. See [svc / PyInit](#svc--pyinit). |
 | `exit`     | Exit the shell with an optional status code.             |
 | `quit`     | Same as `exit`.                                          |
+| `deactivate` | Restore the environment captured before native venv activation. |
 
 ---
 
@@ -354,11 +355,18 @@ Redirection operators inside quotes are kept as literal characters.
 
 PySH connects each stage with a real OS pipe and closes the parent's
 duplicate handles after the child is spawned, so neither side deadlocks.
+Builtins, plugin commands, inline Python, and Python blocks use the same stage
+resolution and I/O contract. Native stages run in isolated pipeline children;
+state-changing builtins affect the parent shell only outside pipelines.
 
 ```sh
 ls -la | head -3
 apt list --upgradable 2>/dev/null | grep -c "/"
 ```
+
+Redirection applies to external commands, builtins, plugin commands, and
+Python. Numeric forms `0<`, `1>`, `2>`, `2>&1`, `1>&2`, and `>&2` are applied
+in lexical order.
 
 ---
 

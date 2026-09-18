@@ -54,7 +54,7 @@ _PYSH_CMD: list[str] = [sys.executable, "-m", "pysh"]
 # TERM must be set (not empty, not "dumb") for colors_enabled() to return True.
 # NO_COLOR must be absent.
 _PTY_ENV: dict[str, str] = {k: v for k, v in os.environ.items() if k != "NO_COLOR"}
-_PTY_ENV.setdefault("TERM", "xterm-256color")
+_PTY_ENV["TERM"] = "xterm-256color"
 
 # Regex that matches ANSI CSI escape sequences.
 _ANSI_RE = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]")

@@ -844,6 +844,7 @@ def test_pyshell_default_prompt_is_two_line(monkeypatch, tmp_path: Path) -> None
     monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
     monkeypatch.setattr(PyShell, "_unicode_capable", staticmethod(lambda: True))
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
     monkeypatch.setattr(socket, "gethostname", lambda: "vm")
     monkeypatch.chdir(tmp_path)
@@ -870,6 +871,7 @@ def test_pyshell_single_layout_uses_prompt_body(monkeypatch, tmp_path: Path) -> 
 
 def test_pyshell_prompt_exact_compatibility_progression(monkeypatch) -> None:
     monkeypatch.setenv("USER", "siergej")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "siergej"))
     monkeypatch.setattr(socket, "gethostname", lambda: "vm")
     monkeypatch.setattr(Path, "cwd", classmethod(lambda cls: Path("/home/claude/work")))
     monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
@@ -899,6 +901,7 @@ def test_pyshell_prompt_python_version_segment(monkeypatch) -> None:
 
 def test_pyshell_prompt_host_segment(monkeypatch) -> None:
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_host", True)
@@ -1207,6 +1210,7 @@ def test_pyshell_prompt_k8s_multipath_precedence(monkeypatch, tmp_path: Path) ->
 
 def test_pyshell_prompt_cwd_basename(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.chdir(project)
@@ -1218,6 +1222,7 @@ def test_pyshell_prompt_cwd_basename(monkeypatch, tmp_path: Path) -> None:
 
 def test_pyshell_prompt_cwd_full(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.chdir(project)
@@ -1229,6 +1234,7 @@ def test_pyshell_prompt_cwd_full(monkeypatch, tmp_path: Path) -> None:
 
 def test_pyshell_prompt_cwd_home(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     home = tmp_path / "home"
     project = home / "work"
     project.mkdir(parents=True)
@@ -1242,6 +1248,7 @@ def test_pyshell_prompt_cwd_home(monkeypatch, tmp_path: Path) -> None:
 
 def test_pyshell_prompt_cwd_can_be_hidden(monkeypatch) -> None:
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_cwd", False)
@@ -1416,6 +1423,7 @@ def test_colored_prompt_contains_ansi_and_preserves_semantics(monkeypatch, tmp_p
 def test_colored_prompt_truecolor_mode(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
     monkeypatch.chdir(tmp_path)
     shell = PyShell()

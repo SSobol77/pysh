@@ -13,6 +13,7 @@ events to stderr or another explicit stream.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import sys
 from collections.abc import Mapping
@@ -97,7 +98,7 @@ class RedactionPolicy:
         for name, value in source.items():
             if not value or not self.is_sensitive_name(name):
                 continue
-            redacted = redacted.replace(value, self.placeholder)
+            redacted = _redact_value_at_word_boundaries(redacted, value, self.placeholder)
         return redacted
 
 
@@ -218,3 +219,18 @@ def _redact_assignment_tokens(text: str, policy: RedactionPolicy) -> str:
             continue
         redacted = redacted.replace(token, f"{name}={policy.placeholder}")
     return redacted
+
+
+def _redact_value_at_word_boundaries(text: str, value: str, placeholder: str) -> str:
+    """Replace *value* with *placeholder* only where it forms a whole token.
+
+    A naive ``text.replace(value, ...)`` corrupts unrelated diagnostic text
+    (file paths, line numbers, counters) whenever a short sensitive value
+    happens to be a substring of something else, e.g. value ``"1"`` inside
+    path segment ``pytest-19``. Requiring a word boundary on both sides of
+    the match keeps that unrelated text byte-for-byte unchanged while still
+    redacting the value wherever it is genuinely exposed as its own token
+    (e.g. surrounded by spaces, quotes, or the ends of the string).
+    """
+    pattern = rf"\b{re.escape(value)}\b"
+    return re.sub(pattern, placeholder, text)

@@ -14,6 +14,23 @@ Copyright (C) 2026 Siergej Sobolewski
 
 All notable changes to PySH are documented in this file.
 
+## 0.9.0 - Unreleased
+
+Fixed in 0.9.0 development:
+
+- Added native, transactional virtual-environment activation and the
+  `deactivate` builtin without interpreting foreign activation scripts.
+- Added clean batch-input behavior for bare `pysh` with non-TTY stdin.
+- Unified builtin, plugin, Python, and external pipeline/redirection execution,
+  including Python block pipeline stages and ordered numeric-fd duplication.
+- Made command completion prefix-only and added safe completion-backed ghost
+  suggestions after history lookup.
+- Resolved effective prompt identity through EUID rather than `USER`/`LOGNAME`.
+- Isolated PTY and documentation consistency tests from parent terminal and
+  ignored local-file state.
+- Added deterministic diagnostics for Python-like `-c` input, unsupported shell
+  control flow, and process substitution.
+
 ## 0.8.2 - 2026-06-08
 
 Release type: metadata hotfix.

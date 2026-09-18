@@ -50,6 +50,11 @@ printf 'a\nb\nc\n' | head -2
 The pipeline return status is the final stage's status. PySH closes parent
 pipe handles after spawning children to avoid EOF deadlocks.
 
+Every stage is resolved before execution as an external command, builtin,
+plugin command, inline Python command, or Python block. Native stages execute
+in isolated child processes inside pipelines, so a state-changing builtin such
+as `cd` does not mutate the parent shell from a pipeline.
+
 A trailing pipe is a parse error and returns status 2:
 
 ```sh
@@ -65,6 +70,11 @@ echo hello |
 | `>> file`  | Write stdout to `file`, appending.    |
 | `2> file`  | Write stderr to `file`, truncating.   |
 | `2>> file` | Write stderr to `file`, appending.    |
+| `0< file`  | Explicitly read fd 0 from `file`.     |
+| `1> file`  | Explicitly write fd 1 to `file`.      |
+| `2>&1`     | Duplicate current fd 1 onto fd 2.     |
+| `1>&2`     | Duplicate current fd 2 onto fd 1.     |
+| `>&2`      | Shorthand for `1>&2`.                 |
 | `&> file`  | Write stdout and stderr to `file`.    |
 | `&>> file` | Append stdout and stderr to `file`.   |
 | `<< WORD`  | Read stdin from following heredoc body. |
@@ -81,7 +91,9 @@ ls -la &> listing.log
 ```
 
 Redirection paths are parsed outside quotes. Redirection operators inside
-quotes remain literal arguments.
+quotes remain literal arguments. Actions are applied from left to right, so
+`cmd >file 2>&1` and `cmd 2>&1 >file` intentionally differ. The same I/O
+contract applies to external commands, builtins, plugins, and Python commands.
 
 Heredocs and here-strings are stdin redirections. Unquoted heredoc delimiters
 enable `$NAME`, `${NAME}`, `$?`, and supported command substitution in body

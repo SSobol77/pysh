@@ -105,3 +105,78 @@ def test_source_missing_file_reports_error(
     assert status == 0
     captured = capsys.readouterr()
     assert "no such file" in captured.err
+
+
+def _make_virtualenv(root: Path) -> Path:
+    """Create the minimum validated virtualenv layout for activation tests."""
+    bindir = root / "bin"
+    bindir.mkdir(parents=True)
+    (root / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    python = bindir / "python"
+    python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    python.chmod(0o755)
+    activate = bindir / "activate"
+    activate.write_text("echo FOREIGN_ACTIVATION_MUST_NOT_RUN\n", encoding="utf-8")
+    return activate
+
+
+def test_source_native_virtualenv_activation_is_transactional(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    activate = _make_virtualenv(tmp_path / "venv")
+    monkeypatch.setenv("PATH", "/base/bin:/usr/bin")
+    monkeypatch.setenv("PYTHONHOME", "/old/pythonhome")
+    monkeypatch.setenv("VIRTUAL_ENV", "/old/venv")
+    before = {name: os.environ.get(name) for name in ("PATH", "PYTHONHOME", "VIRTUAL_ENV")}
+    shell = PyShell()
+
+    assert shell.execute(f"source {activate}") == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert os.environ["VIRTUAL_ENV"] == str(tmp_path / "venv")
+    assert shell._prompt_virtualenv() == "venv"
+    assert os.environ["PATH"].split(os.pathsep).count(str(tmp_path / "venv" / "bin")) == 1
+    assert "PYTHONHOME" not in os.environ
+    assert shell.execute("deactivate") == 0
+    assert {name: os.environ.get(name) for name in before} == before
+
+
+def test_virtualenv_switch_restores_original_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _make_virtualenv(tmp_path / "first")
+    second = _make_virtualenv(tmp_path / "second")
+    monkeypatch.setenv("PATH", "/original")
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    shell = PyShell()
+
+    assert shell.execute(f". {first}") == 0
+    assert shell.execute(f"source {second}") == 0
+    assert os.environ["VIRTUAL_ENV"] == str(tmp_path / "second")
+    assert os.environ["PATH"] == f"{tmp_path / 'second' / 'bin'}:/original"
+    assert shell.execute("deactivate") == 0
+    assert os.environ["PATH"] == "/original"
+    assert "VIRTUAL_ENV" not in os.environ
+    assert "PYTHONHOME" not in os.environ
+
+
+def test_invalid_activation_target_does_not_mutate_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "invalid" / "bin" / "activate"
+    target.parent.mkdir(parents=True)
+    target.write_text("export VIRTUAL_ENV=/corrupted\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", "/safe")
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    before = dict(os.environ)
+
+    status = PyShell().execute(f"source {target}")
+
+    assert status == 1
+    assert dict(os.environ) == before
