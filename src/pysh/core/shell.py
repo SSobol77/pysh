@@ -212,6 +212,16 @@ TOOL_VERSION_SPECS: tuple[ToolVersionSpec, ...] = (
     ToolVersionSpec("show_rust_version", "rustc", "rust", "_rust_version_cache"),
     ToolVersionSpec("show_node_version", "node", "node", "_node_version_cache"),
     ToolVersionSpec("show_npm_version", "npm", "npm", "_npm_version_cache"),
+    # I32-A: detection-only additions for Issue #32 (Shell Integrations Pack).
+    # Not yet wired into DEFAULT_PROMPT_OPTIONS/PROMPT_OPTION_TYPES, so these
+    # options are inert (``options.get(spec.option, False)`` stays False)
+    # until a later I32-B/I32-C slice registers them.
+    ToolVersionSpec("show_pip_version", "pip", "pip", "_pip_version_cache"),
+    ToolVersionSpec("show_docker_version", "docker", "docker", "_docker_version_cache"),
+    ToolVersionSpec("show_kubectl_version", "kubectl", "kubectl", "_kubectl_version_cache"),
+    ToolVersionSpec("show_ecli_version", "ecli", "ecli", "_ecli_version_cache"),
+    ToolVersionSpec("show_guardbsd_version", "guardbsd", "guardbsd", "_guardbsd_version_cache"),
+    ToolVersionSpec("show_aeronerve_version", "aeronerve", "aeronerve", "_aeronerve_version_cache"),
 )
 
 _UNSET = object()

@@ -34,7 +34,12 @@ from pysh.config.api import (
     validate_prompt_color_mode,
     validate_prompt_option,
 )
-from pysh.core.shell import PyShell, _format_command_duration, _sanitize_prompt_value
+from pysh.core.shell import (
+    TOOL_VERSION_SPECS,
+    PyShell,
+    _format_command_duration,
+    _sanitize_prompt_value,
+)
 from pysh.editor.lineedit.highlight import DEFAULT_HIGHLIGHT_COLORS
 
 
@@ -1031,6 +1036,144 @@ def test_pyshell_prompt_all_tool_versions_are_cached(monkeypatch) -> None:
         ["node", "--version"],
         ["npm", "--version"],
     ]
+
+
+# --- I32-A: new external-tool detection specs (pip/docker/kubectl/ecli/ --- #
+# --- guardbsd/aeronerve). Detection/cache only; not wired into prompt   --- #
+# --- defaults or completion, so these are exercised directly against   --- #
+# --- ``_detect_tool_version``/``TOOL_VERSION_SPECS`` rather than via    --- #
+# --- ``set_prompt_option`` (which would reject the still-unknown       --- #
+# --- option names).                                                    --- #
+
+_NEW_TOOL_VERSION_CASES = [
+    ("show_pip_version", "pip", "pip 24.0 from /usr/lib/python3/dist-packages/pip\n", "pip24.0"),
+    ("show_docker_version", "docker", "Docker version 24.0.7, build afdd53b\n", "docker24.0.7"),
+    ("show_kubectl_version", "kubectl", "Client Version: v1.29.0\n", "kubectl1.29.0"),
+    ("show_ecli_version", "ecli", "ecli 0.1.0\n", "ecli0.1.0"),
+    ("show_guardbsd_version", "guardbsd", "guardbsd 1.2.3\n", "guardbsd1.2.3"),
+    ("show_aeronerve_version", "aeronerve", "aeronerve 0.9.0\n", "aeronerve0.9.0"),
+]
+
+
+def _spec_for_option(option: str):  # noqa: ANN202 - local test helper.
+    for spec in TOOL_VERSION_SPECS:
+        if spec.option == option:
+            return spec
+    raise AssertionError(f"no ToolVersionSpec registered for option {option!r}")
+
+
+def test_pyshell_new_tool_specs_are_registered_but_not_wired() -> None:
+    """I32-A adds detection specs without touching prompt defaults/schema."""
+    for option, executable, _output, _expected in _NEW_TOOL_VERSION_CASES:
+        spec = _spec_for_option(option)
+        assert spec.executable == executable
+        # Not wired into prompt defaults yet: absent from both mappings so
+        # the prompt-rendering gate ``options.get(spec.option, False)``
+        # stays closed, and ``set_prompt_option`` still rejects the name.
+        assert option not in DEFAULT_PROMPT_OPTIONS
+        with pytest.raises(ConfigError):
+            validate_prompt_option(option, True)
+
+
+@pytest.mark.parametrize(
+    ("option", "executable", "output", "expected"),
+    _NEW_TOOL_VERSION_CASES,
+)
+def test_pyshell_new_tool_version_detection_present(
+    monkeypatch,
+    option: str,
+    executable: str,
+    output: str,
+    expected: str,
+) -> None:
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = output
+        stderr = ""
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        calls.append(argv)
+        return Result()
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
+    shell = PyShell()
+    spec = _spec_for_option(option)
+    assert shell._detect_tool_version(spec) == expected
+    assert calls == [[executable, "--version"]]
+
+
+@pytest.mark.parametrize(
+    ("option", "executable", "_output", "_expected"),
+    _NEW_TOOL_VERSION_CASES,
+)
+def test_pyshell_new_tool_version_detection_absent_from_path(
+    monkeypatch,
+    option: str,
+    executable: str,
+    _output: str,
+    _expected: str,
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda _exe: None)
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda argv, **_kwargs: calls.append(argv)
+    )
+    shell = PyShell()
+    spec = _spec_for_option(option)
+    assert shell._detect_tool_version(spec) == ""
+    assert calls == []
+
+
+def test_pyshell_new_tool_version_detection_subprocess_failure(monkeypatch) -> None:
+    class Result:
+        returncode = 1
+        stdout = ""
+        stderr = "docker: command not found in this context\n"
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda *_args, **_kwargs: Result()
+    )
+    shell = PyShell()
+    spec = _spec_for_option("show_docker_version")
+    assert shell._detect_tool_version(spec) == ""
+
+
+def test_pyshell_new_tool_version_detection_timeout(monkeypatch) -> None:
+    import subprocess
+
+    def raise_timeout(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=0.2)
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", raise_timeout)
+    shell = PyShell()
+    spec = _spec_for_option("show_kubectl_version")
+    assert shell._detect_tool_version(spec) == ""
+
+
+def test_pyshell_new_tool_version_detection_is_cached(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ecli 0.1.0\n"
+        stderr = ""
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        calls.append(argv)
+        return Result()
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
+    shell = PyShell()
+    spec = _spec_for_option("show_ecli_version")
+    assert shell._detect_tool_version(spec) == "ecli0.1.0"
+    assert shell._detect_tool_version(spec) == "ecli0.1.0"
+    assert calls == [["ecli", "--version"]]
 
 
 def test_pyshell_set_environment_is_mirrored(monkeypatch) -> None:
