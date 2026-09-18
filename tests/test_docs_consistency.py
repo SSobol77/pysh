@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_docs_consistency.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -21,8 +22,19 @@ README = REPO_ROOT / "README.md"
 DOCS = REPO_ROOT / "docs"
 
 MARKDOWN_FILES: tuple[Path, ...] = (
-    README,
-    *tuple(sorted(DOCS.rglob("*.md"))),
+    *tuple(
+        sorted(
+            REPO_ROOT / line
+            for line in subprocess.run(
+                ["git", "ls-files", "README.md", "docs/*.md"],
+                cwd=REPO_ROOT,
+                check=True,
+                stdout=subprocess.PIPE,
+                text=True,
+            ).stdout.splitlines()
+            if line
+        )
+    ),
 )
 
 LOCAL_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
@@ -31,6 +43,18 @@ AGENT_LINK_RE = re.compile(
     r"|\]\((\.\./\.\./)?\.(claude|codex|cursor)/",
     re.IGNORECASE,
 )
+
+
+def _tracked_files(*patterns: str) -> tuple[Path, ...]:
+    """Return tracked repository files matching git pathspec patterns."""
+    result = subprocess.run(
+        ["git", "ls-files", *patterns],
+        cwd=REPO_ROOT,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    return tuple(REPO_ROOT / line for line in result.stdout.splitlines() if line)
 
 
 def _markdown_link_targets(text: str) -> list[str]:
@@ -59,6 +83,19 @@ def test_docs_markdown_local_links_resolve() -> None:
                 )
 
     assert not errors, "Broken local Markdown links:\n" + "\n".join(errors)
+
+
+def test_tracked_source_docs_and_scripts_declare_repository_relative_file_path() -> None:
+    """Tracked Markdown, Python and shell files must self-identify by path."""
+    errors: list[str] = []
+    for path in _tracked_files("*.md", "*.py", "*.sh"):
+        rel_path = path.relative_to(REPO_ROOT).as_posix()
+        expected = f"File: {rel_path}"
+        text = path.read_text(encoding="utf-8")
+        if expected not in text and f"# {expected}" not in text:
+            errors.append(f"{rel_path}: missing {expected}")
+
+    assert not errors, "Missing canonical File metadata:\n" + "\n".join(errors)
 
 
 def test_root_readme_uses_github_urls_for_docs_links() -> None:

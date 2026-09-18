@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/cli.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -117,6 +118,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 list(args.script_args),
                 native_only=True,
             )
+        if not sys.stdin.isatty():
+            return shell.run_batch(sys.stdin)
         return shell.run()
     except _ExitShell as exc:
         return exc.code

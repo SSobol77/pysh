@@ -15,6 +15,104 @@ This document defines Completion Engine v1, established in the PySH 0.6.x line
 and still normative for current releases unless superseded by a newer contract
 section.
 
+Issue #26 adds Completion Engine 2.0. The v1 history remains normative for
+unchanged behavior; the v2 section below supersedes affected candidate,
+ranking, cache, repeated-TAB, Python-symbol, and redraw clauses.
+
+---
+
+## Completion Engine 2.0 (Issue #26)
+
+Completion Engine 2.0 is deterministic, stdlib-only, non-executing, and
+buffer-preserving. The pure engine remains in
+`pysh.editor.lineedit.completion` and does not import `pysh.core.shell`,
+`pysh.config`, or other implementation packages. Shell state reaches the
+engine only through callback-provided `CompletionOptions` snapshots.
+
+### Candidate Metadata
+
+`CompletionKind` now distinguishes:
+
+- `builtin`
+- `alias`
+- `command`
+- `path`
+- `directory`
+- `variable`
+- `python-symbol`
+- `job`
+
+`CompletionCandidate.match_type` records whether a candidate matched by
+case-insensitive `prefix` or `substring`. Prefix matches are always ranked
+before substring matches. Substring fallback is used only when no prefix
+matches exist for the relevant candidate set. Ordering within groups is
+deterministic and alphabetic by display text.
+
+### PATH Executable Cache
+
+Executable discovery from `PATH` uses a bounded `_PathCache` keyed by the full
+resolved `PATH` string. The cache stores an executable inventory, not
+per-prefix results. Prefix filtering happens in memory.
+
+Cache requirements:
+
+- default TTL is 5 seconds;
+- tests use an injectable monotonic clock, not `sleep`;
+- `invalidate()` explicitly clears the cache;
+- missing or unreadable directories are skipped safely;
+- executable discovery never runs discovered commands;
+- inventory size is bounded so large `PATH` directories degrade predictably.
+
+### Path, Directory, Variable, and Job Completion
+
+Path completion keeps the v1 quoting policy: directories append `/`, hidden
+entries appear only when the typed component begins with `.`, quoted paths
+preserve quote context, and unquoted paths escape spaces and shell
+metacharacters. Zero matches leave the input buffer unchanged.
+
+Variable completion supports `$VAR` and `${VAR` without displaying values. Job
+completion after `fg` and `bg` remains a hard non-regression requirement and
+uses job IDs supplied by the shell adapter.
+
+### Repeated-TAB State Machine
+
+The raw line reader tracks the last completion buffer, last completion result,
+and whether candidates were already displayed.
+
+1. One candidate: first TAB inserts it.
+2. Multiple candidates with a longer common prefix: first TAB inserts the
+   common prefix.
+3. If the common prefix is already inserted: repeated TAB displays candidates.
+4. Non-TAB input resets repeated-TAB state.
+5. Candidate display does not mutate the command buffer.
+6. Redraw uses visible prompt width with ANSI CSI sequences stripped.
+
+Candidate menus are rendered in a clean redraw-safe area and label candidates
+by kind, for example `source [builtin]`, `gs [alias]`, or `%1 [job]`.
+
+### Python Symbol Completion
+
+Python command mode supports stdlib-only Python symbol completion over the
+active Python Command Execution Layer namespace. Bare-name completion uses
+namespace keys. Dotted completion uses safe attribute-name enumeration from
+the object type and instance dictionary where available.
+
+Python completion must not import arbitrary user modules, evaluate user
+expressions, call properties, or trigger `__getattr__` for discovery. If safe
+enumeration is not possible, completion returns no candidates. TAB indentation
+remains the fallback when symbol completion has no candidates.
+
+### Safety Invariants
+
+- Completion performs no network calls.
+- Completion does not execute shell commands.
+- Completion does not evaluate shell-mode expressions.
+- Completion does not source or read foreign completion scripts.
+- Filesystem errors fail closed.
+- Candidate display never corrupts the input buffer.
+
+---
+
 ## Scope
 
 Issue #12 implements PySH-native, non-executing TAB completion for builtin and

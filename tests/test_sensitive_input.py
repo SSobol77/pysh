@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_sensitive_input.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/editor/completion.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -28,10 +29,20 @@ class Completer:
         *,
         get_locals: Callable[[], dict[str, str]] | None = None,
         get_job_ids: Callable[[], Iterable[int]] | None = None,
+        get_plugin_commands: Callable[[], Iterable[str]] | None = None,
+        complete_plugin_command: Callable[[str, list[str], int], Iterable[str]] | None = None,
+        get_options: Callable[[], dict[str, object]] | None = None,
     ) -> None:
         self._get_aliases = get_aliases
         self._get_locals = get_locals if get_locals is not None else dict
         self._get_job_ids = get_job_ids if get_job_ids is not None else tuple
+        self._get_plugin_commands = (
+            get_plugin_commands if get_plugin_commands is not None else tuple
+        )
+        self._complete_plugin_command = (
+            complete_plugin_command if complete_plugin_command is not None else _no_plugin_completion
+        )
+        self._get_options = get_options if get_options is not None else dict
         self._matches: list[str] = []
 
     def install(self) -> None:
@@ -61,7 +72,8 @@ class Completer:
 
     def raw_completion(self, line: str, cursor: int) -> CompletionResult:
         """Return raw-mode completion metadata."""
-        return complete_line(
+        options = self._get_options()
+        result = complete_line(
             line,
             cursor,
             builtins=self.BUILTINS,
@@ -69,6 +81,40 @@ class Completer:
             env=os.environ,
             locals=self._get_locals(),
             job_ids=self._get_job_ids(),
+            enabled=bool(options.get("enabled", True)),
+            case_sensitive=bool(options.get("case_sensitive", False)),
+            show_hidden=bool(options.get("show_hidden", False)),
+            menu=str(options.get("menu", "compact")),
+        )
+        context = result.context
+        if context is None:
+            return result
+        candidates = list(result.candidates)
+        if context.command_position:
+            case_sensitive = bool(options.get("case_sensitive", False))
+            prefix = context.prefix if case_sensitive else context.prefix.casefold()
+            for name in sorted(self._get_plugin_commands(), key=str.casefold):
+                compared = name if case_sensitive else name.casefold()
+                if compared.startswith(prefix) and name not in candidates:
+                    candidates.append(name)
+        elif context.command_name:
+            args = _split_completion_args(line[:cursor])
+            for candidate in self._complete_plugin_command(
+                context.command_name,
+                args,
+                cursor,
+            ):
+                if candidate not in candidates:
+                    candidates.append(candidate)
+        if tuple(candidates) == result.candidates:
+            return result
+        return CompletionResult(
+            result.token_start,
+            result.token_end,
+            result.prefix,
+            tuple(candidates),
+            (),
+            context,
         )
 
     def apply_raw_completion(self, line: str, result: CompletionResult) -> tuple[str, int]:
@@ -95,6 +141,10 @@ class Completer:
             env={},
             locals={},
             job_ids=(),
+            enabled=bool(self._get_options().get("enabled", True)),
+            case_sensitive=bool(self._get_options().get("case_sensitive", False)),
+            show_hidden=bool(self._get_options().get("show_hidden", False)),
+            menu=str(self._get_options().get("menu", "compact")),
         )
         return list(result.candidates)
 
@@ -108,3 +158,14 @@ def options_from_completer(completer: Completer) -> CompletionOptions:
         locals=completer._get_locals(),
         job_ids=tuple(completer._get_job_ids()),
     )
+
+
+def _no_plugin_completion(_command_name: str, _args: list[str], _cursor_pos: int) -> tuple[str, ...]:
+    return ()
+
+
+def _split_completion_args(text: str) -> list[str]:
+    parts = text.split()
+    if not parts:
+        return []
+    return parts[1:]

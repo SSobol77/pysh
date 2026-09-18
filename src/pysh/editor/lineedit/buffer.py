@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/editor/lineedit/buffer.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -78,4 +79,3 @@ class LineBuffer:
     def cursor_width(self) -> int:
         """Return display columns before the cursor."""
         return _display_width(self.text[: self.cursor])
-

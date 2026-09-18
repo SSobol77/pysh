@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/editor/__init__.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/core/shell.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -8,6 +9,7 @@ from __future__ import annotations
 import atexit
 import locale
 import os
+import pwd
 import re
 import shlex
 import shutil
@@ -17,7 +19,11 @@ import subprocess
 import sys
 import tempfile
 import termios
+import time
+import uuid
 from collections.abc import Callable
+from contextlib import contextmanager, nullcontext
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,9 +42,12 @@ from pysh.compat.zsh_diagnostics import (
     is_zsh_config_path,
     zsh_config_file_diagnostic,
 )
+from pysh.config.alias_packs import BUILTIN_ALIAS_PACKS, alias_pack_names
 from pysh.config.api import (
+    DEFAULT_COMPLETION_OPTIONS,
     DEFAULT_CURSOR_OPTIONS,
     DEFAULT_EDITOR_OPTIONS,
+    DEFAULT_HISTORY_OPTIONS,
     DEFAULT_PROMPT_COLOR_MODES,
     DEFAULT_PROMPT_COLORS,
     DEFAULT_PROMPT_OPTIONS,
@@ -46,16 +55,28 @@ from pysh.config.api import (
     PYSHRC_PY_PATH,
     ensure_default_config,
     load_python_config,
+    validate_completion_option,
     validate_cursor_color,
     validate_cursor_color_enabled,
     validate_editor_option,
+    validate_highlight_color,
+    validate_history_option,
     validate_prompt_color,
     validate_prompt_color_mode,
     validate_prompt_option,
     validate_sensitive_input,
 )
+from pysh.config.diagnostics import safe_value_repr
 from pysh.config.plugins import PLUGIN_DIR, load_plugins
+from pysh.config.profiles import profile_names, resolve_profiles
 from pysh.config.rc import RC_PATH, execute_rc, load_default_rc
+from pysh.config.runtime import (
+    apply_declarative_config,
+    ensure_default_toml_config,
+    load_declarative_config,
+    load_plugin_configs,
+)
+from pysh.config.themes import resolve_themes, theme_names
 from pysh.contracts.builtins import BUILTIN_NAMES
 from pysh.core.errors import ExitCode
 from pysh.core.jobs import (
@@ -75,9 +96,14 @@ from pysh.diagnostics.command_plan import plan as run_plan
 from pysh.diagnostics.trace import DiagnosticStage, DiagnosticTrace
 from pysh.editor.completion import Completer
 from pysh.editor.highlight import colors_enabled, diagnostic
-from pysh.editor.history import DEFAULT_HISTORY_PATH, HistoryManager
+from pysh.editor.history import DEFAULT_HISTORY_PATH, HistoryEngine, HistoryManager
 from pysh.editor.lineedit.autosuggest import AutoSuggester
-from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, LineHighlighter
+from pysh.editor.lineedit.highlight import (
+    DEFAULT_HIGHLIGHT_COLORS,
+    DEFAULT_SCHEME,
+    ColorScheme,
+    LineHighlighter,
+)
 from pysh.editor.lineedit.reader import RawLineReader
 from pysh.migration.script import (
     analyze_migration,
@@ -104,8 +130,20 @@ from pysh.parsing.parser import (
     validate_unsupported_syntax,
 )
 from pysh.parsing.path_expansion import expand_tilde, tokenize_and_glob_expand
-from pysh.parsing.redirection import RedirectionSpec, parse_redirections
-from pysh.prompt.colors import color_to_hex, colorize, parse_color
+from pysh.parsing.redirection import (
+    RedirectionActionKind,
+    RedirectionSpec,
+    parse_redirections,
+)
+from pysh.plugins.manager import PluginManager
+from pysh.prompt.colors import (
+    color_to_hex,
+    colorize,
+    parse_color,
+    sgr_ansi16,
+    sgr_reset,
+    sgr_truecolor,
+)
 from pysh.prompt.system_profile import (
     apt_check,
     apt_search,
@@ -157,6 +195,17 @@ class ToolVersionSpec:
     cache_attr: str
 
 
+@dataclass(frozen=True)
+class _ResolvedStage:
+    """One pipeline stage resolved before any process is started."""
+
+    kind: str
+    argv: tuple[str, ...]
+    spec: RedirectionSpec
+    env_overrides: dict[str, str] | None = None
+    python_source: str | None = None
+
+
 TOOL_VERSION_SPECS: tuple[ToolVersionSpec, ...] = (
     ToolVersionSpec("show_uv_version", "uv", "uv", "_uv_version_cache"),
     ToolVersionSpec("show_ruff_version", "ruff", "ruff", "_ruff_version_cache"),
@@ -167,6 +216,11 @@ TOOL_VERSION_SPECS: tuple[ToolVersionSpec, ...] = (
 
 _UNSET = object()
 _VERSION_RE = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|.)")
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_KUBECONFIG_MAX_BYTES = 64 * 1024
+_KUBE_CURRENT_CONTEXT_RE = re.compile(r'^current-context:\s*([^\s#]+)\s*(?:#.*)?$')
+_GIT_BARE_CONFIG_MAX_BYTES = 64 * 1024
 
 
 def _osc_set_cursor_color(hex_color: str) -> str:
@@ -177,6 +231,22 @@ def _osc_set_cursor_color(hex_color: str) -> str:
 def _osc_reset_cursor_color() -> str:
     """Return OSC 112 sequence that requests terminal cursor color reset."""
     return "\x1b]112\x07"
+
+
+def _sanitize_prompt_value(value: str) -> str:
+    """Remove terminal controls from untrusted prompt segment values."""
+    cleaned = _ANSI_ESCAPE_RE.sub("", value)
+    cleaned = _CONTROL_CHAR_RE.sub("", cleaned)
+    return cleaned.strip()
+
+
+def _format_command_duration(seconds: float) -> str:
+    """Return a deterministic prompt label for command duration seconds."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    total = int(seconds)
+    minutes, remainder = divmod(total, 60)
+    return f"{minutes}m{remainder:02d}s"
 
 
 class _ExitShell(Exception):
@@ -194,7 +264,7 @@ def _tilde_expand_spec(spec: RedirectionSpec) -> RedirectionSpec:
     prevent unsafe multi-target behavior (e.g., ``> *.out`` must not redirect
     to multiple files).  Only ``~`` and ``~user`` are expanded.
     """
-    return RedirectionSpec(
+    expanded = RedirectionSpec(
         stdin_path=expand_tilde(spec.stdin_path) if spec.stdin_path else None,
         stdin_data=spec.stdin_data,
         stdout_path=expand_tilde(spec.stdout_path) if spec.stdout_path else None,
@@ -203,6 +273,86 @@ def _tilde_expand_spec(spec: RedirectionSpec) -> RedirectionSpec:
         stderr_append=spec.stderr_append,
         stderr_to_stdout=spec.stderr_to_stdout,
     )
+    expanded.actions = [
+        type(action)(
+            action.fd,
+            action.kind,
+            path=expand_tilde(action.path) if action.path else None,
+            append=action.append,
+            source_fd=action.source_fd,
+            data=action.data,
+        )
+        for action in spec.actions
+    ]
+    return expanded
+
+
+@contextmanager
+def _redirect_standard_fds(
+    spec: RedirectionSpec,
+    *,
+    stdin_fd: int | None = None,
+    stdout_fd: int | None = None,
+) -> object:
+    """Apply ordered redirections to fd 0/1/2 and restore them on return."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved = {fd: os.dup(fd) for fd in (0, 1, 2)}
+    opened: list[int] = []
+    original_streams = (sys.stdin, sys.stdout, sys.stderr)
+    redirected_streams: list[IO[str]] = []
+    try:
+        if stdin_fd is not None:
+            os.dup2(stdin_fd, 0)
+        if stdout_fd is not None:
+            os.dup2(stdout_fd, 1)
+        for action in spec.actions:
+            if action.kind is RedirectionActionKind.DUP:
+                assert action.source_fd is not None
+                os.dup2(action.source_fd, action.fd)
+                continue
+            if action.kind is RedirectionActionKind.DATA:
+                temp = tempfile.TemporaryFile("w+b")
+                temp.write(action.data or b"")
+                temp.seek(0)
+                duplicate = os.dup(temp.fileno())
+                temp.close()
+                opened.append(duplicate)
+                os.dup2(duplicate, action.fd)
+                continue
+            assert action.path is not None
+            if action.kind is RedirectionActionKind.READ:
+                flags = os.O_RDONLY
+                mode = 0
+            else:
+                flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if action.append else os.O_TRUNC)
+                mode = 0o666
+            opened_fd = os.open(action.path, flags, mode)
+            opened.append(opened_fd)
+            os.dup2(opened_fd, action.fd)
+        encoding = locale.getpreferredencoding(False) or "utf-8"
+        redirected_stdin = os.fdopen(os.dup(0), "r", encoding=encoding, errors="replace")
+        redirected_stdout = os.fdopen(os.dup(1), "w", encoding=encoding, errors="replace", buffering=1)
+        redirected_stderr = os.fdopen(os.dup(2), "w", encoding=encoding, errors="replace", buffering=1)
+        redirected_streams.extend((redirected_stdin, redirected_stdout, redirected_stderr))
+        sys.stdin = redirected_stdin
+        sys.stdout = redirected_stdout
+        sys.stderr = redirected_stderr
+        yield
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        sys.stdin, sys.stdout, sys.stderr = original_streams
+        for stream in redirected_streams:
+            stream.close()
+        for fd, duplicate in saved.items():
+            os.dup2(duplicate, fd)
+            os.close(duplicate)
+        for opened_fd in opened:
+            try:
+                os.close(opened_fd)
+            except OSError:
+                pass
 
 
 def _write_execution_stderr(
@@ -223,6 +373,32 @@ def _write_execution_stderr(
         stderr_stream.flush()
         return
     print(message, file=sys.stderr)
+
+
+def _mapping_items(value: object) -> tuple[tuple[str, object], ...]:
+    """Return string-keyed mapping items for config application helpers."""
+    if not isinstance(value, dict):
+        return ()
+    return tuple((str(key), item) for key, item in value.items())
+
+
+def _append_mapping_diff(
+    lines: list[str],
+    prefix: str,
+    defaults: dict[str, object],
+    current: dict[str, object],
+) -> None:
+    """Append changed mapping keys using redacted value formatting."""
+    for key in sorted(set(defaults) | set(current)):
+        default_missing = key not in defaults
+        current_missing = key not in current
+        if current_missing:
+            value: object = "<unset>"
+        else:
+            value = current[key]
+        if not default_missing and not current_missing and defaults[key] == value:
+            continue
+        lines.append(f"{prefix}.{key}={safe_value_repr(key, value)}")
 
 
 class PyShell:
@@ -264,9 +440,19 @@ class PyShell:
         self._tty_fd: int | None = None
         self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
         self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
+        self.highlight_colors: dict[str, str] = dict(DEFAULT_HIGHLIGHT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
+        self.completion_options: dict[str, object] = dict(DEFAULT_COMPLETION_OPTIONS)
         self.cursor_options: dict[str, object] = dict(DEFAULT_CURSOR_OPTIONS)
+        self.active_profile = "default"
+        self.active_theme = "default"
+        self.config_profiles: dict[str, dict[str, object]] = resolve_profiles({})[0]
+        self.config_themes: dict[str, dict[str, object]] = resolve_themes({})[0]
+        self.config_diagnostics: list[object] = []
+        self.config_loaded_paths: list[Path] = []
+        self.plugin_configs: dict[str, dict[str, object]] = {}
+        self._startup_hooks: list[Callable[[], None]] = []
         self._cursor_color_applied = False
         self._mc_auto_warning_emitted = False
         # Read only by the explicit secure <cmd> PTY wrapper. Normal command
@@ -274,14 +460,37 @@ class PyShell:
         self.sensitive_input: dict[str, object] = dict(DEFAULT_SENSITIVE_INPUT)
         for spec in TOOL_VERSION_SPECS:
             setattr(self, spec.cache_attr, _UNSET)
+        self._last_command_duration: float | None = None
+        self._k8s_context_cache_key: tuple[tuple[str, int, int] | tuple[str, str], ...] | None = None
+        self._k8s_context_cache_value: str | None = None
+        self.plugin_manager = PluginManager(builtin_names=self.BUILTINS)
         self.completer = Completer(
             lambda: list(self.aliases.keys()),
             get_locals=lambda: dict(self.local_vars),
             get_job_ids=lambda: [job.job_id for job in self.job_table.all_jobs() if job.is_alive()],
+            get_plugin_commands=lambda: self.plugin_manager.command_names(),
+            complete_plugin_command=self.plugin_manager.complete_command,
+            get_options=lambda: dict(self.completion_options),
         )
         self.history = HistoryManager(self.HISTORY_PATH)
-        self.autosuggester = AutoSuggester()
-        self.line_highlighter = LineHighlighter(self.BUILTINS)
+        self.history_options: dict[str, object] = dict(DEFAULT_HISTORY_OPTIONS)
+        self._session_id: str = uuid.uuid4().hex[:16]
+        self.history_engine = HistoryEngine(
+            self.HISTORY_PATH,
+            session_id=self._session_id,
+            max_length=int(self.history_options.get("max_length", 10_000)),  # type: ignore[arg-type]
+            dedup_mode=str(self.history_options.get("dedup_mode", "consecutive")),
+            ignore_space_prefix=bool(self.history_options.get("ignore_space_prefix", True)),
+            ignore_patterns=list(self.history_options.get("ignore_patterns", [])),  # type: ignore[arg-type]
+        )
+        self._last_execute_parse_ok: bool = True
+        self._venv_restore_environment: dict[str, str | None] | None = None
+        self._venv_restore_locals: dict[str, str | None] | None = None
+        self.autosuggester = AutoSuggester(self.completer.raw_completion)
+        self.line_highlighter = LineHighlighter(
+            self.BUILTINS,
+            aliases=lambda: self.aliases.keys(),
+        )
         self.line_reader = RawLineReader()
         self.zsh_bridge = zsh_bridge if zsh_bridge is not None else ZshBridge()
         self.zsh_fallback_enabled = os.environ.get("PYSH_ZSH_FALLBACK") == "1"
@@ -307,12 +516,22 @@ class PyShell:
         self._export_interactive_shell_vars()
         load_default_rc(self.execute)
         load_plugins(self.execute, directory=PLUGIN_DIR)
+        if ensure_default_toml_config():
+            print("pysh: created declarative config")
+        declarative_config = apply_declarative_config(self)
+        self.config_profiles = declarative_config.profiles
+        self.config_themes = declarative_config.themes
+        self.config_diagnostics = list(declarative_config.diagnostics)
+        self.config_loaded_paths = list(declarative_config.loaded_paths)
         # Python-native configuration runs last so that ~/.pyshrc.py has the
         # final word over the legacy shell-syntax layers. Created on first
         # launch so the file is discoverable; the generated body is inert.
         if ensure_default_config():
             print(f"pysh: created {PYSHRC_PY_PATH}")
         load_python_config(self)
+        self.plugin_manager.discover_and_load()
+        self._run_user_startup_hooks()
+        self.plugin_manager.run_startup_hooks()
         self._apply_cursor_color()
         # Job control: open /dev/tty and set SIGTSTP to SIG_IGN so the shell
         # itself is never suspended by Ctrl+Z; the foreground child resets it.
@@ -323,6 +542,7 @@ class PyShell:
                     signal.signal(signal.SIGTSTP, signal.SIG_IGN)
                 except OSError:
                     pass
+
         try:
             while True:
                 # Reap completed background jobs before showing the prompt.
@@ -362,20 +582,23 @@ class PyShell:
                         self._discard_pending_paste_for_exit()
                         try:
                             self.last_status = self.execute(line)
-                            self.history.add(line)
+                            if self._last_execute_parse_ok:
+                                self.history_engine.add(line, raw_line=line)
                         except _ExitShell as exit_signal:
                             return exit_signal.code
                         continue
                     if pending_action == "clear":
                         self.last_status = self.execute(line)
-                        self.history.add(line)
+                        if self._last_execute_parse_ok:
+                            self.history_engine.add(line, raw_line=line)
                         if self.pending_multiline_paste is not None:
                             self._print_pending_paste_hint()
                         continue
                     if pending_action == "paste":
                         try:
                             self.last_status = self.execute(line)
-                            self.history.add(line)
+                            if self._last_execute_parse_ok:
+                                self.history_engine.add(line, raw_line=line)
                         except _ExitShell as exit_signal:
                             return exit_signal.code
                         continue
@@ -403,10 +626,12 @@ class PyShell:
                     line = collected
                 try:
                     self.last_status = self.execute(line)
-                    self.history.add(line)
+                    if self._last_execute_parse_ok:
+                        self.history_engine.add(line, raw_line=line)
                 except _ExitShell as exit_signal:
                     return exit_signal.code
         finally:
+            self.plugin_manager.run_shutdown_hooks()
             self._reset_cursor_color()
             self._save_history()
             # Clean up tty fd and restore SIGTSTP.
@@ -421,6 +646,27 @@ class PyShell:
                     signal.signal(signal.SIGTSTP, signal.SIG_DFL)
                 except OSError:
                     pass
+
+    def run_batch(self, lines: IO[str]) -> int:
+        """Execute logical lines from non-interactive stdin without presentation.
+
+        Batch input deliberately does not initialize the interactive editor,
+        banner, prompt engine, or user startup hooks. It is therefore safe for
+        pipelines and automation and has the same last-command status contract
+        as native script mode.
+        """
+        from pysh.parsing.multiline import iter_logical_lines  # noqa: PLC0415
+
+        status = 0
+        try:
+            for logical_line in iter_logical_lines(lines):
+                if not logical_line.strip():
+                    continue
+                status = self.execute(logical_line)
+        except ValueError as exc:
+            print(f"pysh: stdin: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        return status
 
     def _collect_block_interactive(self, opener: str) -> str | None:
         """Read continuation lines until the ``py { ... }`` block closes.
@@ -495,7 +741,7 @@ class PyShell:
                     history=[],
                     suggester=self.autosuggester,
                     highlighter=self.line_highlighter,
-                    scheme=DEFAULT_SCHEME,
+                    scheme=self._highlight_color_scheme(),
                     options=options,
                     echo_queued=False,
                 )
@@ -723,7 +969,19 @@ class PyShell:
         print(style("paste_cancel: pending multiline paste discarded", "warning", enabled=enabled))
 
     def execute(self, line: str) -> int:
+        """Execute one shell line and record bounded prompt duration metadata."""
+        if not line.strip():
+            self._last_command_duration = None
+            return self._execute_impl(line)
+        start = time.perf_counter()
+        try:
+            return self._execute_impl(line)
+        finally:
+            self._last_command_duration = time.perf_counter() - start
+
+    def _execute_impl(self, line: str) -> int:
         """Execute one shell line. Returns the exit status of the last command."""
+        self._last_execute_parse_ok = True
         line = line.rstrip("\n").rstrip("\r")
         trace_fields: dict[str, object] = {"line": line}
         if self._script_context is not None:
@@ -738,6 +996,8 @@ class PyShell:
             return self._enter_python_mode()
         if self._is_python_block_text(line):
             return self._run_python_block(line)
+        if self._is_pipeline_python_block(line):
+            return self._run_python_block_pipeline(line)
         direct_migration_status = self._execute_inline_migrate_if_needed(line)
         if direct_migration_status is not None:
             return direct_migration_status
@@ -748,6 +1008,7 @@ class PyShell:
                 special_vars=self._special_vars(),
             )
         except ParseError as exc:
+            self._last_execute_parse_ok = False
             self.trace.error(
                 "heredoc parse error",
                 detail=str(exc),
@@ -761,12 +1022,14 @@ class PyShell:
             return 0
         zsh_diagnostic = detect_unsupported_zsh_syntax(line)
         if zsh_diagnostic is not None:
+            self._last_execute_parse_ok = False
             print(zsh_diagnostic.message, file=sys.stderr)
             print(zsh_diagnostic.hint, file=sys.stderr)
             return ExitCode.BUILTIN_MISUSE
         try:
             validate_unsupported_syntax(line)
         except ParseError as exc:
+            self._last_execute_parse_ok = False
             self.trace.error(
                 "unsupported syntax",
                 detail=str(exc),
@@ -794,7 +1057,7 @@ class PyShell:
 
         py_code = self._extract_direct_py_code(line)
         if py_code is not None:
-            return self._run_python_code(py_code)
+            return self._run_direct_python(line, py_code)
 
         # Bare ``NAME=value`` assignment.
         if self._is_bare_assignment(line):
@@ -803,6 +1066,7 @@ class PyShell:
         try:
             chain = split_chain(line)
         except ParseError as exc:
+            self._last_execute_parse_ok = False
             self.trace.error(
                 "split chain failed",
                 detail=str(exc),
@@ -838,7 +1102,7 @@ class PyShell:
         background: bool = False,
     ) -> int:
         try:
-            stages = split_pipeline(command)
+            stages = self._split_pipeline_stages(command)
         except ParseError as exc:
             self.trace.error(
                 "split pipeline failed",
@@ -850,14 +1114,23 @@ class PyShell:
         if not stages:
             return 0
         self.trace.emit(DiagnosticStage.PARSE, "split pipeline", stages=len(stages))
-        # Alias expansion is applied per simple command (i.e. per pipe stage).
-        stages = [self._expand_alias(s) for s in stages]
+        # Alias and variable expansion apply to shell stages, never to the
+        # source body of a collected Python block stage.
+        stages = [
+            stage if self._is_python_block_stage(stage) else self._expand_alias(stage)
+            for stage in stages
+        ]
         # Variable expansion happens after alias expansion so that alias
         # bodies behave like literal text but user variables in arguments
         # are still substituted.  $? is passed as a special variable so it
         # expands to the last command exit status (Issue #5).
         _sv = self._special_vars()
-        stages = [expand_variables(s, self.local_vars, special_vars=_sv) for s in stages]
+        stages = [
+            stage
+            if self._is_python_block_stage(stage)
+            else expand_variables(stage, self.local_vars, special_vars=_sv)
+            for stage in stages
+        ]
         self.trace.emit(DiagnosticStage.EXPAND, "expanded variables", stages=len(stages))
         if len(stages) == 1:
             return self._run_simple(stages[0], heredoc_bodies, background=background)
@@ -869,6 +1142,51 @@ class PyShell:
             heredoc_bodies=heredoc_bodies,
             background=background,
         )
+
+    @staticmethod
+    def _is_pipeline_python_block(command: str) -> bool:
+        """Return True for a collected pipeline whose final stage is ``py {``."""
+        lines = command.splitlines()
+        if len(lines) < 2 or lines[-1].strip() != "}":
+            return False
+        try:
+            stages = split_pipeline(lines[0])
+        except ParseError:
+            return False
+        return len(stages) > 1 and stages[-1].strip() == "py {"
+
+    @staticmethod
+    def _is_python_block_stage(stage: str) -> bool:
+        lines = stage.strip().splitlines()
+        return len(lines) >= 2 and lines[0].strip() == "py {" and lines[-1].strip() == "}"
+
+    def _run_python_block_pipeline(self, command: str) -> int:
+        """Execute a collected Python-block pipeline without expanding its body."""
+        lines = command.splitlines()
+        first_line = strip_comments(lines[0])
+        zsh_diagnostic = detect_unsupported_zsh_syntax(first_line)
+        if zsh_diagnostic is not None:
+            print(zsh_diagnostic.message, file=sys.stderr)
+            print(zsh_diagnostic.hint, file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        try:
+            validate_unsupported_syntax(first_line)
+        except ParseError as exc:
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        expanded_first_line = expand_command_substitution(first_line)
+        protected = "\n".join([expanded_first_line, *lines[1:]])
+        return self._run_chain_element(protected)
+
+    @classmethod
+    def _split_pipeline_stages(cls, command: str) -> list[str]:
+        """Split a pipeline while preserving a collected Python block body."""
+        if not cls._is_pipeline_python_block(command):
+            return split_pipeline(command)
+        lines = command.splitlines()
+        stages = split_pipeline(lines[0])
+        stages[-1] = "\n".join([stages[-1], *lines[1:]])
+        return stages
 
     def _run_simple(
         self,
@@ -927,7 +1245,29 @@ class PyShell:
                 command=cmd_argv[0],
                 kind="builtin",
             )
-            status = self._dispatch_builtin(cmd_argv)
+            try:
+                redirection = _redirect_standard_fds(spec) if not spec.is_empty() else nullcontext()
+                with redirection:
+                    status = self._dispatch_builtin(cmd_argv)
+            except OSError as exc:
+                print(f"pysh: {exc}", file=sys.stderr)
+                return ExitCode.GENERAL_ERROR
+            self.trace.emit(DiagnosticStage.EXECUTE_PLAN, "command finished", status=status)
+            return status
+        if self.plugin_manager.has_command(cmd_argv[0]):
+            self.trace.emit(
+                DiagnosticStage.RESOLVE,
+                "command resolved",
+                command=cmd_argv[0],
+                kind="plugin",
+            )
+            try:
+                redirection = _redirect_standard_fds(spec) if not spec.is_empty() else nullcontext()
+                with redirection:
+                    status = self.plugin_manager.run_command(cmd_argv[0], cmd_argv[1:])
+            except OSError as exc:
+                print(f"pysh: {exc}", file=sys.stderr)
+                return ExitCode.GENERAL_ERROR
             self.trace.emit(DiagnosticStage.EXECUTE_PLAN, "command finished", status=status)
             return status
         resolved_path = shutil.which(cmd_argv[0])
@@ -945,8 +1285,21 @@ class PyShell:
             env_overrides=env_overrides if env_overrides else None,
             background=background,
         )
+        if status == ExitCode.COMMAND_NOT_FOUND and self._looks_like_python_source(cmd_argv[0]):
+            print("hint: Python code requires the 'py' prefix:", file=sys.stderr)
+            print("      pysh -c 'py print(\"hello\")'", file=sys.stderr)
         self.trace.emit(DiagnosticStage.EXECUTE_PLAN, "command finished", status=status)
         return status
+
+    @staticmethod
+    def _looks_like_python_source(command: str) -> bool:
+        """Return True for common Python statements misused as shell commands."""
+        return bool(
+            re.match(
+                r"^(?:print\s*\(|import\b|from\b|def\b|class\b|raise\b)",
+                command,
+            )
+        )
 
     def _run_pipeline(
         self,
@@ -956,194 +1309,223 @@ class PyShell:
         heredoc_bodies: list[HereDocBody] | None = None,
         background: bool = False,
     ) -> int:
-        parsed: list[tuple[list[str], RedirectionSpec, dict[str, str] | None]] = []
+        """Resolve every stage, then execute it through one pipeline contract."""
+        resolved: list[_ResolvedStage] = []
         remaining_heredocs = heredoc_bodies if heredoc_bodies is not None else []
-        for s in stages:
-            try:
-                clean, spec = parse_redirections(s, remaining_heredocs)
-            except ParseError as exc:
-                print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
-                return ExitCode.BUILTIN_MISUSE
-            spec = _tilde_expand_spec(spec)
-            try:
-                argv = tokenize_and_glob_expand(clean, cwd=Path(os.getcwd()))
-            except ValueError as exc:
-                print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
-                return 2
-            if not argv:
-                print("pysh: syntax error near unexpected '|'", file=sys.stderr)
-                return 2
-            env_overrides, argv = parse_leading_env_assignments(argv)
-            if not argv:
-                print("pysh: syntax error: assignment without command before '|'", file=sys.stderr)
-                return 2
-            parsed.append((argv, spec, env_overrides if env_overrides else None))
+        for source in stages:
+            stage = self._resolve_execution_stage(source, remaining_heredocs)
+            if isinstance(stage, int):
+                return stage
+            resolved.append(stage)
+        if self.zsh_fallback_enabled:
+            missing_external = next(
+                (
+                    stage.argv[0]
+                    for stage in resolved
+                    if stage.kind == "external" and shutil.which(stage.argv[0]) is None
+                ),
+                None,
+            )
+            if missing_external is not None:
+                return self._run_zsh_fallback(original_command)
+        return self._execute_resolved_pipeline(
+            resolved,
+            original_command=original_command,
+            background=background,
+        )
 
-        procs: list[subprocess.Popen[bytes]] = []
-        opened: list[IO[bytes]] = []
-        prev_out: IO[bytes] | None = None
-        pipeline_pgid: int | None = None
-        jc_available = has_job_control()
-
+    def _resolve_execution_stage(
+        self,
+        source: str,
+        heredoc_bodies: list[HereDocBody],
+    ) -> _ResolvedStage | int:
+        """Parse and classify one pipeline stage without executing it."""
+        stripped = source.strip()
+        lines = stripped.splitlines()
+        if len(lines) >= 2 and lines[0].strip() == "py {" and lines[-1].strip() == "}":
+            return _ResolvedStage(
+                "python-block",
+                ("py",),
+                RedirectionSpec(),
+                python_source="\n".join(lines[1:-1]),
+            )
         try:
-            for i, (argv, spec, env_overrides) in enumerate(parsed):
-                is_first = i == 0
-                is_last = i == len(parsed) - 1
+            clean, spec = parse_redirections(source, heredoc_bodies)
+        except ParseError as exc:
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        spec = _tilde_expand_spec(spec)
+        python_source = self._extract_direct_py_code(clean)
+        if python_source is not None:
+            return _ResolvedStage(
+                "python-inline",
+                ("py",),
+                spec,
+                python_source=python_source,
+            )
+        try:
+            argv = tokenize_and_glob_expand(clean, cwd=Path(os.getcwd()))
+        except ValueError as exc:
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        if not argv:
+            print("pysh: syntax error near unexpected '|'", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        env_overrides, command_argv = parse_leading_env_assignments(argv)
+        if not command_argv:
+            print("pysh: syntax error: assignment without command before '|'", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        name = command_argv[0]
+        if name in self.BUILTINS:
+            kind = "builtin"
+        elif self.plugin_manager.has_command(name):
+            kind = "plugin"
+        else:
+            kind = "external"
+        return _ResolvedStage(
+            kind,
+            tuple(command_argv),
+            spec,
+            env_overrides if env_overrides else None,
+        )
 
-                child_env: dict[str, str] | None = None
-                if env_overrides:
-                    child_env = dict(os.environ)
-                    child_env.update(env_overrides)
-
-                stdin_arg: IO[bytes] | int | None
-                if spec.stdin_path:
-                    f = open(spec.stdin_path, "rb")
-                    opened.append(f)
-                    stdin_arg = f
-                elif spec.stdin_data is not None:
-                    f = tempfile.TemporaryFile("w+b")
-                    f.write(spec.stdin_data)
-                    f.seek(0)
-                    opened.append(f)
-                    stdin_arg = f
-                elif is_first:
-                    stdin_arg = None
-                else:
-                    stdin_arg = prev_out
-
-                stdout_arg: IO[bytes] | int | None
-                if spec.stdout_path:
-                    f = open(spec.stdout_path, "ab" if spec.stdout_append else "wb")
-                    opened.append(f)
-                    stdout_arg = f
-                elif is_last:
-                    stdout_arg = None
-                else:
-                    stdout_arg = subprocess.PIPE
-
-                stderr_arg: IO[bytes] | int | None
-                diagnostic_stdout: IO[bytes] | None = None
-                diagnostic_stderr: IO[bytes] | None = None
-                if spec.stderr_to_stdout:
-                    stderr_arg = subprocess.STDOUT
-                    diagnostic_stdout = stdout_arg if hasattr(stdout_arg, "write") else None
-                elif spec.stderr_path:
-                    f = open(spec.stderr_path, "ab" if spec.stderr_append else "wb")
-                    opened.append(f)
-                    stderr_arg = f
-                    diagnostic_stderr = f
-                else:
-                    stderr_arg = None
-
-                # Build preexec_fn for process-group assignment.
-                preexec_fn: Callable[[], None] | None = None
-                if jc_available:
-                    if is_first:
-                        preexec_fn = make_child_preexec
-                    else:
-                        # Subsequent stages join the first process's group.
-                        _target_pgid = pipeline_pgid
-                        def _join_pgid(pgid: int = _target_pgid) -> None:  # type: ignore[assignment]
-                            os.setpgid(0, pgid)
-                            reset_child_job_control_signals()
-                        preexec_fn = _join_pgid
-
-                try:
-                    proc = subprocess.Popen(  # noqa: S603 - user-issued command
-                        argv,
-                        env=child_env,
-                        stdin=stdin_arg,
-                        stdout=stdout_arg,
-                        stderr=stderr_arg,
-                        preexec_fn=preexec_fn,
-                    )
-                except FileNotFoundError:
-                    if self.zsh_fallback_enabled and argv[0] not in self.BUILTINS:
-                        if prev_out is not None:
-                            prev_out.close()
-                        for p in procs:
-                            p.terminate()
-                            p.wait()
-                        return self._run_zsh_fallback(original_command)
-                    self.trace.error(
-                        "command not found",
-                        command=argv[0],
-                        code=ExitCode.COMMAND_NOT_FOUND,
-                    )
-                    _write_execution_stderr(
-                        f"pysh: {argv[0]}: command not found",
-                        spec,
-                        stdout_stream=diagnostic_stdout,
-                        stderr_stream=diagnostic_stderr,
-                    )
-                    if prev_out is not None:
-                        prev_out.close()
-                    for p in procs:
-                        p.terminate()
-                        p.wait()
-                    return ExitCode.COMMAND_NOT_FOUND
-
-                if is_first and jc_available:
-                    pipeline_pgid = proc.pid
-                if jc_available and pipeline_pgid is not None:
+    def _execute_resolved_pipeline(
+        self,
+        stages: list[_ResolvedStage],
+        *,
+        original_command: str,
+        background: bool,
+    ) -> int:
+        """Fork isolated stages connected by OS pipes and return the last status."""
+        pids: list[int] = []
+        previous_read: int | None = None
+        pipeline_pgid: int | None = None
+        sys.stdout.flush()
+        sys.stderr.flush()
+        try:
+            for index, stage in enumerate(stages):
+                is_last = index == len(stages) - 1
+                next_read: int | None = None
+                next_write: int | None = None
+                if not is_last:
+                    next_read, next_write = os.pipe()
+                pid = os.fork()
+                if pid == 0:
                     try:
-                        os.setpgid(proc.pid, pipeline_pgid)
+                        os.setpgid(0, pipeline_pgid or 0)
+                        reset_child_job_control_signals()
                     except OSError:
                         pass
+                    try:
+                        with _redirect_standard_fds(
+                            stage.spec,
+                            stdin_fd=previous_read,
+                            stdout_fd=next_write,
+                        ):
+                            for fd in (previous_read, next_read, next_write):
+                                if fd is not None and fd > 2:
+                                    try:
+                                        os.close(fd)
+                                    except OSError:
+                                        pass
+                            status = self._execute_isolated_stage(stage)
+                            sys.stdout.flush()
+                            sys.stderr.flush()
+                    except BaseException as exc:  # noqa: BLE001 - child boundary
+                        print(f"pysh: pipeline: {exc}", file=sys.stderr)
+                        status = ExitCode.GENERAL_ERROR
+                    os._exit(int(status))
 
-                # The parent must close the read end of the previous pipe so
-                # that the child receives EOF after the upstream stage exits.
-                if prev_out is not None:
-                    prev_out.close()
-                prev_out = proc.stdout
-                procs.append(proc)
-
-            if not procs:
-                return ExitCode.SUCCESS
-
-            pids = [p.pid for p in procs]
-            pgid = pipeline_pgid or (procs[0].pid if procs else 0)
+                if pipeline_pgid is None:
+                    pipeline_pgid = pid
+                try:
+                    os.setpgid(pid, pipeline_pgid)
+                except OSError:
+                    pass
+                pids.append(pid)
+                if previous_read is not None:
+                    os.close(previous_read)
+                if next_write is not None:
+                    os.close(next_write)
+                previous_read = next_read
 
             if background:
-                # Register as background job; do not wait.
+                assert pipeline_pgid is not None
                 job = self.job_table.add_job(
-                    pgid, original_command, pids, background=True
+                    pipeline_pgid,
+                    original_command,
+                    pids,
+                    background=True,
                 )
                 print(f"[{job.job_id}] {pids[-1]}", flush=True)
                 return ExitCode.SUCCESS
 
-            # Foreground pipeline: give terminal, wait, restore terminal.
+            raw_statuses: dict[int, int] = {}
             tty_fd = self._tty_fd
-            if tty_fd is not None and pgid:
-                if not tcsetpgrp_safely(tty_fd, pgid):
+            if tty_fd is not None and pipeline_pgid is not None:
+                if not tcsetpgrp_safely(tty_fd, pipeline_pgid):
                     tty_fd = None
-
             try:
-                results = [p.wait() for p in procs]
+                for pid in pids:
+                    _, raw_statuses[pid] = os.waitpid(pid, 0)
             except KeyboardInterrupt:
-                for p in procs:
+                if pipeline_pgid is not None:
                     try:
-                        p.terminate()
+                        os.killpg(pipeline_pgid, signal.SIGINT)
                     except OSError:
                         pass
-                results = [p.wait() for p in procs]
+                for pid in pids:
+                    if pid not in raw_statuses:
+                        try:
+                            _, raw_statuses[pid] = os.waitpid(pid, 0)
+                        except OSError:
+                            pass
                 return ExitCode.SIGINT
             finally:
                 if tty_fd is not None:
                     tcsetpgrp_safely(tty_fd, os.getpgrp())
-
-            return returncode_to_exit_status(results[-1]) if results else ExitCode.SUCCESS
+            return _raw_to_exit(raw_statuses[pids[-1]])
+        except OSError as exc:
+            print(f"pysh: pipeline: {exc}", file=sys.stderr)
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    pass
+            return ExitCode.GENERAL_ERROR
         finally:
-            for f in opened:
+            if previous_read is not None:
                 try:
-                    f.close()
+                    os.close(previous_read)
                 except OSError:
                     pass
-            if prev_out is not None:
-                try:
-                    prev_out.close()
-                except OSError:
-                    pass
+
+    def _execute_isolated_stage(self, stage: _ResolvedStage) -> int:
+        """Execute one already-resolved stage in its isolated child process."""
+        if stage.env_overrides:
+            os.environ.update(stage.env_overrides)
+        if stage.kind == "builtin":
+            try:
+                return self._dispatch_builtin(list(stage.argv))
+            except _ExitShell as exc:
+                return exc.code
+        if stage.kind == "plugin":
+            return self.plugin_manager.run_command(stage.argv[0], list(stage.argv[1:]))
+        if stage.kind == "python-inline":
+            return self._run_python_code(stage.python_source or "")
+        if stage.kind == "python-block":
+            return self.python_runtime.execute_block(stage.python_source or "")
+        try:
+            os.execvpe(stage.argv[0], stage.argv, dict(os.environ))
+        except FileNotFoundError:
+            print(f"pysh: {stage.argv[0]}: command not found", file=sys.stderr)
+            return ExitCode.COMMAND_NOT_FOUND
+        except PermissionError as exc:
+            print(f"pysh: {stage.argv[0]}: {exc}", file=sys.stderr)
+            return ExitCode.CANNOT_EXECUTE
+        except OSError as exc:
+            print(f"pysh: {stage.argv[0]}: {exc}", file=sys.stderr)
+            return ExitCode.GENERAL_ERROR
 
     def _run_external(
         self,
@@ -1167,15 +1549,17 @@ class PyShell:
         preexec_fn: Callable[[], None] | None = make_child_preexec if jc_available else None
 
         try:
-            if spec.stdin_path:
+            if not spec.actions and spec.stdin_path:
                 stdin_f = open(spec.stdin_path, "rb")
-            elif spec.stdin_data is not None:
+            elif not spec.actions and spec.stdin_data is not None:
                 stdin_f = tempfile.TemporaryFile("w+b")
                 stdin_f.write(spec.stdin_data)
                 stdin_f.seek(0)
-            if spec.stdout_path:
+            if not spec.actions and spec.stdout_path:
                 stdout_f = open(spec.stdout_path, "ab" if spec.stdout_append else "wb")
-            if spec.stderr_to_stdout:
+            if spec.actions:
+                stderr_arg = None
+            elif spec.stderr_to_stdout:
                 stderr_arg = subprocess.STDOUT
             elif spec.stderr_path:
                 stderr_f = open(spec.stderr_path, "ab" if spec.stderr_append else "wb")
@@ -1183,14 +1567,16 @@ class PyShell:
             else:
                 stderr_arg = None
             try:
-                proc = subprocess.Popen(  # noqa: S603 - user-issued command
-                    argv,
-                    env=child_env,
-                    stdin=stdin_f,
-                    stdout=stdout_f,
-                    stderr=stderr_arg,
-                    preexec_fn=preexec_fn,
-                )
+                redirection = _redirect_standard_fds(spec) if spec.actions else nullcontext()
+                with redirection:
+                    proc = subprocess.Popen(  # noqa: S603 - user-issued command
+                        argv,
+                        env=child_env,
+                        stdin=stdin_f,
+                        stdout=stdout_f,
+                        stderr=stderr_arg,
+                        preexec_fn=preexec_fn,
+                    )
             except FileNotFoundError:
                 if self.zsh_fallback_enabled and original_stage is not None:
                     return self._run_zsh_fallback(original_stage)
@@ -1199,12 +1585,17 @@ class PyShell:
                     command=argv[0],
                     code=ExitCode.COMMAND_NOT_FOUND,
                 )
-                _write_execution_stderr(
-                    f"pysh: {argv[0]}: command not found",
-                    spec,
-                    stdout_stream=stdout_f,
-                    stderr_stream=stderr_f,
-                )
+                message = f"pysh: {argv[0]}: command not found"
+                if any(action.fd != 0 for action in spec.actions):
+                    with _redirect_standard_fds(spec):
+                        print(message, file=sys.stderr)
+                else:
+                    _write_execution_stderr(
+                        message,
+                        spec,
+                        stdout_stream=stdout_f,
+                        stderr_stream=stderr_f,
+                    )
                 return ExitCode.COMMAND_NOT_FOUND
             except PermissionError as exc:
                 self.trace.error(
@@ -1327,6 +1718,12 @@ class PyShell:
             "source_sh_aliases": self._builtin_source_sh_aliases,
             "run_script": self._builtin_run_script,
             "compat_check": self._builtin_compat_check,
+            "config_check": self._builtin_config_check,
+            "config_reset": self._builtin_config_reset,
+            "config_profile": self._builtin_config_profile,
+            "config_theme": self._builtin_config_theme,
+            "deactivate": self._builtin_deactivate,
+            "config_alias_pack": self._builtin_config_alias_pack,
             "zsh": self._builtin_zsh,
             "zsh_fallback": self._builtin_zsh_fallback,
             "py": self._builtin_py,
@@ -1407,18 +1804,17 @@ class PyShell:
             if assignment:
                 name, raw = assignment
                 value = self._unquote_value(raw)
-                os.environ[name] = value
-                # Keep local_vars in sync so that ${NAME} expansion sees it.
-                self.local_vars[name] = value
-                if name == "PYSH_ZSH_FALLBACK":
-                    self.zsh_fallback_enabled = value == "1"
+                self._set_exported_environment(name, value, notify_plugins=True)
             else:
                 if token in self.local_vars:
-                    os.environ[token] = self.local_vars[token]
-                    if token == "PYSH_ZSH_FALLBACK":
-                        self.zsh_fallback_enabled = self.local_vars[token] == "1"
+                    self._set_exported_environment(
+                        token,
+                        self.local_vars[token],
+                        notify_plugins=True,
+                    )
                 else:
-                    os.environ.setdefault(token, "")
+                    if token not in os.environ:
+                        self._set_exported_environment(token, "", notify_plugins=True)
         return 0
 
     def _builtin_command(self, args: list[str]) -> int:
@@ -1449,12 +1845,17 @@ class PyShell:
             return self._builtin_command(args[1:])
         if name in self.BUILTINS:
             return self._dispatch_builtin(args)
+        if self.plugin_manager.has_command(name):
+            return self.plugin_manager.run_command(name, args[1:])
         return self._run_external(args, RedirectionSpec(), original_stage=" ".join(args))
 
     def _print_command_resolution(self, name: str, *, verbose: bool) -> bool:
         """Print POSIX-style command resolution details for ``command -v/-V``."""
         if name in self.BUILTINS:
             print(f"{name} is a PySH builtin" if verbose else name)
+            return True
+        if self.plugin_manager.has_command(name):
+            print(f"{name} is a PySH plugin command" if verbose else name)
             return True
         alias = self.aliases.get(name)
         if alias is not None:
@@ -1474,12 +1875,84 @@ class PyShell:
             print("source: filename argument required", file=sys.stderr)
             return 2
         target = Path(os.path.expanduser(args[0]))
+        venv_root = self._validated_venv_activation_target(target)
+        if venv_root is not None:
+            return self._activate_virtualenv(venv_root)
+        if target.name == "activate" and target.parent.name == "bin":
+            print(f"source: {target}: invalid Python virtual environment", file=sys.stderr)
+            return 1
         if is_zsh_config_path(str(target)):
             diagnostic_info = zsh_config_file_diagnostic(str(target))
             print(diagnostic_info.message, file=sys.stderr)
             print(diagnostic_info.hint, file=sys.stderr)
             return 2
         return execute_rc(target, self.execute, quiet_missing=False)
+
+    @staticmethod
+    def _validated_venv_activation_target(target: Path) -> Path | None:
+        """Return the validated virtualenv root for a ``bin/activate`` target."""
+        try:
+            resolved = target.resolve(strict=True)
+        except OSError:
+            return None
+        if resolved.name != "activate" or resolved.parent.name != "bin":
+            return None
+        root = resolved.parent.parent
+        python = root / "bin" / "python"
+        if not (root / "pyvenv.cfg").is_file() or not python.is_file():
+            return None
+        if not os.access(python, os.X_OK):
+            return None
+        return root
+
+    def _activate_virtualenv(self, root: Path) -> int:
+        """Activate ``root`` transactionally without interpreting foreign code."""
+        if self._venv_restore_environment is None:
+            self._venv_restore_environment = {
+                name: os.environ.get(name)
+                for name in ("PATH", "PYTHONHOME", "VIRTUAL_ENV")
+            }
+            self._venv_restore_locals = {
+                name: self.local_vars.get(name)
+                for name in ("PATH", "PYTHONHOME", "VIRTUAL_ENV")
+            }
+        else:
+            self._restore_virtualenv_environment(clear_snapshot=False)
+
+        base_path = os.environ.get("PATH", "")
+        bin_path = str(root / "bin")
+        path_parts = [part for part in base_path.split(os.pathsep) if part != bin_path]
+        new_path = os.pathsep.join([bin_path, *path_parts])
+        self._set_exported_environment("PATH", new_path, notify_plugins=True)
+        self._set_exported_environment("VIRTUAL_ENV", str(root), notify_plugins=True)
+        self._unset_exported_environment("PYTHONHOME", notify_plugins=True)
+        return 0
+
+    def _builtin_deactivate(self, _args: list[str]) -> int:
+        """Restore the exact environment captured before native activation."""
+        if self._venv_restore_environment is None:
+            return 0
+        self._restore_virtualenv_environment(clear_snapshot=True)
+        return 0
+
+    def _restore_virtualenv_environment(self, *, clear_snapshot: bool) -> None:
+        snapshot = self._venv_restore_environment
+        if snapshot is None:
+            return
+        for name, value in snapshot.items():
+            if value is None:
+                self._unset_exported_environment(name, notify_plugins=True)
+            else:
+                self._set_exported_environment(name, value, notify_plugins=True)
+        local_snapshot = self._venv_restore_locals or {}
+        for name, value in local_snapshot.items():
+            if value is None:
+                self.local_vars.pop(name, None)
+            else:
+                self.local_vars[name] = value
+        if clear_snapshot:
+            self._venv_restore_environment = None
+            self._venv_restore_locals = None
 
     def _builtin_source_zsh(self, args: list[str]) -> int:
         if not args:
@@ -1614,6 +2087,161 @@ class PyShell:
             )
         return 2 if report.risky else 0
 
+    def _builtin_config_check(self, args: list[str]) -> int:
+        if len(args) > 1 or (args and args[0] not in {"--validate", "--diff", "--locations"}):
+            print("usage: config_check [--validate|--diff|--locations]", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        mode = args[0] if args else ""
+        config = load_declarative_config()
+        plugin_cfgs = load_plugin_configs()
+        plugin_diags = [diag for pc in plugin_cfgs.values() for diag in pc.diagnostics]
+        has_errors = any(d.severity == "error" for d in config.diagnostics) or any(
+            d.severity == "error" for d in plugin_diags
+        )
+        if mode == "--locations":
+            if config.loaded_paths:
+                for path in config.loaded_paths:
+                    print(f"loaded: {path}")
+            else:
+                print("loaded: <none>")
+            for pc in sorted(plugin_cfgs.values(), key=lambda p: str(p.path)):
+                print(f"plugin: {pc.path}")
+            return 1 if has_errors else 0
+        if mode == "--diff":
+            for line in self._config_diff_lines():
+                print(line)
+            return 1 if has_errors else 0
+        all_diags = list(config.diagnostics) + plugin_diags
+        for diagnostic_item in all_diags:
+            print(diagnostic_item.format(), file=sys.stderr)
+        if mode == "--validate":
+            if has_errors:
+                return 1
+            print("pysh: config: valid")
+            return 0
+        print(f"profile: {self.active_profile}")
+        print(f"theme: {self.active_theme}")
+        print(f"loaded files: {len(config.loaded_paths)}")
+        print(f"plugin config files: {len(plugin_cfgs)}")
+        print(f"diagnostics: {len(all_diags)}")
+        return 1 if has_errors else 0
+
+    def _config_diff_lines(self) -> list[str]:
+        """Return runtime configuration differences from built-in defaults."""
+        lines: list[str] = []
+        if self.active_profile != "default":
+            lines.append(f"profile.active={self.active_profile!r}")
+        if self.active_theme != "default":
+            lines.append(f"theme.active={self.active_theme!r}")
+        _append_mapping_diff(lines, "prompt", DEFAULT_PROMPT_OPTIONS, self.prompt_options)
+        _append_mapping_diff(lines, "editor", DEFAULT_EDITOR_OPTIONS, self.editor_options)
+        _append_mapping_diff(lines, "completion", DEFAULT_COMPLETION_OPTIONS, self.completion_options)
+        _append_mapping_diff(lines, "history", DEFAULT_HISTORY_OPTIONS, self.history_options)
+        _append_mapping_diff(lines, "colors.prompt", DEFAULT_PROMPT_COLORS, self.prompt_colors)
+        _append_mapping_diff(lines, "colors.highlight", DEFAULT_HIGHLIGHT_COLORS, self.highlight_colors)
+        _append_mapping_diff(lines, "colors.mode", DEFAULT_PROMPT_COLOR_MODES, self.prompt_color_modes)
+        _append_mapping_diff(lines, "cursor", DEFAULT_CURSOR_OPTIONS, self.cursor_options)
+        _append_mapping_diff(lines, "aliases", self.DEFAULT_ALIASES, self.aliases)
+        return lines
+
+    def _builtin_config_reset(self, args: list[str]) -> int:
+        if len(args) > 1:
+            print("usage: config_reset [target]", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        target = args[0] if args else "all"
+        try:
+            self.reset_config(target)
+        except ValueError as exc:
+            print(f"pysh: config_reset: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    def _builtin_config_profile(self, args: list[str]) -> int:
+        if not args or args[0] not in {"list", "show", "use"}:
+            print("usage: config_profile list|show NAME|use NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        action = args[0]
+        if action == "list":
+            if len(args) != 1:
+                print("usage: config_profile list", file=sys.stderr)
+                return ExitCode.BUILTIN_MISUSE
+            for name in self.get_profiles():
+                marker = "*" if name == self.active_profile else " "
+                print(f"{marker} {name}")
+            return 0
+        if len(args) != 2:
+            print(f"usage: config_profile {action} NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        name = args[1]
+        if name not in self.config_profiles:
+            print(f"pysh: config_profile: unknown profile: {name}", file=sys.stderr)
+            return 1
+        if action == "show":
+            print(f"profile: {name}")
+            for key, value in sorted(self.config_profiles[name].items()):
+                print(f"{key}: {value!r}")
+            return 0
+        self.set_profile(name)
+        return 0
+
+    def _builtin_config_theme(self, args: list[str]) -> int:
+        if not args or args[0] not in {"list", "show", "preview", "use"}:
+            print("usage: config_theme list|show NAME|preview NAME|use NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        action = args[0]
+        if action == "list":
+            if len(args) != 1:
+                print("usage: config_theme list", file=sys.stderr)
+                return ExitCode.BUILTIN_MISUSE
+            for name in self.get_themes():
+                marker = "*" if name == self.active_theme else " "
+                print(f"{marker} {name}")
+            return 0
+        if len(args) != 2:
+            print(f"usage: config_theme {action} NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        name = args[1]
+        if name not in self.config_themes:
+            print(f"pysh: config_theme: unknown theme: {name}", file=sys.stderr)
+            return 1
+        if action == "show":
+            print(f"theme: {name}")
+            for key, value in sorted(self.config_themes[name].items()):
+                print(f"{key}: {value!r}")
+            return 0
+        if action == "preview":
+            print(self.preview_theme(name))
+            return 0
+        self.set_theme(name)
+        return 0
+
+    def _builtin_config_alias_pack(self, args: list[str]) -> int:
+        if not args or args[0] not in {"list", "show", "load"}:
+            print("usage: config_alias_pack list|show NAME|load NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        action = args[0]
+        if action == "list":
+            if len(args) != 1:
+                print("usage: config_alias_pack list", file=sys.stderr)
+                return ExitCode.BUILTIN_MISUSE
+            for name in self.get_alias_packs():
+                print(name)
+            return 0
+        if len(args) != 2:
+            print(f"usage: config_alias_pack {action} NAME", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        name = args[1]
+        pack = BUILTIN_ALIAS_PACKS.get(name)
+        if pack is None:
+            print(f"pysh: config_alias_pack: unknown alias pack: {name}", file=sys.stderr)
+            return 1
+        if action == "show":
+            for alias_name, value in sorted(pack.items()):
+                print(f"{alias_name}={value!r}")
+            return 0
+        self.load_alias_pack(name)
+        return 0
+
     def _execute_inline_migrate_if_needed(self, line: str) -> int | None:
         """Run ``migrate`` before normal shell expansion can execute input."""
         stripped = line.strip()
@@ -1707,7 +2335,11 @@ class PyShell:
 
     # ---------------------------------------------------------- command planning
     def _builtin_plan(self, args: list[str]) -> int:
-        return run_plan(args, builtins=self.BUILTINS)
+        return run_plan(
+            args,
+            builtins=self.BUILTINS,
+            plugin_commands=self.plugin_manager.command_names(),
+        )
 
     def _builtin_secure(self, args: list[str]) -> int:
         if not args:
@@ -2010,10 +2642,7 @@ class PyShell:
             if name == "PYSH_ZSH_FALLBACK":
                 self.zsh_fallback_enabled = value == "1"
         for name, value in result.exports.items():
-            os.environ[name] = value
-            self.local_vars[name] = value
-            if name == "PYSH_ZSH_FALLBACK":
-                self.zsh_fallback_enabled = value == "1"
+            self._set_exported_environment(name, value, notify_plugins=True)
         print(
             f"aliases={len(result.aliases)} exports={len(result.exports)} "
             f"vars={len(result.variables)} skipped={result.skipped} file={target}"
@@ -2066,6 +2695,25 @@ class PyShell:
     def _run_python_code(self, code: str) -> int:
         return self.python_runtime.execute(code)
 
+    def _run_direct_python(self, line: str, code: str) -> int:
+        """Execute direct Python with optional trailing shell redirections."""
+        try:
+            clean, spec = parse_redirections(line)
+        except ParseError as exc:
+            print(f"pysh: {self._paste_error_label()}: {exc}", file=sys.stderr)
+            return ExitCode.BUILTIN_MISUSE
+        if spec.is_empty():
+            return self._run_python_code(code)
+        clean_code = self._extract_direct_py_code(clean)
+        if clean_code is None:
+            return self._run_python_code(code)
+        try:
+            with _redirect_standard_fds(_tilde_expand_spec(spec)):
+                return self._run_python_code(clean_code)
+        except OSError as exc:
+            print(f"pysh: {exc}", file=sys.stderr)
+            return ExitCode.GENERAL_ERROR
+
     def _run_python_block(self, text: str) -> int:
         try:
             body = extract_block_body(text)
@@ -2091,7 +2739,7 @@ class PyShell:
         if "\n" not in text:
             return False
         lines = text.split("\n")
-        if not is_block_opener(lines[0]):
+        if lines[0].strip() != "py {":
             return False
         return is_block_closer(lines[-1])
 
@@ -2188,10 +2836,50 @@ class PyShell:
         Mirrors the behaviour of the ``export NAME=value`` builtin so that
         ``$NAME`` / ``${NAME}`` expansion sees the value immediately.
         """
+        self._set_exported_environment(name, value, notify_plugins=True)
+
+    def _set_exported_environment(
+        self,
+        name: str,
+        value: str,
+        *,
+        notify_plugins: bool,
+    ) -> None:
+        """Set an exported variable through the central mutation path."""
+        old = os.environ.get(name)
         os.environ[name] = value
         self.local_vars[name] = value
         if name == "PYSH_ZSH_FALLBACK":
             self.zsh_fallback_enabled = value == "1"
+        if notify_plugins and old != value:
+            self.plugin_manager.notify_env_change(name, old, value)
+
+    def _unset_exported_environment(self, name: str, *, notify_plugins: bool) -> None:
+        """Unset one exported variable through the central mutation path."""
+        old = os.environ.pop(name, None)
+        self.local_vars.pop(name, None)
+        if notify_plugins and old is not None:
+            self.plugin_manager.notify_env_change(name, old, None)
+
+    def enable_plugin(self, name: str) -> None:
+        """Record explicit intent to load a trusted Python plugin."""
+        self.plugin_manager.enable_plugin(name)
+
+    def disable_plugin(self, name: str) -> None:
+        """Remove explicit intent to load a trusted Python plugin."""
+        self.plugin_manager.disable_plugin(name)
+
+    def enable_project_plugins(self) -> None:
+        """Allow explicitly enabled project-local plugins to execute."""
+        self.plugin_manager.enable_project_plugins()
+
+    def list_plugins(self) -> list[str]:
+        """Return plugin names known from config/discovery state."""
+        return self.plugin_manager.list_plugins()
+
+    def is_plugin_enabled(self, name: str) -> bool:
+        """Return whether a plugin name is explicitly enabled."""
+        return self.plugin_manager.is_plugin_enabled(name)
 
     def set_prompt_option(self, name: str, value: object) -> None:
         """Set a validated prompt option (ConfigurableShell contract).
@@ -2228,6 +2916,11 @@ class PyShell:
         validate_prompt_color_mode(name, value)
         self.prompt_color_modes[name] = value
 
+    def set_highlight_color(self, role: str, color: str) -> None:
+        """Set a validated live-input highlight color."""
+        validate_highlight_color(role, color)
+        self.highlight_colors[role] = color
+
     def set_cursor_color_enabled(self, value: bool) -> None:
         """Set validated terminal cursor color enable state."""
         validate_cursor_color_enabled(value)
@@ -2249,6 +2942,145 @@ class PyShell:
         """
         validate_sensitive_input(name, value)
         self.sensitive_input[name] = value
+
+    def set_history_option(self, name: str, value: object) -> None:
+        """Set a validated history engine option (ConfigurableShell contract)."""
+        validate_history_option(name, value)
+        self.history_options[name] = value
+        self.history_engine.set_option(name, value)
+
+    def set_completion_option(self, name: str, value: object) -> None:
+        """Set a validated completion option."""
+        validate_completion_option(name, value)
+        self.completion_options[name] = value
+
+    def set_profile(self, name: str) -> None:
+        """Apply a named profile to runtime configuration state."""
+        if name not in self.config_profiles:
+            raise ValueError(f"unknown profile: {name}")
+        profile = self.config_profiles[name]
+        self.active_profile = name
+        theme = profile.get("theme")
+        if isinstance(theme, str) and theme in self.config_themes:
+            self.set_theme(theme)
+        for key, value in _mapping_items(profile.get("prompt")):
+            self.set_prompt_option(key, value)
+        for key, value in _mapping_items(profile.get("editor")):
+            self.set_editor_option(key, value)
+        for key, value in _mapping_items(profile.get("completion")):
+            self.set_completion_option(key, value)
+        for key, value in _mapping_items(profile.get("history")):
+            self.set_history_option(key, value)
+
+    def get_profiles(self) -> list[str]:
+        """Return known profile names."""
+        return profile_names(self.config_profiles)
+
+    def set_theme(self, name: str) -> None:
+        """Apply a named theme to runtime color state."""
+        if name not in self.config_themes:
+            raise ValueError(f"unknown theme: {name}")
+        theme = self.config_themes[name]
+        self.active_theme = name
+        colors = theme.get("colors")
+        if not isinstance(colors, dict):
+            return
+        for key, value in _mapping_items(colors.get("prompt")):
+            if isinstance(value, str):
+                self.set_prompt_color(key, value)
+        for key, value in _mapping_items(colors.get("highlight")):
+            if isinstance(value, str):
+                self.set_highlight_color(key, value)
+
+    def get_themes(self) -> list[str]:
+        """Return known theme names."""
+        return theme_names(self.config_themes)
+
+    def preview_theme(self, name: str) -> str:
+        """Return a non-executing theme preview."""
+        if name not in self.config_themes:
+            raise ValueError(f"unknown theme: {name}")
+        return "\n".join(
+            (
+                f"theme: {name}",
+                "prompt: user@host [~/project] git:main",
+                "status: ok / error",
+                "highlight: builtin alias path string comment paste reverse_search",
+            )
+        )
+
+    def load_alias_pack(self, name: str) -> None:
+        """Load a built-in alias pack without executing alias values."""
+        pack = BUILTIN_ALIAS_PACKS.get(name)
+        if pack is None:
+            raise ValueError(f"unknown alias pack: {name}")
+        for alias_name, value in pack.items():
+            self.register_alias(alias_name, value)
+
+    def get_alias_packs(self) -> list[str]:
+        """Return known alias-pack names."""
+        return alias_pack_names()
+
+    def get_plugin_config(self, name: str) -> dict[str, object]:
+        """Return a copy of the loaded plugin TOML configuration for *name*.
+
+        Returns an empty dict when no plugin config file was found for *name*.
+        The returned value is always a fresh copy; callers may not mutate
+        internal state through it.
+        """
+        return deepcopy(self.plugin_configs.get(name, {}))
+
+    def register_startup_hook(self, fn: Callable[[], None]) -> None:
+        """Register a trusted Python startup hook from ``~/.pyshrc.py``."""
+        if not callable(fn):
+            raise ValueError("startup hook must be callable")
+        self._startup_hooks.append(fn)
+
+    def _run_user_startup_hooks(self) -> None:
+        """Run user startup hooks without preventing later hooks."""
+        for hook in tuple(self._startup_hooks):
+            try:
+                hook()
+            except Exception as exc:  # noqa: BLE001 - startup hooks are trusted user code
+                print(f"pysh: config: startup hook failed: {exc}", file=sys.stderr)
+
+    def reset_config(self, target: str = "all") -> None:
+        """Reset runtime configuration state without writing user files."""
+        valid = {
+            "all",
+            "prompt",
+            "editor",
+            "history",
+            "completion",
+            "colors",
+            "highlight",
+            "cursor",
+            "aliases",
+        }
+        if target not in valid:
+            raise ValueError(f"unknown config reset target: {target}")
+        if target == "all":
+            self.active_profile = "default"
+            self.active_theme = "default"
+        if target in {"all", "prompt"}:
+            self.prompt_options = dict(DEFAULT_PROMPT_OPTIONS)
+        if target in {"all", "editor"}:
+            self.editor_options = dict(DEFAULT_EDITOR_OPTIONS)
+        if target in {"all", "completion"}:
+            self.completion_options = dict(DEFAULT_COMPLETION_OPTIONS)
+        if target in {"all", "history"}:
+            self.history_options = dict(DEFAULT_HISTORY_OPTIONS)
+            for key, value in self.history_options.items():
+                self.history_engine.set_option(key, value)
+        if target in {"all", "colors"}:
+            self.prompt_colors = dict(DEFAULT_PROMPT_COLORS)
+            self.prompt_color_modes = dict(DEFAULT_PROMPT_COLOR_MODES)
+        if target in {"all", "highlight"}:
+            self.highlight_colors = dict(DEFAULT_HIGHLIGHT_COLORS)
+        if target in {"all", "cursor"}:
+            self.cursor_options = dict(DEFAULT_CURSOR_OPTIONS)
+        if target in {"all", "aliases"}:
+            self.aliases = dict(self.DEFAULT_ALIASES)
 
     def _apply_cursor_color(self) -> None:
         """Apply configured terminal cursor color when the terminal gate allows it."""
@@ -2298,10 +3130,10 @@ class PyShell:
             try:
                 return self.line_reader.read_line(
                     self._prompt(),
-                    history=self.history.entries(),
+                    history=self.history_engine.entries(),
                     suggester=self.autosuggester,
                     highlighter=self.line_highlighter,
-                    scheme=DEFAULT_SCHEME,
+                    scheme=self._highlight_color_scheme(),
                     options=options,
                     on_multiline_paste=self._capture_multiline_paste,
                     completer=self.completer,
@@ -2354,6 +3186,18 @@ class PyShell:
             syntax_highlight=bool(self.editor_options.get("syntax_highlight", True)),
         )
 
+    def _highlight_color_scheme(self) -> ColorScheme:
+        """Return the configured live-input color scheme."""
+        try:
+            values: dict[str, str] = {}
+            vga = bool(self.prompt_color_modes.get("vga", True))
+            for role, default_color in DEFAULT_HIGHLIGHT_COLORS.items():
+                rgb = parse_color(self.highlight_colors.get(role, default_color))
+                values[role] = sgr_ansi16(rgb) if vga else sgr_truecolor(rgb)
+            return ColorScheme(**values, reset=sgr_reset())
+        except ValueError:
+            return DEFAULT_SCHEME
+
     @staticmethod
     def _stdio_is_tty() -> bool:
         try:
@@ -2396,9 +3240,15 @@ class PyShell:
         elif cwd_str:
             segments.append(self._color_prompt_segment(cwd_str, "cwd"))
 
+        for value in self.plugin_manager.prompt_segments("before_cwd"):
+            segments.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
+
         git_segment = self._prompt_git_segment(options)
         if git_segment:
             segments.append(self._color_prompt_segment(git_segment, "git"))
+
+        for value in self.plugin_manager.prompt_segments("after_git"):
+            segments.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
 
         if bool(options.get("show_python_version", False)):
             py = ".".join(str(p) for p in sys.version_info[:2])
@@ -2412,6 +3262,12 @@ class PyShell:
 
         if bool(options.get("show_last_status", False)) and self.last_status != 0:
             segments.append(self._color_prompt_segment(f"[{self.last_status}]", "status"))
+
+        for text, role in self._prompt_context_segments(options):
+            segments.append(self._color_prompt_segment(text, role))
+
+        for value in self.plugin_manager.prompt_segments("end"):
+            segments.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
 
         if self.pending_multiline_paste is not None:
             lines = self._pending_multiline_paste_line_count()
@@ -2469,14 +3325,26 @@ class PyShell:
                     self._color_prompt_segment(f"[{cwd_str}]", "cwd")
                 )
 
+        for value in self.plugin_manager.prompt_segments("before_cwd"):
+            line1_segs.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
+
         git_seg = self._prompt_git_segment(options)
         if git_seg:
             line1_segs.append(self._color_prompt_segment(git_seg, "git"))
+
+        for value in self.plugin_manager.prompt_segments("after_git"):
+            line1_segs.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
 
         if bool(options.get("show_last_status", False)) and self.last_status != 0:
             line1_segs.append(
                 self._color_prompt_segment(f"[{self.last_status}]", "status")
             )
+
+        for text, role in self._prompt_context_segments(options):
+            line1_segs.append(self._color_prompt_segment(text, role))
+
+        for value in self.plugin_manager.prompt_segments("end"):
+            line1_segs.append(self._color_prompt_segment(_sanitize_prompt_value(value), None))
 
         if self.pending_multiline_paste is not None:
             count = self._pending_multiline_paste_line_count()
@@ -2531,7 +3399,7 @@ class PyShell:
     @staticmethod
     def _prompt_identity(options: dict[str, object]) -> str:
         """Build the ``user`` / ``host`` / ``user@host`` identity segment."""
-        user = os.environ.get("USER") or os.environ.get("LOGNAME") or "user"
+        user = PyShell._effective_username()
         show_user = bool(options.get("show_user", True))
         show_host = bool(options.get("show_host", False))
         if show_user and show_host:
@@ -2545,7 +3413,7 @@ class PyShell:
     @staticmethod
     def _prompt_identity_segments(options: dict[str, object]) -> list[tuple[str, str | None]]:
         """Build color-aware identity segments."""
-        user = os.environ.get("USER") or os.environ.get("LOGNAME") or "user"
+        user = PyShell._effective_username()
         show_user = bool(options.get("show_user", True))
         show_host = bool(options.get("show_host", False))
         host = socket.gethostname()
@@ -2556,6 +3424,14 @@ class PyShell:
         if show_user:
             return [(user, "user")]
         return []
+
+    @staticmethod
+    def _effective_username() -> str:
+        """Return the passwd name for the effective process identity."""
+        try:
+            return pwd.getpwuid(os.geteuid()).pw_name
+        except (KeyError, OSError):
+            return str(os.geteuid())
 
     def _color_prompt_segment(self, text: str, segment: str | None) -> str:
         """Apply configured prompt color to one rendered segment."""
@@ -2637,6 +3513,128 @@ class PyShell:
         setattr(self, spec.cache_attr, value)
         return value
 
+    def _prompt_context_segments(self, options: dict[str, object]) -> list[tuple[str, str]]:
+        """Return optional non-tool context prompt segments."""
+        segments: list[tuple[str, str]] = []
+        for provider in (
+            self._prompt_duration_segment,
+            self._prompt_ssh_segment,
+            self._prompt_aws_segment,
+            self._prompt_k8s_segment,
+        ):
+            try:
+                segment = provider(options)
+            except (OSError, ValueError):
+                segment = None
+            if segment is not None:
+                segments.append(segment)
+        return segments
+
+    def _prompt_duration_segment(self, options: dict[str, object]) -> tuple[str, str] | None:
+        """Return the last command duration segment when above threshold."""
+        if not bool(options.get("show_command_duration", False)):
+            return None
+        duration = self._last_command_duration
+        if duration is None:
+            return None
+        threshold = options.get("command_duration_threshold", 0.5)
+        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+            return None
+        if duration < threshold:
+            return None
+        return _format_command_duration(duration), "duration"
+
+    @staticmethod
+    def _prompt_ssh_segment(options: dict[str, object]) -> tuple[str, str] | None:
+        """Return an SSH marker for interactive remote sessions."""
+        if not bool(options.get("show_ssh_indicator", False)):
+            return None
+        if not any(os.environ.get(name) for name in ("SSH_CLIENT", "SSH_TTY", "SSH_CONNECTION")):
+            return None
+        marker = _sanitize_prompt_value("ssh")
+        return (marker, "ssh") if marker else None
+
+    @staticmethod
+    def _prompt_aws_segment(options: dict[str, object]) -> tuple[str, str] | None:
+        """Return the configured AWS profile segment without invoking AWS tools."""
+        if not bool(options.get("show_aws_profile", False)):
+            return None
+        raw = os.environ.get("AWS_PROFILE") or os.environ.get("AWS_DEFAULT_PROFILE")
+        if not raw:
+            return None
+        profile = _sanitize_prompt_value(raw)
+        return (f"aws:{profile}", "aws") if profile else None
+
+    def _prompt_k8s_segment(self, options: dict[str, object]) -> tuple[str, str] | None:
+        """Return Kubernetes current-context from bounded stdlib config parsing."""
+        if not bool(options.get("show_k8s_context", False)):
+            return None
+        context = self._read_k8s_context()
+        return (f"k8s:{context}", "k8s") if context else None
+
+    def _read_k8s_context(self) -> str | None:
+        """Return the first configured Kubernetes current-context, or None."""
+        paths = self._kubeconfig_paths()
+        signature = self._kubeconfig_signature(paths)
+        if signature == self._k8s_context_cache_key:
+            return self._k8s_context_cache_value
+        value: str | None = None
+        for path in paths:
+            value = self._read_k8s_context_file(path)
+            if value:
+                break
+        self._k8s_context_cache_key = signature
+        self._k8s_context_cache_value = value
+        return value
+
+    @staticmethod
+    def _kubeconfig_paths() -> tuple[Path, ...]:
+        raw = os.environ.get("KUBECONFIG")
+        if raw:
+            return tuple(Path(part).expanduser() for part in raw.split(os.pathsep) if part)
+        return (Path("~/.kube/config").expanduser(),)
+
+    @staticmethod
+    def _kubeconfig_signature(paths: tuple[Path, ...]) -> tuple[tuple[str, int, int] | tuple[str, str], ...]:
+        signature: list[tuple[str, int, int] | tuple[str, str]] = []
+        for path in paths:
+            try:
+                stat_result = path.stat()
+            except OSError:
+                signature.append((str(path), "missing"))
+                continue
+            signature.append((str(path), stat_result.st_size, stat_result.st_mtime_ns))
+        return tuple(signature)
+
+    @staticmethod
+    def _read_k8s_context_file(path: Path) -> str | None:
+        try:
+            stat_result = path.stat()
+        except OSError:
+            return None
+        if not path.is_file() or stat_result.st_size > _KUBECONFIG_MAX_BYTES:
+            return None
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+        if "\n---" in text or text.lstrip().startswith("---"):
+            return None
+        matches: list[str] = []
+        for line in text.splitlines():
+            if line.startswith((" ", "\t")):
+                continue
+            match = _KUBE_CURRENT_CONTEXT_RE.match(line.strip())
+            if match is None:
+                continue
+            raw = match.group(1).strip().strip("'\"")
+            context = _sanitize_prompt_value(raw)
+            if context:
+                matches.append(context)
+        if len(matches) != 1:
+            return None
+        return matches[0]
+
     def _prompt_git_segment(self, options: dict[str, object]) -> str | None:
         """Return the Git prompt segment without invoking ``git``."""
         if not bool(options.get("show_git_branch", False)):
@@ -2657,10 +3655,14 @@ class PyShell:
         """
         git_dir = cls._find_git_dir(start)
         if git_dir is None:
-            return None
-        head_path = git_dir / "HEAD"
+            return cls._read_bare_git_prompt_info(start)
+        return cls._read_git_prompt_info_from_dir(git_dir)
+
+    @classmethod
+    def _read_git_prompt_info_from_dir(cls, git_dir: Path) -> GitPromptInfo | None:
+        """Read prompt metadata from a concrete Git metadata directory."""
         try:
-            head = head_path.read_text(encoding="utf-8").strip()
+            head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
         except OSError:
             return None
         if not head:
@@ -2681,18 +3683,69 @@ class PyShell:
     @classmethod
     def _find_git_dir(cls, start: Path) -> Path | None:
         """Return the repository git-dir for ``start`` or one of its parents."""
-        current = start.resolve()
+        try:
+            current = start.resolve()
+        except OSError:
+            return None
         while True:
             dotgit = current / ".git"
-            if dotgit.is_dir():
-                return dotgit
-            if dotgit.is_file():
-                git_dir = cls._read_gitdir_file(dotgit)
-                if git_dir is not None:
-                    return git_dir
+            try:
+                if dotgit.is_dir():
+                    return dotgit
+                if dotgit.is_file():
+                    git_dir = cls._read_gitdir_file(dotgit)
+                    if git_dir is not None:
+                        return git_dir
+            except OSError:
+                return None
             if current.parent == current:
                 return None
             current = current.parent
+
+    @classmethod
+    def _read_bare_git_prompt_info(cls, start: Path) -> GitPromptInfo | None:
+        """Detect a bare repository using a bounded strong-signal check."""
+        try:
+            current = start.resolve()
+        except OSError:
+            return None
+        while True:
+            if cls._is_bare_git_dir(current):
+                return cls._read_git_prompt_info_from_dir(current)
+            if current.parent == current:
+                return None
+            current = current.parent
+
+    @staticmethod
+    def _is_bare_git_dir(path: Path) -> bool:
+        """Return True only for strong, bounded bare Git repository evidence."""
+        try:
+            config_stat = (path / "config").stat()
+        except OSError:
+            return False
+        if config_stat.st_size > _GIT_BARE_CONFIG_MAX_BYTES:
+            return False
+        try:
+            if not (path / "HEAD").is_file():
+                return False
+            if not (path / "objects").is_dir():
+                return False
+            if not (path / "refs").is_dir():
+                return False
+            config = (path / "config").read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return False
+        in_core = False
+        for raw_line in config.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith(("#", ";")):
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                in_core = line.casefold() == "[core]"
+                continue
+            if in_core and re.fullmatch(r"bare\s*=\s*true", line, re.IGNORECASE):
+                return True
+        return False
 
     @staticmethod
     def _read_gitdir_file(path: Path) -> Path | None:
@@ -2729,9 +3782,12 @@ class PyShell:
             "REVERT_HEAD",
             "BISECT_LOG",
         )
-        if any((git_dir / name).exists() for name in obvious_files):
-            return True
-        return (git_dir / "rebase-apply").exists() or (git_dir / "rebase-merge").exists()
+        try:
+            if any((git_dir / name).exists() for name in obvious_files):
+                return True
+            return (git_dir / "rebase-apply").exists() or (git_dir / "rebase-merge").exists()
+        except OSError:
+            return False
 
     @staticmethod
     def _prompt_icon() -> str:
@@ -2763,12 +3819,14 @@ class PyShell:
 
     # ----------------------------------------------------------------- readline
     def _setup_readline(self) -> None:
-        self.history.load()
+        self.history_engine.load()
+        self.history.populate_from_entries(self.history_engine.entries())
+        self.history.disable_auto_history()
         self.history.bind_reverse_search()
         self.completer.install()
 
     def _save_history(self) -> None:
-        self.history.save()
+        self.history_engine.save()
 
     def _export_interactive_shell_vars(self) -> None:
         """Set SHELL, PYSH_SHELL, and PYSH_INTERACTIVE when running interactively.

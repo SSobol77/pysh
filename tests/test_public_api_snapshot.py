@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_public_api_snapshot.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -40,6 +41,9 @@ EXPECTED_CONTRACTS_API: frozenset[str] = frozenset({
     "CommandResolverView",
     "ConfigView",
     "EnvironmentView",
+    "PLUGIN_API_VERSION",
+    "PluginHooks",
+    "PluginMeta",
     "PluginRegistrar",
     "ShellStateView",
 })

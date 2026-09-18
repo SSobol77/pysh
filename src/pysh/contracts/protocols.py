@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/contracts/protocols.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -17,6 +18,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from typing import Protocol, runtime_checkable
+
+PLUGIN_API_VERSION: tuple[int, int] = (1, 0)
 
 
 @runtime_checkable
@@ -113,6 +116,22 @@ class PluginRegistrar(Protocol):
 
     def register_local(self, name: str, value: str) -> None:
         """Register local shell variable *name* with *value*."""
+        ...
+
+
+class PluginMeta(Protocol):
+    """Public metadata every Plugin API 1.0 plugin class must expose."""
+
+    name: str
+    version: str
+    api_version: tuple[int, int]
+
+
+class PluginHooks(Protocol):
+    """Minimal class-based plugin registration protocol."""
+
+    def register(self, api: object) -> None:
+        """Register plugin extension points through *api*."""
         ...
 
 

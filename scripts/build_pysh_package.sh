@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-2.0-only
+# File: scripts/build_pysh_package.sh
 #
 # Copyright (C) 2026 Siergej Sobolewski
 

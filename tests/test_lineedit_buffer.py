@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_lineedit_buffer.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -39,4 +40,3 @@ def test_display_width() -> None:
     assert _display_width("abc") == 3
     assert _display_width("界") == 2
     assert _display_width("e\u0301") == 1
-

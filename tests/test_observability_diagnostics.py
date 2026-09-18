@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_observability_diagnostics.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -15,6 +16,7 @@ import pytest
 from pysh.cli import main
 from pysh.core.shell import PyShell
 from pysh.diagnostics.command_plan import classify
+from pysh.diagnostics.trace import RedactionPolicy
 from pysh.prompt.system_profile import (
     REDACTED_PLACEHOLDER,
     apt_check,
@@ -68,6 +70,82 @@ def test_debug_command_not_found_preserves_127(capfd: pytest.CaptureFixture[str]
     assert captured.out == ""
     assert "command not found" in captured.err
     assert "stage=ERROR" in captured.err
+
+
+def test_short_sensitive_value_does_not_corrupt_unrelated_file_path() -> None:
+    """A short sensitive value must not blot out a coincidental substring.
+
+    A one-character value for a sensitive-named variable (e.g. a boolean-ish
+    session flag) has no secrecy value on its own, but naive substring
+    replacement would still corrupt unrelated diagnostic text containing that
+    character, such as a digit embedded inside a file path.
+    """
+    policy = RedactionPolicy()
+    env = {"SESSION_FLAG": "1"}
+
+    redacted = policy.redact_text("/tmp/pytest-19/debug.pysh", env=env)
+
+    assert redacted == "/tmp/pytest-19/debug.pysh"
+
+
+def test_short_sensitive_value_does_not_corrupt_unrelated_numeric_text() -> None:
+    policy = RedactionPolicy()
+    env = {"SESSION_FLAG": "9"}
+
+    redacted = policy.redact_text("status=192 elapsed=90ms", env=env)
+
+    assert redacted == "status=192 elapsed=90ms"
+
+
+def test_short_sensitive_value_redacted_in_recognizable_assignment_context() -> None:
+    """``NAME=value`` exposure must still be redacted even for a 1-char value."""
+    policy = RedactionPolicy()
+    env = {"TOKEN": "x"}
+
+    redacted = policy.redact_text("command='echo TOKEN=x'", env=env)
+
+    assert "TOKEN=x" not in redacted
+    assert REDACTED_PLACEHOLDER in redacted
+
+
+def test_short_sensitive_value_redacted_as_bare_whole_token() -> None:
+    """A short value exposed as its own token (not ``NAME=value``) is redacted."""
+    policy = RedactionPolicy()
+    env = {"TOKEN": "x"}
+
+    redacted = policy.redact_text("command='echo x'", env=env)
+
+    assert redacted == "command='echo <redacted>'"
+
+
+def test_short_api_key_value_redacted_on_actual_exposure() -> None:
+    policy = RedactionPolicy()
+    env = {"API_KEY": "abc"}
+
+    redacted = policy.redact_text("command='curl -H API_KEY=abc'", env=env)
+
+    assert "API_KEY=abc" not in redacted
+    assert REDACTED_PLACEHOLDER in redacted
+
+
+def test_long_sensitive_value_still_redacted() -> None:
+    policy = RedactionPolicy()
+    env = {"SESSION_TOKEN": "long-enough-secret-value"}
+
+    redacted = policy.redact_text("file=/tmp/long-enough-secret-value.txt", env=env)
+
+    assert "long-enough-secret-value" not in redacted
+    assert REDACTED_PLACEHOLDER in redacted
+
+
+def test_redact_value_does_not_inject_regex_from_secret_characters() -> None:
+    """A value containing regex metacharacters must be treated literally."""
+    policy = RedactionPolicy()
+    env = {"TOKEN": "a.*b"}
+
+    redacted = policy.redact_text("command='echo a.*b' other='axxxxb'", env=env)
+
+    assert redacted == f"command='echo {REDACTED_PLACEHOLDER}' other='axxxxb'"
 
 
 def test_sensitive_env_value_redacted_in_env_audit(

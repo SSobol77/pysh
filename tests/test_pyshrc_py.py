@@ -1,10 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_pyshrc_py.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
 """Tests for the Python-native configuration layer (``~/.pyshrc.py``)."""
+
 from __future__ import annotations
 
+import os
 import re
 import socket
 import sys
@@ -13,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from pysh.config.api import (
+    DEFAULT_COMPLETION_OPTIONS,
     DEFAULT_CURSOR_OPTIONS,
     DEFAULT_EDITOR_OPTIONS,
     DEFAULT_PROMPT_COLOR_MODES,
@@ -24,11 +28,14 @@ from pysh.config.api import (
     ShellConfigAPI,
     ensure_default_config,
     load_python_config,
+    validate_completion_option,
+    validate_highlight_color,
     validate_prompt_color,
     validate_prompt_color_mode,
     validate_prompt_option,
 )
-from pysh.core.shell import PyShell
+from pysh.core.shell import PyShell, _format_command_duration, _sanitize_prompt_value
+from pysh.editor.lineedit.highlight import DEFAULT_HIGHLIGHT_COLORS
 
 
 class FakeShell:
@@ -39,8 +46,13 @@ class FakeShell:
         self.environment: dict[str, str] = {}
         self.prompt_options: dict[str, object] = dict(DEFAULT_PROMPT_OPTIONS)
         self.editor_options: dict[str, object] = dict(DEFAULT_EDITOR_OPTIONS)
+        self.completion_options: dict[str, object] = dict(DEFAULT_COMPLETION_OPTIONS)
         self.prompt_colors: dict[str, str] = dict(DEFAULT_PROMPT_COLORS)
+        self.highlight_colors: dict[str, str] = dict(DEFAULT_HIGHLIGHT_COLORS)
         self.prompt_color_modes: dict[str, object] = dict(DEFAULT_PROMPT_COLOR_MODES)
+        self.enabled_plugins: set[str] = set()
+        self.project_plugins_enabled = False
+        self.startup_hooks: list[object] = []
 
     def register_alias(self, name: str, value: str) -> None:
         self.aliases[name] = value
@@ -57,6 +69,10 @@ class FakeShell:
 
         validate_editor_option(name, value)
         self.editor_options[name] = value
+
+    def set_completion_option(self, name: str, value: object) -> None:
+        validate_completion_option(name, value)
+        self.completion_options[name] = value
 
     def set_mc_integration(self, value: str) -> None:
         from pysh.config.api import validate_editor_option
@@ -77,6 +93,52 @@ class FakeShell:
     def set_prompt_color_mode(self, name: str, value: object) -> None:
         validate_prompt_color_mode(name, value)
         self.prompt_color_modes[name] = value
+
+    def set_highlight_color(self, role: str, color: str) -> None:
+        validate_highlight_color(role, color)
+        self.highlight_colors[role] = color
+
+    def enable_plugin(self, name: str) -> None:
+        self.enabled_plugins.add(name)
+
+    def disable_plugin(self, name: str) -> None:
+        self.enabled_plugins.discard(name)
+
+    def enable_project_plugins(self) -> None:
+        self.project_plugins_enabled = True
+
+    def list_plugins(self) -> list[str]:
+        return sorted(self.enabled_plugins)
+
+    def is_plugin_enabled(self, name: str) -> bool:
+        return name in self.enabled_plugins
+
+    def set_profile(self, name: str) -> None:
+        self.profile = name
+
+    def get_profiles(self) -> list[str]:
+        return ["default", "minimal"]
+
+    def set_theme(self, name: str) -> None:
+        self.theme = name
+
+    def get_themes(self) -> list[str]:
+        return ["default", "plain"]
+
+    def preview_theme(self, name: str) -> str:
+        return f"theme: {name}"
+
+    def load_alias_pack(self, name: str) -> None:
+        self.alias_pack = name
+
+    def get_alias_packs(self) -> list[str]:
+        return ["git", "python"]
+
+    def register_startup_hook(self, fn: object) -> None:
+        self.startup_hooks.append(fn)
+
+    def reset_config(self, target: str = "all") -> None:
+        self.reset_target = target
 
 
 def _write(path: Path, body: str) -> Path:
@@ -110,6 +172,10 @@ def _use_legacy_single_line_prompt(shell: PyShell) -> None:
     shell.set_prompt_option("show_node_version", False)
     shell.set_prompt_option("show_npm_version", False)
     shell.set_prompt_option("show_last_status", False)
+    shell.set_prompt_option("show_command_duration", False)
+    shell.set_prompt_option("show_ssh_indicator", False)
+    shell.set_prompt_option("show_aws_profile", False)
+    shell.set_prompt_option("show_k8s_context", False)
     shell.set_prompt_option("cwd_style", "full")
 
 
@@ -203,6 +269,14 @@ def configure(shell):
     shell.set_prompt_option("show_git_branch", True)
     shell.set_prompt_option("show_git_dirty", True)
     shell.set_prompt_option("show_last_status", True)
+    shell.set_prompt_option("show_command_duration", True)
+    shell.set_prompt_option("command_duration_threshold", 0.5)
+    shell.set_prompt_option("show_ssh_indicator", True)
+    shell.set_prompt_option("show_aws_profile", False)
+    shell.set_prompt_option("show_k8s_context", False)
+    # shell.set_prompt_option("command_duration_threshold", 1)
+    # shell.set_prompt_option("show_aws_profile", True)
+    # shell.set_prompt_option("show_k8s_context", True)
 
     # Language and tool versions.
     shell.set_prompt_option("show_python_version", True)
@@ -239,7 +313,39 @@ def configure(shell):
     shell.set_prompt_color("node", "lime")
     shell.set_prompt_color("npm", "red")
     shell.set_prompt_color("status", "red")
+    shell.set_prompt_color("duration", "yellow")
+    shell.set_prompt_color("ssh", "fuchsia")
+    shell.set_prompt_color("aws", "orange")
+    shell.set_prompt_color("k8s", "aqua")
     shell.set_prompt_color("symbol", "white")
+
+    # ----------------------------------------------------------------------
+    # Live input syntax highlighting
+    # ----------------------------------------------------------------------
+    # Highlight colors use the same color vocabulary as prompt colors.
+    # The highlighter never mutates the command buffer and never executes
+    # commands while classifying input.
+    #
+    # Available roles:
+    # builtin, alias, command_valid, command_invalid, string, operator,
+    # option, variable, path, comment, heredoc, error, continuation, paste,
+    # reverse_search.
+
+    shell.set_highlight_color("builtin", "aqua")
+    shell.set_highlight_color("alias", "fuchsia")
+    shell.set_highlight_color("command_valid", "lime")
+    shell.set_highlight_color("command_invalid", "red")
+    shell.set_highlight_color("string", "green")
+    shell.set_highlight_color("operator", "yellow")
+    shell.set_highlight_color("option", "aqua")
+    shell.set_highlight_color("variable", "fuchsia")
+    shell.set_highlight_color("path", "aqua")
+    shell.set_highlight_color("comment", "gray")
+    shell.set_highlight_color("heredoc", "yellow")
+    shell.set_highlight_color("error", "red")
+    shell.set_highlight_color("continuation", "yellow")
+    shell.set_highlight_color("paste", "yellow")
+    shell.set_highlight_color("reverse_search", "fuchsia")
 
     # ----------------------------------------------------------------------
     # Terminal cursor color
@@ -343,6 +449,33 @@ def configure(shell):
     # shell.set_sensitive_input_indicator("mode", "single-blink")
 
     # ----------------------------------------------------------------------
+    # Command history (History Engine 2.0)
+    # ----------------------------------------------------------------------
+    # History is stored as JSONL at ~/.pysh_history (one JSON object per
+    # command).  Legacy plain-text lines from older PySH versions are
+    # migrated automatically on first load.
+    #
+    # max_length:
+    #   Maximum entries kept after compaction.  Default: 10000.
+    #
+    # dedup_mode:
+    #   "consecutive" -> collapse runs of the same command (default).
+    #   "global"      -> keep one entry per command; frequency accumulates.
+    #   "none"        -> store every command without deduplication.
+    #
+    # ignore_space_prefix:
+    #   True -> commands prefixed with a space are not stored (zsh-style).
+    #
+    # ignore_patterns:
+    #   Commands containing any of these substrings (case-insensitive) are
+    #   silently discarded.  Sensitive commands never reach disk.
+
+    # shell.set_history_option("max_length", 10000)
+    # shell.set_history_option("dedup_mode", "global")
+    # shell.set_history_option("ignore_space_prefix", True)
+    # shell.set_history_option("ignore_patterns", ["password", "secret", "token", "api_key"])
+
+    # ----------------------------------------------------------------------
     # Optional classic minimal prompt profile
     # ----------------------------------------------------------------------
     # Uncomment this block if you want a small historical prompt:
@@ -360,6 +493,10 @@ def configure(shell):
     # shell.set_prompt_option("show_node_version", False)
     # shell.set_prompt_option("show_npm_version", False)
     # shell.set_prompt_option("show_last_status", False)
+    # shell.set_prompt_option("show_command_duration", False)
+    # shell.set_prompt_option("show_ssh_indicator", False)
+    # shell.set_prompt_option("show_aws_profile", False)
+    # shell.set_prompt_option("show_k8s_context", False)
 
     return None
 """
@@ -391,7 +528,9 @@ def test_ensure_creation_failure_reports_deterministic_error(
     assert not target.exists()
 
 
-def test_default_template_applies_accepted_active_profile(tmp_path: Path, monkeypatch) -> None:
+def test_default_template_applies_accepted_active_profile(
+    tmp_path: Path, monkeypatch
+) -> None:
     target = tmp_path / ".pyshrc.py"
     ensure_default_config(target)
     shell = PyShell()
@@ -409,8 +548,13 @@ def test_default_template_applies_accepted_active_profile(tmp_path: Path, monkey
         **DEFAULT_PROMPT_COLORS,
         "rust": "#FF6600",
     }
+    assert shell.highlight_colors == DEFAULT_HIGHLIGHT_COLORS
     assert shell.prompt_color_modes == DEFAULT_PROMPT_COLOR_MODES
-    assert shell.cursor_options == {**DEFAULT_CURSOR_OPTIONS, "enabled": True, "color": "#FF9900"}
+    assert shell.cursor_options == {
+        **DEFAULT_CURSOR_OPTIONS,
+        "enabled": True,
+        "color": "#FF9900",
+    }
     assert shell.editor_options == DEFAULT_EDITOR_OPTIONS
     assert shell.sensitive_input == {**DEFAULT_SENSITIVE_INPUT, "enabled": True}
 
@@ -426,6 +570,19 @@ def test_api_env_registration() -> None:
     shell = FakeShell()
     ShellConfigAPI(shell).env("EDITOR", "nano")
     assert shell.environment == {"EDITOR": "nano"}
+
+
+def test_api_plugin_enablement_is_recorded_not_loaded() -> None:
+    shell = FakeShell()
+    api = ShellConfigAPI(shell)
+
+    api.enable_plugin("example")
+    api.enable_project_plugins()
+
+    assert shell.enabled_plugins == {"example"}
+    assert shell.project_plugins_enabled is True
+    assert api.list_plugins() == ["example"]
+    assert api.is_plugin_enabled("example") is True
 
 
 @pytest.mark.parametrize("name", ["bad name", "", "a=b"])
@@ -498,6 +655,64 @@ def test_api_set_prompt_color_mode_accepts_and_rejects() -> None:
         api.set_prompt_color_mode("vga", "yes")  # type: ignore[arg-type]
 
 
+def test_api_set_highlight_color_accepts_and_rejects() -> None:
+    shell = FakeShell()
+    api = ShellConfigAPI(shell)
+    api.set_highlight_color("builtin", "aqua")
+    api.set_highlight_color("comment", "#888888")
+    assert shell.highlight_colors["builtin"] == "aqua"
+    assert shell.highlight_colors["comment"] == "#888888"
+    with pytest.raises(ConfigError):
+        api.set_highlight_color("unknown", "red")
+    with pytest.raises(ConfigError):
+        api.set_highlight_color("builtin", "red;")
+
+
+def test_api_set_completion_option_accepts_and_rejects() -> None:
+    shell = FakeShell()
+    api = ShellConfigAPI(shell)
+    api.set_completion_option("enabled", False)
+    api.set_completion_option("menu", "list")
+    assert shell.completion_options["enabled"] is False
+    assert shell.completion_options["menu"] == "list"
+    with pytest.raises(ConfigError):
+        api.set_completion_option("unknown", True)
+    with pytest.raises(ConfigError):
+        api.set_completion_option("menu", "wide")
+
+
+def test_api_register_startup_hook_requires_callable() -> None:
+    shell = FakeShell()
+    api = ShellConfigAPI(shell)
+
+    def hook() -> None:
+        return None
+
+    api.register_startup_hook(hook)
+    assert shell.startup_hooks == [hook]
+    with pytest.raises(ConfigError):
+        api.register_startup_hook("not-callable")
+
+
+def test_pyshell_user_startup_hook_failure_does_not_stop_later_hook(capsys) -> None:
+    events: list[str] = []
+    shell = PyShell()
+    shell.register_startup_hook(lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    shell.register_startup_hook(lambda: events.append("later"))
+    shell._run_user_startup_hooks()
+    assert events == ["later"]
+    assert "startup hook failed: boom" in capsys.readouterr().err
+
+
+def test_shell_highlight_color_scheme_uses_prompt_color_parser() -> None:
+    shell = PyShell()
+    shell.set_prompt_color_mode("vga", False)
+    shell.set_highlight_color("builtin", "#33CCFF")
+    scheme = shell._highlight_color_scheme()
+    assert scheme.builtin == "\x1b[38;2;51;204;255m"
+    assert scheme.reset == "\x1b[0m"
+
+
 def test_default_prompt_options_match_contract() -> None:
     assert DEFAULT_PROMPT_OPTIONS == {
         "show_user": True,
@@ -512,6 +727,11 @@ def test_default_prompt_options_match_contract() -> None:
         "show_node_version": True,
         "show_npm_version": True,
         "show_last_status": True,
+        "show_command_duration": True,
+        "show_ssh_indicator": True,
+        "show_aws_profile": False,
+        "show_k8s_context": False,
+        "command_duration_threshold": 0.5,
         "show_cwd": True,
         "cwd_style": "home",
         "prompt_layout": "two_line",
@@ -535,11 +755,26 @@ def test_default_prompt_options_match_contract() -> None:
         "show_rust_version",
         "show_node_version",
         "show_npm_version",
+        "show_command_duration",
+        "show_ssh_indicator",
+        "show_aws_profile",
+        "show_k8s_context",
     ],
 )
 def test_validate_prompt_bool_options_reject_non_bool(name: str) -> None:
     with pytest.raises(ConfigError):
         validate_prompt_option(name, "true")
+
+
+@pytest.mark.parametrize("value", [0, 0.5, 1, 2.25])
+def test_validate_prompt_duration_threshold_accepts_numbers(value: int | float) -> None:
+    validate_prompt_option("command_duration_threshold", value)
+
+
+@pytest.mark.parametrize("value", [True, False, "0.5", -0.1])
+def test_validate_prompt_duration_threshold_rejects_invalid(value: object) -> None:
+    with pytest.raises(ConfigError):
+        validate_prompt_option("command_duration_threshold", value)
 
 
 def test_validate_prompt_option_rejects_invalid_prompt_layout() -> None:
@@ -616,6 +851,7 @@ def test_pyshell_default_prompt_is_two_line(monkeypatch, tmp_path: Path) -> None
     monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
     monkeypatch.setattr(PyShell, "_unicode_capable", staticmethod(lambda: True))
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
     monkeypatch.setattr(socket, "gethostname", lambda: "vm")
     monkeypatch.chdir(tmp_path)
@@ -642,6 +878,7 @@ def test_pyshell_single_layout_uses_prompt_body(monkeypatch, tmp_path: Path) -> 
 
 def test_pyshell_prompt_exact_compatibility_progression(monkeypatch) -> None:
     monkeypatch.setenv("USER", "siergej")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "siergej"))
     monkeypatch.setattr(socket, "gethostname", lambda: "vm")
     monkeypatch.setattr(Path, "cwd", classmethod(lambda cls: Path("/home/claude/work")))
     monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
@@ -671,6 +908,7 @@ def test_pyshell_prompt_python_version_segment(monkeypatch) -> None:
 
 def test_pyshell_prompt_host_segment(monkeypatch) -> None:
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_host", True)
@@ -690,7 +928,12 @@ def test_pyshell_prompt_custom_symbol(monkeypatch) -> None:
     [
         ("show_uv_version", "uv", "uv 0.9.16\n", "uv0.9.16"),
         ("show_ruff_version", "ruff", "ruff 0.15.15\n", "ruff0.15.15"),
-        ("show_rust_version", "rustc", "rustc 1.83.0 (90b35a623 2024-11-26)\n", "rust1.83.0"),
+        (
+            "show_rust_version",
+            "rustc",
+            "rustc 1.83.0 (90b35a623 2024-11-26)\n",
+            "rust1.83.0",
+        ),
         ("show_node_version", "node", "v22.3.0\n", "node22.3.0"),
         ("show_npm_version", "npm", "10.8.1\n", "npm10.8.1"),
     ],
@@ -709,7 +952,9 @@ def test_pyshell_prompt_tool_version_segments(
         stdout = output
         stderr = ""
 
-    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - local subprocess test double.
+    def fake_run(
+        argv, **_kwargs
+    ):  # noqa: ANN001,ANN202 - local subprocess test double.
         calls.append(argv)
         return Result()
 
@@ -730,7 +975,9 @@ def test_pyshell_prompt_tool_version_malformed_output_is_hidden(monkeypatch) -> 
         stderr = ""
 
     monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
-    monkeypatch.setattr("pysh.core.shell.subprocess.run", lambda *_args, **_kwargs: Result())
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda *_args, **_kwargs: Result()
+    )
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_uv_version", True)
@@ -740,7 +987,9 @@ def test_pyshell_prompt_tool_version_malformed_output_is_hidden(monkeypatch) -> 
 def test_pyshell_prompt_missing_tool_is_hidden(monkeypatch) -> None:
     calls: list[list[str]] = []
     monkeypatch.setattr("pysh.core.shell.shutil.which", lambda _exe: None)
-    monkeypatch.setattr("pysh.core.shell.subprocess.run", lambda argv, **_kwargs: calls.append(argv))
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda argv, **_kwargs: calls.append(argv)
+    )
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_node_version", True)
@@ -764,7 +1013,9 @@ def test_pyshell_prompt_all_tool_versions_are_cached(monkeypatch) -> None:
             self.stdout = stdout
             self.stderr = ""
 
-    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - local subprocess test double.
+    def fake_run(
+        argv, **_kwargs
+    ):  # noqa: ANN001,ANN202 - local subprocess test double.
         calls.append(argv)
         return Result(outputs[argv[0]])
 
@@ -856,8 +1107,132 @@ def test_pyshell_two_line_last_status_segment(monkeypatch) -> None:
     assert " [17]" in shell._prompt_info_line()
 
 
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [(0.7, "0.7s"), (4.2, "4.2s"), (60.0, "1m00s"), (65.0, "1m05s")],
+)
+def test_prompt_duration_formatter(seconds: float, expected: str) -> None:
+    assert _format_command_duration(seconds) == expected
+
+
+def test_pyshell_prompt_duration_threshold(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_command_duration", True)
+    shell.set_prompt_option("command_duration_threshold", 0.5)
+
+    shell._last_command_duration = 0.49
+    assert "0.5s" not in shell._prompt()
+
+    shell._last_command_duration = 0.5
+    assert "0.5s$ " in shell._prompt()
+
+    shell._last_command_duration = 65.0
+    assert "1m05s$ " in shell._prompt()
+
+
+def test_pyshell_prompt_duration_can_be_disabled(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell._last_command_duration = 65.0
+    assert "1m05s" not in shell._prompt()
+
+
+def test_sanitize_prompt_value_removes_escape_and_controls() -> None:
+    assert _sanitize_prompt_value("dev\x1b[31m\n\tcluster") == "devcluster"
+
+
+def test_pyshell_prompt_ssh_indicator_enabled_and_disabled(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SSH_TTY", "/dev/pts/1")
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_ssh_indicator", True)
+    assert " ssh$ " in shell._prompt()
+    shell.set_prompt_option("show_ssh_indicator", False)
+    assert " ssh$ " not in shell._prompt()
+
+
+def test_pyshell_prompt_aws_profile_enabled_and_disabled(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AWS_PROFILE", "dev\x1b[31m")
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_aws_profile", True)
+    assert " aws:dev$ " in shell._prompt()
+    shell.set_prompt_option("show_aws_profile", False)
+    assert "aws:dev" not in shell._prompt()
+
+
+def test_pyshell_prompt_k8s_context_enabled_and_disabled(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "kube.yaml"
+    config.write_text(
+        "apiVersion: v1\ncurrent-context: dev-cluster\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KUBECONFIG", str(config))
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_k8s_context", True)
+    assert " k8s:dev-cluster$ " in shell._prompt()
+    shell.set_prompt_option("show_k8s_context", False)
+    assert "k8s:dev-cluster" not in shell._prompt()
+
+
+def test_pyshell_prompt_k8s_missing_malformed_and_oversize_are_hidden(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_k8s_context", True)
+
+    missing = tmp_path / "missing"
+    monkeypatch.setenv("KUBECONFIG", str(missing))
+    assert "k8s:" not in shell._prompt()
+
+    malformed = tmp_path / "malformed.yaml"
+    malformed.write_text("---\ncurrent-context: dev\n---\n", encoding="utf-8")
+    monkeypatch.setenv("KUBECONFIG", str(malformed))
+    assert "k8s:" not in shell._prompt()
+
+    oversize = tmp_path / "oversize.yaml"
+    oversize.write_text("x" * (64 * 1024 + 1), encoding="utf-8")
+    monkeypatch.setenv("KUBECONFIG", str(oversize))
+    assert "k8s:" not in shell._prompt()
+
+
+def test_pyshell_prompt_k8s_multipath_precedence(monkeypatch, tmp_path: Path) -> None:
+    first = tmp_path / "first.yaml"
+    second = tmp_path / "second.yaml"
+    first.write_text("current-context: first\n", encoding="utf-8")
+    second.write_text("current-context: second\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KUBECONFIG", os.pathsep.join((str(first), str(second))))
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_k8s_context", True)
+    assert " k8s:first$ " in shell._prompt()
+
+    first.write_text("apiVersion: v1\n", encoding="utf-8")
+    assert " k8s:second$ " in shell._prompt()
+
+
 def test_pyshell_prompt_cwd_basename(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.chdir(project)
@@ -869,6 +1244,7 @@ def test_pyshell_prompt_cwd_basename(monkeypatch, tmp_path: Path) -> None:
 
 def test_pyshell_prompt_cwd_full(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.chdir(project)
@@ -880,6 +1256,7 @@ def test_pyshell_prompt_cwd_full(monkeypatch, tmp_path: Path) -> None:
 
 def test_pyshell_prompt_cwd_home(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     home = tmp_path / "home"
     project = home / "work"
     project.mkdir(parents=True)
@@ -893,6 +1270,7 @@ def test_pyshell_prompt_cwd_home(monkeypatch, tmp_path: Path) -> None:
 
 def test_pyshell_prompt_cwd_can_be_hidden(monkeypatch) -> None:
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_cwd", False)
@@ -900,7 +1278,9 @@ def test_pyshell_prompt_cwd_can_be_hidden(monkeypatch) -> None:
     assert "tester:" not in shell._prompt()
 
 
-def test_pyshell_prompt_git_branch_from_git_directory(monkeypatch, tmp_path: Path) -> None:
+def test_pyshell_prompt_git_branch_from_git_directory(
+    monkeypatch, tmp_path: Path
+) -> None:
     repo = tmp_path / "repo"
     git_dir = repo / ".git"
     git_dir.mkdir(parents=True)
@@ -930,7 +1310,9 @@ def test_pyshell_prompt_git_detached_head(monkeypatch, tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     git_dir = repo / ".git"
     git_dir.mkdir(parents=True)
-    (git_dir / "HEAD").write_text("0123456789abcdef0123456789abcdef01234567\n", encoding="utf-8")
+    (git_dir / "HEAD").write_text(
+        "0123456789abcdef0123456789abcdef01234567\n", encoding="utf-8"
+    )
     monkeypatch.chdir(repo)
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
@@ -952,7 +1334,56 @@ def test_pyshell_prompt_git_obvious_dirty_state(monkeypatch, tmp_path: Path) -> 
     assert " git:main*$ " in shell._prompt()
 
 
-def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path) -> None:
+def test_pyshell_prompt_git_malformed_metadata_is_hidden(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").write_text("not-a-gitdir\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_git_branch", True)
+    assert " git:" not in shell._prompt()
+
+
+def test_pyshell_prompt_git_bare_repository(monkeypatch, tmp_path: Path) -> None:
+    bare = tmp_path / "repo.git"
+    (bare / "objects").mkdir(parents=True)
+    (bare / "refs").mkdir()
+    (bare / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (bare / "config").write_text("[core]\n\tbare = true\n", encoding="utf-8")
+    monkeypatch.chdir(bare)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_git_branch", True)
+    assert " git:main$ " in shell._prompt()
+
+
+def test_pyshell_prompt_git_read_error_is_hidden(monkeypatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    git_dir = repo / ".git"
+    git_dir.mkdir(parents=True)
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+
+    original_read_text = Path.read_text
+
+    def fake_read_text(path: Path, *args, **kwargs) -> str:  # noqa: ANN002,ANN003
+        if path == git_dir / "HEAD":
+            raise PermissionError("denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_git_branch", True)
+    assert " git:" not in shell._prompt()
+
+
+def test_pyshell_two_line_fully_enabled_exact_render(
+    monkeypatch, tmp_path: Path
+) -> None:
     home = tmp_path / "home" / "ssobol"
     cwd = home / "Code" / "Project_PySH" / "pysh" / "pysh"
     git_dir = cwd / ".git"
@@ -962,6 +1393,11 @@ def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path
     venv.mkdir()
     monkeypatch.chdir(cwd)
     monkeypatch.setenv("USER", "ssobol")
+    monkeypatch.setattr(
+        PyShell,
+        "_effective_username",
+        staticmethod(lambda: "ssobol"),
+    )
     monkeypatch.setenv("VIRTUAL_ENV", str(venv))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.setattr(socket, "gethostname", lambda: "sun")
@@ -974,7 +1410,9 @@ def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path
             self.stdout = stdout
             self.stderr = ""
 
-    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - local subprocess test double.
+    def fake_run(
+        argv, **_kwargs
+    ):  # noqa: ANN001,ANN202 - local subprocess test double.
         if argv[0] == "uv":
             return Result("uv 0.9.16\n")
         if argv[0] == "ruff":
@@ -995,12 +1433,19 @@ def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path
 
     info = shell._prompt_info_line()
     line1, line2 = info.split("\n", 1)
-    assert line1 == "┌─(.venv) 🐍 ssobol@sun ─ [~/Code/Project_PySH/pysh/pysh] ─ git:main"
-    assert line2 == f"│  py{py} · uv0.9.16 · ruff0.15.15 · rust1.83.0 · node22.3.0 · npm10.8.1"
+    assert (
+        line1 == "┌─(.venv) 🐍 ssobol@sun ─ [~/Code/Project_PySH/pysh/pysh] ─ git:main"
+    )
+    assert (
+        line2
+        == f"│  py{py} · uv0.9.16 · ruff0.15.15 · rust1.83.0 · node22.3.0 · npm10.8.1"
+    )
     assert shell._prompt() == "└─❯ "
 
 
-def test_colored_prompt_contains_ansi_and_preserves_semantics(monkeypatch, tmp_path: Path) -> None:
+def test_colored_prompt_contains_ansi_and_preserves_semantics(
+    monkeypatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
     monkeypatch.setenv("USER", "tester")
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
@@ -1022,6 +1467,7 @@ def test_colored_prompt_contains_ansi_and_preserves_semantics(monkeypatch, tmp_p
 def test_colored_prompt_truecolor_mode(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
     monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr(PyShell, "_effective_username", staticmethod(lambda: "tester"))
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
     monkeypatch.chdir(tmp_path)
     shell = PyShell()

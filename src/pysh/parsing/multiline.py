@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/parsing/multiline.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -9,11 +10,21 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 
+from pysh.contracts.block_syntax import (
+    PY_BLOCK_CLOSER,
+    PY_BLOCK_OPENER,
+    is_block_closer,
+    is_block_opener,
+)
 from pysh.parsing.heredoc import heredoc_line_matches, pending_heredoc_specs
 from pysh.parsing.lexer import scan_quote_state
 
-PY_BLOCK_OPENER = "py {"
-PY_BLOCK_CLOSER = "}"
+__all__ = [
+    "PY_BLOCK_CLOSER",
+    "PY_BLOCK_OPENER",
+    "is_block_closer",
+    "is_block_opener",
+]
 
 
 class UnterminatedBlockError(ValueError):
@@ -41,16 +52,6 @@ class ContinuationState:
 
     needs_more: bool
     kind: ContinuationKind = ContinuationKind.NONE
-
-
-def is_block_opener(line: str) -> bool:
-    """Return True if ``line`` opens a multiline ``py { ... }`` block."""
-    return _strip_trailing_comment(line.strip()) == PY_BLOCK_OPENER
-
-
-def is_block_closer(line: str) -> bool:
-    """Return True if ``line`` closes a multiline ``py { ... }`` block."""
-    return _strip_trailing_comment(line.strip()) == PY_BLOCK_CLOSER
 
 
 def continuation_state(text: str) -> ContinuationState:
@@ -231,26 +232,3 @@ def split_paste_commands(text: str) -> list[str]:
     if cmd:
         commands.append(cmd)
     return commands
-
-
-def _strip_trailing_comment(text: str) -> str:
-    """Strip a trailing ``# ...`` comment outside of any string literal."""
-    quote: str | None = None
-    i = 0
-    n = len(text)
-    while i < n:
-        c = text[i]
-        if quote is not None:
-            if c == "\\" and i + 1 < n:
-                i += 2
-                continue
-            if c == quote:
-                quote = None
-            i += 1
-            continue
-        if c in ("'", '"'):
-            quote = c
-        elif c == "#":
-            return text[:i].rstrip()
-        i += 1
-    return text.rstrip()

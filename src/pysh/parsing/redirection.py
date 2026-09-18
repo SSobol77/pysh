@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/parsing/redirection.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -23,10 +24,32 @@ whitespace (``> file``). Targets may be quoted.
 from __future__ import annotations
 
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import StrEnum
 
 from pysh.parsing.errors import ParseError
 from pysh.parsing.heredoc import HereDocBody, parse_heredoc_operator
+
+
+class RedirectionActionKind(StrEnum):
+    """Operation applied to one descriptor in lexical order."""
+
+    READ = "read"
+    WRITE = "write"
+    DUP = "dup"
+    DATA = "data"
+
+
+@dataclass(frozen=True)
+class RedirectionAction:
+    """One ordered file-descriptor redirection operation."""
+
+    fd: int
+    kind: RedirectionActionKind
+    path: str | None = None
+    append: bool = False
+    source_fd: int | None = None
+    data: bytes | None = None
 
 
 @dataclass
@@ -40,10 +63,12 @@ class RedirectionSpec:
     stderr_path: str | None = None
     stderr_append: bool = False
     stderr_to_stdout: bool = False
+    actions: list[RedirectionAction] = field(default_factory=list)
 
     def is_empty(self) -> bool:
         return (
-            self.stdin_path is None
+            not self.actions
+            and self.stdin_path is None
             and self.stdin_data is None
             and self.stdout_path is None
             and self.stderr_path is None
@@ -105,6 +130,14 @@ def _read_target(command: str, idx: int) -> tuple[str, int]:
     except ValueError:
         return raw, idx
     return ("".join(parts) if parts else raw), idx
+
+
+def _read_required_target(command: str, idx: int, operator: str) -> tuple[str, int]:
+    """Read a non-empty file target or raise a deterministic parse error."""
+    target, end = _read_target(command, idx)
+    if not target:
+        raise ParseError(f"missing redirection target after {operator}")
+    return target, end
 
 
 def _at_token_boundary(command: str, i: int) -> bool:
@@ -176,7 +209,29 @@ def parse_redirections(
             body = heredocs.pop(0)
             spec.stdin_path = None
             spec.stdin_data = body.data.encode("utf-8")
+            spec.actions.append(
+                RedirectionAction(0, RedirectionActionKind.DATA, data=spec.stdin_data)
+            )
             i = end
+            continue
+        # Descriptor duplication. These forms must be recognized before file
+        # redirection so ``2>&1`` cannot degrade into ``2>`` plus an argv token.
+        duplication: tuple[int, int, int] | None = None
+        if command.startswith("2>&1", i) and _at_token_boundary(command, i):
+            duplication = (2, 1, 4)
+        elif command.startswith("1>&2", i) and _at_token_boundary(command, i):
+            duplication = (1, 2, 4)
+        elif command.startswith(">&2", i) and _at_token_boundary(command, i):
+            duplication = (1, 2, 3)
+        if duplication is not None:
+            fd, source_fd, width = duplication
+            spec.actions.append(
+                RedirectionAction(fd, RedirectionActionKind.DUP, source_fd=source_fd)
+            )
+            if fd == 2 and source_fd == 1:
+                spec.stderr_to_stdout = True
+                spec.stderr_path = None
+            i += width
             continue
         # Combined stdout/stderr redirection
         if (
@@ -186,12 +241,18 @@ def parse_redirections(
             and command[i + 2] == ">"
             and _at_token_boundary(command, i)
         ):
-            target, end = _read_target(command, i + 3)
+            target, end = _read_required_target(command, i + 3, "&>>")
             spec.stdout_path = target
             spec.stdout_append = True
             spec.stderr_to_stdout = True
             spec.stderr_path = None
             spec.stderr_append = False
+            spec.actions.append(
+                RedirectionAction(1, RedirectionActionKind.WRITE, path=target, append=True)
+            )
+            spec.actions.append(
+                RedirectionAction(2, RedirectionActionKind.DUP, source_fd=1)
+            )
             i = end
             continue
         if (
@@ -200,12 +261,18 @@ def parse_redirections(
             and command[i + 1] == ">"
             and _at_token_boundary(command, i)
         ):
-            target, end = _read_target(command, i + 2)
+            target, end = _read_required_target(command, i + 2, "&>")
             spec.stdout_path = target
             spec.stdout_append = False
             spec.stderr_to_stdout = True
             spec.stderr_path = None
             spec.stderr_append = False
+            spec.actions.append(
+                RedirectionAction(1, RedirectionActionKind.WRITE, path=target)
+            )
+            spec.actions.append(
+                RedirectionAction(2, RedirectionActionKind.DUP, source_fd=1)
+            )
             i = end
             continue
         # stderr redirection (2> / 2>>)
@@ -216,10 +283,13 @@ def parse_redirections(
             and command[i + 2] == ">"
             and _at_token_boundary(command, i)
         ):
-            target, end = _read_target(command, i + 3)
+            target, end = _read_required_target(command, i + 3, "2>>")
             spec.stderr_path = target
             spec.stderr_append = True
             spec.stderr_to_stdout = False
+            spec.actions.append(
+                RedirectionAction(2, RedirectionActionKind.WRITE, path=target, append=True)
+            )
             i = end
             continue
         if (
@@ -228,30 +298,68 @@ def parse_redirections(
             and command[i + 1] == ">"
             and _at_token_boundary(command, i)
         ):
-            target, end = _read_target(command, i + 2)
+            target, end = _read_required_target(command, i + 2, "2>")
             spec.stderr_path = target
             spec.stderr_append = False
             spec.stderr_to_stdout = False
+            spec.actions.append(
+                RedirectionAction(2, RedirectionActionKind.WRITE, path=target)
+            )
+            i = end
+            continue
+        # Explicit stdout descriptor (1> / 1>>).
+        if (
+            c == "1"
+            and i + 2 < n
+            and command[i + 1 : i + 3] == ">>"
+            and _at_token_boundary(command, i)
+        ):
+            target, end = _read_required_target(command, i + 3, "1>>")
+            spec.stdout_path = target
+            spec.stdout_append = True
+            spec.actions.append(
+                RedirectionAction(1, RedirectionActionKind.WRITE, path=target, append=True)
+            )
+            i = end
+            continue
+        if c == "1" and i + 1 < n and command[i + 1] == ">" and _at_token_boundary(command, i):
+            target, end = _read_required_target(command, i + 2, "1>")
+            spec.stdout_path = target
+            spec.stdout_append = False
+            spec.actions.append(RedirectionAction(1, RedirectionActionKind.WRITE, path=target))
             i = end
             continue
         # stdout redirection (> / >>)
         if c == ">" and i + 1 < n and command[i + 1] == ">":
-            target, end = _read_target(command, i + 2)
+            target, end = _read_required_target(command, i + 2, ">>")
             spec.stdout_path = target
             spec.stdout_append = True
+            spec.actions.append(
+                RedirectionAction(1, RedirectionActionKind.WRITE, path=target, append=True)
+            )
             i = end
             continue
         if c == ">":
-            target, end = _read_target(command, i + 1)
+            target, end = _read_required_target(command, i + 1, ">")
             spec.stdout_path = target
             spec.stdout_append = False
+            spec.actions.append(RedirectionAction(1, RedirectionActionKind.WRITE, path=target))
+            i = end
+            continue
+        # Explicit stdin descriptor (0<).
+        if c == "0" and i + 1 < n and command[i + 1] == "<" and _at_token_boundary(command, i):
+            target, end = _read_required_target(command, i + 2, "0<")
+            spec.stdin_path = target
+            spec.stdin_data = None
+            spec.actions.append(RedirectionAction(0, RedirectionActionKind.READ, path=target))
             i = end
             continue
         # stdin redirection
         if c == "<":
-            target, end = _read_target(command, i + 1)
+            target, end = _read_required_target(command, i + 1, "<")
             spec.stdin_path = target
             spec.stdin_data = None
+            spec.actions.append(RedirectionAction(0, RedirectionActionKind.READ, path=target))
             i = end
             continue
         out.append(c)

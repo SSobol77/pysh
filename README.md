@@ -105,6 +105,9 @@ validated primarily on **Debian 13** and Unix-like systems.
   and execute a command without running it.
 - Startup file `~/.pyshrc` plus a **plugin directory** at `~/.pyshrc.d/`
   whose `*.pysh` files load in deterministic lexicographic order.
+- **Plugin API 1.0** for trusted local Python plugins under
+  `~/.config/pysh/plugins/`, enabled explicitly from `~/.pyshrc.py`;
+  project-local `.pysh/plugins/` code is never loaded by default.
 - **Mini rc-interpreter** for control flow inside `~/.pyshrc` and plugins:
   `if`/`else`/`fi`, `for`/`do`/`done`, `while`/`do`/`done` (with a hard
   iteration safety limit).
@@ -225,6 +228,11 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 - [Python runtime](https://github.com/SSobol77/pysh/blob/main/docs/python/python-runtime.md) — persistent Python-native `py` execution context.
 - [Python command execution layer](https://github.com/SSobol77/pysh/blob/main/docs/python/python-command-execution-layer.md) — interactive `#py` mode with full REPL, source buffer, and file directives.
 
+**Plugins**
+
+- [Plugin API 1.0](https://github.com/SSobol77/pysh/blob/main/docs/plugins/plugin-api.md) — trusted-code model, versioning, explicit enablement, commands, completion, prompt segments, and hooks.
+- [Plugin guide](https://github.com/SSobol77/pysh/blob/main/docs/plugins/plugin-guide.md) — local smoke test and project-local opt-in validation.
+
 **Migration**
 
 - [Migration](https://github.com/SSobol77/pysh/blob/main/docs/migration/migration.md) — static profile import, script transition runner, and compatibility reporting.
@@ -297,6 +305,7 @@ documented.
 | `svc`      | Query / signal PyInit services. See [svc / PyInit](#svc--pyinit). |
 | `exit`     | Exit the shell with an optional status code.             |
 | `quit`     | Same as `exit`.                                          |
+| `deactivate` | Restore the environment captured before native venv activation. |
 
 ---
 
@@ -346,11 +355,18 @@ Redirection operators inside quotes are kept as literal characters.
 
 PySH connects each stage with a real OS pipe and closes the parent's
 duplicate handles after the child is spawned, so neither side deadlocks.
+Builtins, plugin commands, inline Python, and Python blocks use the same stage
+resolution and I/O contract. Native stages run in isolated pipeline children;
+state-changing builtins affect the parent shell only outside pipelines.
 
 ```sh
 ls -la | head -3
 apt list --upgradable 2>/dev/null | grep -c "/"
 ```
+
+Redirection applies to external commands, builtins, plugin commands, and
+Python. Numeric forms `0<`, `1>`, `2>`, `2>&1`, `1>&2`, and `>&2` are applied
+in lexical order.
 
 ---
 

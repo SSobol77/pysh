@@ -28,6 +28,11 @@ python -m pysh --version    # module entry point version check
 pysh -V                     # short form
 ```
 
+When bare `pysh` receives non-TTY stdin, it executes logical input lines in
+batch mode. Batch mode emits no banner, prompt, continuation prompt, or editor
+control sequences; command stdout/stderr and the final command status are
+preserved.
+
 `Ctrl+C` cancels the line being typed and keeps the shell alive.
 `Ctrl+D` exits the shell. **Ctrl+R** opens reverse incremental history search.
 In the raw editor, typing filters history, Backspace edits the query, Ctrl+R
@@ -37,6 +42,18 @@ back to a clean prompt.
 `--debug` and `--trace` are explicit diagnostics modes. They write
 `[PYSH_DEBUG]` trace lines to stderr, never to normal command stdout, and do
 not change command execution or exit status.
+
+## Prompt
+
+Interactive sessions use the configurable Prompt Engine 2.0. The default
+two-line prompt keeps the command-entry line narrow and renders context such as
+current directory, Git state, tool versions, last non-zero status, command
+duration, and SSH state in a separate information block. AWS profile and
+Kubernetes context segments are opt-in and never invoke external cloud or
+cluster tools.
+
+See [prompt.md](prompt.md) for all prompt options, color names, safety
+boundaries, and manual validation steps.
 
 ## Script mode
 
@@ -78,6 +95,10 @@ PySH connects each pipeline stage with a real OS pipe and closes the
 parent's duplicate handles after the child is spawned, so neither side
 deadlocks.
 
+Builtins, plugins, inline Python, and Python blocks participate in the same
+pipeline I/O contract. Native stages run in isolated children, preserving
+parent-shell state outside pipelines.
+
 ```sh
 ls -la | head -3
 apt list --upgradable 2>/dev/null | grep -c "/"
@@ -92,6 +113,11 @@ apt list --upgradable 2>/dev/null | grep -c "/"
 | `>> file`   | Write stdout to `file` (append).        |
 | `2> file`   | Write stderr to `file` (truncate).      |
 | `2>> file`  | Write stderr to `file` (append).        |
+| `0< file`   | Explicit fd 0 input redirection.        |
+| `1> file`   | Explicit fd 1 output redirection.       |
+| `2>&1`      | Duplicate fd 1 onto fd 2.               |
+| `1>&2`      | Duplicate fd 2 onto fd 1.               |
+| `>&2`       | Shorthand for `1>&2`.                   |
 | `&> file`   | Write stdout + stderr to `file`.        |
 | `&>> file`  | Append stdout + stderr to `file`.       |
 | `<< WORD`   | Read stdin from a following heredoc body. |

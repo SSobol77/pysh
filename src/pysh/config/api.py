@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/config/api.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -36,7 +37,9 @@ from pathlib import Path
 from types import ModuleType
 from typing import Protocol, runtime_checkable
 
+from pysh.editor.history import DEFAULT_HISTORY_LENGTH, DEFAULT_HISTORY_PATH
 from pysh.editor.lineedit.buffer import _display_width
+from pysh.editor.lineedit.highlight import HIGHLIGHT_COLOR_ROLES
 from pysh.prompt.colors import color_to_hex, parse_color
 
 # Canonical location of the Python-native user configuration file.
@@ -59,6 +62,11 @@ DEFAULT_PROMPT_OPTIONS: dict[str, object] = {
     "show_node_version": True,
     "show_npm_version": True,
     "show_last_status": True,
+    "show_command_duration": True,
+    "show_ssh_indicator": True,
+    "show_aws_profile": False,
+    "show_k8s_context": False,
+    "command_duration_threshold": 0.5,
     "show_cwd": True,
     "cwd_style": "home",
     "prompt_layout": "two_line",
@@ -82,6 +90,10 @@ PROMPT_OPTION_TYPES: dict[str, type] = {
     "show_rust_version": bool,
     "show_node_version": bool,
     "show_npm_version": bool,
+    "show_command_duration": bool,
+    "show_ssh_indicator": bool,
+    "show_aws_profile": bool,
+    "show_k8s_context": bool,
     "cwd_style": str,
     "symbol": str,
     "prompt_layout": str,
@@ -132,6 +144,10 @@ DEFAULT_PROMPT_COLORS: dict[str, str] = {
     "node": "lime",
     "npm": "red",
     "status": "red",
+    "duration": "yellow",
+    "ssh": "fuchsia",
+    "aws": "orange",
+    "k8s": "aqua",
     "symbol": "white",
 }
 
@@ -171,6 +187,32 @@ SENSITIVE_INPUT_TYPES: dict[str, type] = {
 
 SENSITIVE_INPUT_VALUES: dict[str, frozenset[str]] = {
     "mode": frozenset({"ring", "single-blink"}),
+}
+
+DEFAULT_HISTORY_OPTIONS: dict[str, object] = {
+    "max_length": DEFAULT_HISTORY_LENGTH,
+    "dedup_mode": "consecutive",
+    "ignore_space_prefix": True,
+    "ignore_patterns": ["password", "secret", "token", "api_key"],
+    "path": str(DEFAULT_HISTORY_PATH),
+}
+
+DEFAULT_COMPLETION_OPTIONS: dict[str, object] = {
+    "enabled": True,
+    "case_sensitive": False,
+    "show_hidden": False,
+    "menu": "compact",
+}
+
+COMPLETION_OPTION_TYPES: dict[str, type] = {
+    "enabled": bool,
+    "case_sensitive": bool,
+    "show_hidden": bool,
+    "menu": str,
+}
+
+COMPLETION_OPTION_VALUES: dict[str, frozenset[str]] = {
+    "menu": frozenset({"compact", "list", "none"}),
 }
 
 _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -229,6 +271,10 @@ class ConfigurableShell(Protocol):
         """Set a single validated prompt color mode."""
         ...
 
+    def set_highlight_color(self, role: str, color: str) -> None:
+        """Set a single validated live-input highlight color."""
+        ...
+
     def set_sensitive_input_indicator(self, name: str, value: object) -> None:
         """Set a single validated secure-indicator option."""
         ...
@@ -241,6 +287,74 @@ class ConfigurableShell(Protocol):
         """Set the configured terminal cursor color."""
         ...
 
+    def set_history_option(self, name: str, value: object) -> None:
+        """Set a single validated history engine option."""
+        ...
+
+    def set_completion_option(self, name: str, value: object) -> None:
+        """Set a single validated completion option."""
+        ...
+
+    def set_profile(self, name: str) -> None:
+        """Apply a named configuration profile."""
+        ...
+
+    def get_profiles(self) -> list[str]:
+        """Return known configuration profile names."""
+        ...
+
+    def set_theme(self, name: str) -> None:
+        """Apply a named theme."""
+        ...
+
+    def get_themes(self) -> list[str]:
+        """Return known theme names."""
+        ...
+
+    def preview_theme(self, name: str) -> str:
+        """Return a non-executing preview for a theme."""
+        ...
+
+    def load_alias_pack(self, name: str) -> None:
+        """Load a named alias pack."""
+        ...
+
+    def get_alias_packs(self) -> list[str]:
+        """Return known alias-pack names."""
+        ...
+
+    def register_startup_hook(self, fn: object) -> None:
+        """Register a user startup hook."""
+        ...
+
+    def reset_config(self, target: str = "all") -> None:
+        """Reset runtime configuration state."""
+        ...
+
+    def enable_plugin(self, name: str) -> None:
+        """Record explicit intent to load a named Plugin API plugin."""
+        ...
+
+    def disable_plugin(self, name: str) -> None:
+        """Remove explicit intent to load a named Plugin API plugin."""
+        ...
+
+    def enable_project_plugins(self) -> None:
+        """Allow explicitly enabled project-local plugins to load."""
+        ...
+
+    def list_plugins(self) -> list[str]:
+        """Return discovered or explicitly configured plugin names."""
+        ...
+
+    def is_plugin_enabled(self, name: str) -> bool:
+        """Return whether a plugin name is explicitly enabled."""
+        ...
+
+    def get_plugin_config(self, name: str) -> dict[str, object]:
+        """Return a copy of the loaded plugin TOML configuration for *name*."""
+        ...
+
 
 def validate_prompt_option(name: str, value: object) -> None:
     """Validate a prompt option name/value pair.
@@ -248,9 +362,24 @@ def validate_prompt_option(name: str, value: object) -> None:
     Raises :class:`ConfigError` for an unknown option name or a value whose
     type does not match :data:`PROMPT_OPTION_TYPES`.
     """
+    if name == "command_duration_threshold":
+        if isinstance(value, bool):
+            raise ConfigError(
+                "prompt option 'command_duration_threshold' expects int or float, got bool"
+            )
+        if not isinstance(value, (int, float)):
+            raise ConfigError(
+                "prompt option 'command_duration_threshold' expects int or float, "
+                f"got {type(value).__name__}"
+            )
+        if value < 0:
+            raise ConfigError(
+                "prompt option 'command_duration_threshold' must be non-negative"
+            )
+        return
     expected = PROMPT_OPTION_TYPES.get(name)
     if expected is None:
-        known = ", ".join(sorted(PROMPT_OPTION_TYPES))
+        known = ", ".join(sorted((*PROMPT_OPTION_TYPES, "command_duration_threshold")))
         raise ConfigError(f"unknown prompt option {name!r} (known: {known})")
     if not isinstance(value, expected):
         raise ConfigError(
@@ -306,6 +435,21 @@ def validate_prompt_color(segment: str, color: str) -> None:
     if not isinstance(color, str):
         raise ConfigError(
             f"prompt color for {segment!r} expects str, got {type(color).__name__}"
+        )
+    try:
+        parse_color(color)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+
+
+def validate_highlight_color(role: str, color: str) -> None:
+    """Validate a live-input syntax highlight color assignment."""
+    if role not in HIGHLIGHT_COLOR_ROLES:
+        known = ", ".join(sorted(HIGHLIGHT_COLOR_ROLES))
+        raise ConfigError(f"unknown highlight role {role!r} (known: {known})")
+    if not isinstance(color, str):
+        raise ConfigError(
+            f"highlight color for {role!r} expects str, got {type(color).__name__}"
         )
     try:
         parse_color(color)
@@ -383,6 +527,83 @@ def validate_sensitive_input(name: str, value: object) -> None:
         )
 
 
+def validate_history_option(name: str, value: object) -> None:
+    """Validate a history engine option name/value pair.
+
+    Rules per option:
+
+    * ``max_length`` — ``int``, must be > 0 (``bool`` rejected).
+      Note: the ``HistoryManager`` constructor accepts 0; the *config* API
+      enforces positivity so that user configuration is sane.
+    * ``dedup_mode`` — one of ``"none"``, ``"consecutive"``, ``"global"``.
+    * ``ignore_space_prefix`` — ``bool``.
+    * ``ignore_patterns`` — ``list`` or ``tuple`` of non-empty ``str`` items.
+    * ``path`` — non-empty ``str``.
+    """
+    if name == "max_length":
+        if isinstance(value, bool):
+            raise ConfigError("history option 'max_length' expects int, got bool")
+        if not isinstance(value, int):
+            raise ConfigError(
+                f"history option 'max_length' expects int, got {type(value).__name__}"
+            )
+        if value <= 0:
+            raise ConfigError("history option 'max_length' must be greater than 0")
+        return
+    if name == "dedup_mode":
+        if not isinstance(value, str):
+            raise ConfigError(
+                f"history option 'dedup_mode' expects str, got {type(value).__name__}"
+            )
+        allowed = frozenset({"none", "consecutive", "global"})
+        if value not in allowed:
+            raise ConfigError(
+                "history option 'dedup_mode' must be one of: consecutive, global, none"
+            )
+        return
+    if name == "ignore_space_prefix":
+        if not isinstance(value, bool):
+            raise ConfigError(
+                f"history option 'ignore_space_prefix' expects bool, "
+                f"got {type(value).__name__}"
+            )
+        return
+    if name == "ignore_patterns":
+        if not isinstance(value, (list, tuple)):
+            raise ConfigError(
+                f"history option 'ignore_patterns' expects list, got {type(value).__name__}"
+            )
+        for item in value:
+            if not isinstance(item, str) or not item:
+                raise ConfigError(
+                    "history option 'ignore_patterns': malformed ignore patterns"
+                )
+        return
+    if name == "path":
+        if not isinstance(value, str) or not value:
+            raise ConfigError("history option 'path' expects a non-empty str")
+        return
+    known = ", ".join(sorted(DEFAULT_HISTORY_OPTIONS))
+    raise ConfigError(f"unknown history option {name!r} (known: {known})")
+
+
+def validate_completion_option(name: str, value: object) -> None:
+    """Validate a completion option name/value pair."""
+    expected = COMPLETION_OPTION_TYPES.get(name)
+    if expected is None:
+        known = ", ".join(sorted(COMPLETION_OPTION_TYPES))
+        raise ConfigError(f"unknown completion option {name!r} (known: {known})")
+    if not isinstance(value, expected):
+        raise ConfigError(
+            f"completion option {name!r} expects {expected.__name__}, "
+            f"got {type(value).__name__}"
+        )
+    allowed = COMPLETION_OPTION_VALUES.get(name)
+    if allowed is not None and value not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise ConfigError(f"completion option {name!r} must be one of: {allowed_text}")
+
+
 def _validate_alias_name(name: str) -> None:
     if not name or any(ch.isspace() for ch in name) or "=" in name:
         raise ConfigError(f"invalid alias name: {name!r}")
@@ -446,6 +667,11 @@ class ShellConfigAPI:
         * ``show_node_version`` (bool) - append the active Node.js version [True]
         * ``show_npm_version`` (bool) - append the active npm version [True]
         * ``show_last_status`` (bool) - append non-zero last status [True]
+        * ``show_command_duration`` (bool) - append slow command duration [True]
+        * ``show_ssh_indicator`` (bool) - append SSH session marker [True]
+        * ``show_aws_profile`` (bool) - append AWS profile name [False]
+        * ``show_k8s_context`` (bool) - append Kubernetes current-context [False]
+        * ``command_duration_threshold`` (int|float) - seconds before duration appears [0.5]
         * ``show_cwd`` (bool) - show the current directory [True]
         * ``cwd_style`` (str) - ``full``, ``home`` or ``basename`` ["home"]
         * ``prompt_layout`` (str) - ``single`` or ``two_line`` ["two_line"]
@@ -488,8 +714,9 @@ class ShellConfigAPI:
 
         ``segment`` must be one of ``venv``, ``icon``, ``user``, ``host``,
         ``cwd``, ``git``, ``python``, ``uv``, ``ruff``, ``rust``, ``node``,
-        ``npm``, ``status`` or ``symbol``. ``color`` accepts canonical HTML
-        color names or ``#RRGGBB``.
+        ``npm``, ``status``, ``duration``, ``ssh``, ``aws``, ``k8s`` or
+        ``symbol``. ``color`` accepts canonical HTML color names or
+        ``#RRGGBB``.
         """
         validate_prompt_color(segment, color)
         self._shell.set_prompt_color(segment, color)
@@ -502,6 +729,26 @@ class ShellConfigAPI:
         """
         validate_prompt_color_mode(name, value)
         self._shell.set_prompt_color_mode(name, value)
+
+    def set_highlight_color(self, role: str, color: str) -> None:
+        """Set one live input syntax-highlight color.
+
+        ``role`` must be one of PySH's semantic highlight roles:
+        ``builtin``, ``alias``, ``command_valid``, ``command_invalid``,
+        ``string``, ``operator``, ``option``, ``variable``, ``path``,
+        ``comment``, ``heredoc``, ``error``, ``continuation``, ``paste``, or
+        ``reverse_search``. ``color`` accepts the same validated color
+        vocabulary as prompt colors.
+
+        Example::
+
+            shell.set_highlight_color("builtin", "aqua")
+            shell.set_highlight_color("alias", "fuchsia")
+            shell.set_highlight_color("comment", "gray")
+            shell.set_highlight_color("heredoc", "yellow")
+        """
+        validate_highlight_color(role, color)
+        self._shell.set_highlight_color(role, color)
 
     def set_sensitive_input_indicator(self, name: str, value: object) -> None:
         """Configure the explicit ``secure <cmd>`` keypress indicator.
@@ -547,6 +794,137 @@ class ShellConfigAPI:
         """
         validate_cursor_color(color)
         self._shell.set_cursor_color(color)
+
+    def set_history_option(self, name: str, value: object) -> None:
+        """Set a single history engine option.
+
+        Recognised options (defaults in brackets):
+
+        * ``max_length`` (int > 0) — maximum entries retained after compaction
+          [10000]
+        * ``dedup_mode`` (str) — ``"none"``, ``"consecutive"``, or ``"global"``
+          ["consecutive"]
+        * ``ignore_space_prefix`` (bool) — discard commands whose raw input
+          starts with a space [True]
+        * ``ignore_patterns`` (list[str]) — commands containing any of these
+          substrings (case-insensitive) are never stored
+          [["password", "secret", "token", "api_key"]]
+        * ``path`` (str) — data file path [str(DEFAULT_HISTORY_PATH)]
+
+        Examples::
+
+            # shell.set_history_option("max_length", 5000)
+            # shell.set_history_option("dedup_mode", "global")
+            # shell.set_history_option("ignore_space_prefix", True)
+            # shell.set_history_option("ignore_patterns", ["password", "secret"])
+        """
+        validate_history_option(name, value)
+        self._shell.set_history_option(name, value)
+
+    def set_completion_option(self, name: str, value: object) -> None:
+        """Set a single completion option."""
+        validate_completion_option(name, value)
+        self._shell.set_completion_option(name, value)
+
+    def set_env(self, name: str, value: str) -> None:
+        """Alias for :meth:`env` for TOML/config API symmetry."""
+        self.env(name, value)
+
+    def set_profile(self, name: str) -> None:
+        """Apply a named configuration profile."""
+        if not isinstance(name, str):
+            raise ConfigError("set_profile() requires name: str")
+        self._shell.set_profile(name)
+
+    def get_profiles(self) -> list[str]:
+        """Return known profile names."""
+        return self._shell.get_profiles()
+
+    def set_theme(self, name: str) -> None:
+        """Apply a named theme."""
+        if not isinstance(name, str):
+            raise ConfigError("set_theme() requires name: str")
+        self._shell.set_theme(name)
+
+    def get_themes(self) -> list[str]:
+        """Return known theme names."""
+        return self._shell.get_themes()
+
+    def preview_theme(self, name: str) -> str:
+        """Return a non-executing theme preview."""
+        if not isinstance(name, str):
+            raise ConfigError("preview_theme() requires name: str")
+        return self._shell.preview_theme(name)
+
+    def load_alias_pack(self, name: str) -> None:
+        """Load a named alias pack into the current session."""
+        if not isinstance(name, str):
+            raise ConfigError("load_alias_pack() requires name: str")
+        self._shell.load_alias_pack(name)
+
+    def get_alias_packs(self) -> list[str]:
+        """Return known alias-pack names."""
+        return self._shell.get_alias_packs()
+
+    def register_startup_hook(self, fn: object) -> None:
+        """Register a trusted Python startup hook from ``~/.pyshrc.py``."""
+        if not callable(fn):
+            raise ConfigError("register_startup_hook() requires a callable")
+        self._shell.register_startup_hook(fn)
+
+    def reset_config(self, target: str = "all") -> None:
+        """Reset runtime configuration state without writing user files."""
+        if not isinstance(target, str):
+            raise ConfigError("reset_config() requires target: str")
+        self._shell.reset_config(target)
+
+    def enable_plugin(self, name: str) -> None:
+        """Explicitly enable a trusted Python plugin by name.
+
+        This records intent only. Plugin modules are discovered and loaded
+        after ``configure(shell)`` returns, so plugin code does not execute
+        during configuration mutation.
+        """
+        if not isinstance(name, str):
+            raise ConfigError("enable_plugin() requires name: str")
+        self._shell.enable_plugin(name)
+
+    def disable_plugin(self, name: str) -> None:
+        """Disable a plugin name previously enabled in configuration."""
+        if not isinstance(name, str):
+            raise ConfigError("disable_plugin() requires name: str")
+        self._shell.disable_plugin(name)
+
+    def enable_project_plugins(self) -> None:
+        """Allow explicitly enabled ``.pysh/plugins/*.py`` project plugins."""
+        self._shell.enable_project_plugins()
+
+    def list_plugins(self) -> list[str]:
+        """Return known plugin names without importing plugin modules."""
+        return self._shell.list_plugins()
+
+    def is_plugin_enabled(self, name: str) -> bool:
+        """Return whether a plugin name is explicitly enabled."""
+        if not isinstance(name, str):
+            raise ConfigError("is_plugin_enabled() requires name: str")
+        return self._shell.is_plugin_enabled(name)
+
+    def get_plugin_config(self, name: str) -> dict[str, object]:
+        """Return a copy of the loaded plugin TOML configuration for *name*.
+
+        The returned dict is always a fresh copy.  Returns an empty dict when
+        no plugin config file was discovered for *name*.  Plugin config is
+        data only — it does not execute plugin code, load plugins, or enable
+        project-local plugins.
+
+        Example::
+
+            cfg = shell.get_plugin_config("example")
+            mode = cfg.get("settings", {}).get("mode", "safe")
+        """
+        if not isinstance(name, str):
+            raise ConfigError("get_plugin_config() requires name: str")
+        return self._shell.get_plugin_config(name)
 
 
 # --------------------------------------------------------------- default file
@@ -631,6 +1009,14 @@ def configure(shell):
     shell.set_prompt_option("show_git_branch", True)
     shell.set_prompt_option("show_git_dirty", True)
     shell.set_prompt_option("show_last_status", True)
+    shell.set_prompt_option("show_command_duration", True)
+    shell.set_prompt_option("command_duration_threshold", 0.5)
+    shell.set_prompt_option("show_ssh_indicator", True)
+    shell.set_prompt_option("show_aws_profile", False)
+    shell.set_prompt_option("show_k8s_context", False)
+    # shell.set_prompt_option("command_duration_threshold", 1)
+    # shell.set_prompt_option("show_aws_profile", True)
+    # shell.set_prompt_option("show_k8s_context", True)
 
     # Language and tool versions.
     shell.set_prompt_option("show_python_version", True)
@@ -667,7 +1053,39 @@ def configure(shell):
     shell.set_prompt_color("node", "lime")
     shell.set_prompt_color("npm", "red")
     shell.set_prompt_color("status", "red")
+    shell.set_prompt_color("duration", "yellow")
+    shell.set_prompt_color("ssh", "fuchsia")
+    shell.set_prompt_color("aws", "orange")
+    shell.set_prompt_color("k8s", "aqua")
     shell.set_prompt_color("symbol", "white")
+
+    # ----------------------------------------------------------------------
+    # Live input syntax highlighting
+    # ----------------------------------------------------------------------
+    # Highlight colors use the same color vocabulary as prompt colors.
+    # The highlighter never mutates the command buffer and never executes
+    # commands while classifying input.
+    #
+    # Available roles:
+    # builtin, alias, command_valid, command_invalid, string, operator,
+    # option, variable, path, comment, heredoc, error, continuation, paste,
+    # reverse_search.
+
+    shell.set_highlight_color("builtin", "aqua")
+    shell.set_highlight_color("alias", "fuchsia")
+    shell.set_highlight_color("command_valid", "lime")
+    shell.set_highlight_color("command_invalid", "red")
+    shell.set_highlight_color("string", "green")
+    shell.set_highlight_color("operator", "yellow")
+    shell.set_highlight_color("option", "aqua")
+    shell.set_highlight_color("variable", "fuchsia")
+    shell.set_highlight_color("path", "aqua")
+    shell.set_highlight_color("comment", "gray")
+    shell.set_highlight_color("heredoc", "yellow")
+    shell.set_highlight_color("error", "red")
+    shell.set_highlight_color("continuation", "yellow")
+    shell.set_highlight_color("paste", "yellow")
+    shell.set_highlight_color("reverse_search", "fuchsia")
 
     # ----------------------------------------------------------------------
     # Terminal cursor color
@@ -771,6 +1189,33 @@ def configure(shell):
     # shell.set_sensitive_input_indicator("mode", "single-blink")
 
     # ----------------------------------------------------------------------
+    # Command history (History Engine 2.0)
+    # ----------------------------------------------------------------------
+    # History is stored as JSONL at ~/.pysh_history (one JSON object per
+    # command).  Legacy plain-text lines from older PySH versions are
+    # migrated automatically on first load.
+    #
+    # max_length:
+    #   Maximum entries kept after compaction.  Default: 10000.
+    #
+    # dedup_mode:
+    #   "consecutive" -> collapse runs of the same command (default).
+    #   "global"      -> keep one entry per command; frequency accumulates.
+    #   "none"        -> store every command without deduplication.
+    #
+    # ignore_space_prefix:
+    #   True -> commands prefixed with a space are not stored (zsh-style).
+    #
+    # ignore_patterns:
+    #   Commands containing any of these substrings (case-insensitive) are
+    #   silently discarded.  Sensitive commands never reach disk.
+
+    # shell.set_history_option("max_length", 10000)
+    # shell.set_history_option("dedup_mode", "global")
+    # shell.set_history_option("ignore_space_prefix", True)
+    # shell.set_history_option("ignore_patterns", ["password", "secret", "token", "api_key"])
+
+    # ----------------------------------------------------------------------
     # Optional classic minimal prompt profile
     # ----------------------------------------------------------------------
     # Uncomment this block if you want a small historical prompt:
@@ -788,6 +1233,10 @@ def configure(shell):
     # shell.set_prompt_option("show_node_version", False)
     # shell.set_prompt_option("show_npm_version", False)
     # shell.set_prompt_option("show_last_status", False)
+    # shell.set_prompt_option("show_command_duration", False)
+    # shell.set_prompt_option("show_ssh_indicator", False)
+    # shell.set_prompt_option("show_aws_profile", False)
+    # shell.set_prompt_option("show_k8s_context", False)
 
     return None
 '''

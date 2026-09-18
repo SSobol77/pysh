@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_reader_cursor_origin.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 

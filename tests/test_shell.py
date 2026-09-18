@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_shell.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -83,6 +84,23 @@ def test_alias_expansion_preserves_quoted_arguments(shell: PyShell) -> None:
 def test_default_alias_present(shell: PyShell) -> None:
     assert "ll" in shell.aliases
     assert shell.aliases["ll"] == "ls --color=auto -laF"
+
+
+def test_execute_records_command_duration(shell: PyShell, monkeypatch: pytest.MonkeyPatch) -> None:
+    ticks = iter((10.0, 10.7))
+    monkeypatch.setattr("pysh.core.shell.time.perf_counter", lambda: next(ticks))
+
+    assert shell.execute("true") == 0
+
+    assert shell._last_command_duration == pytest.approx(0.7)
+
+
+def test_execute_whitespace_resets_command_duration(shell: PyShell) -> None:
+    shell._last_command_duration = 1.0
+
+    assert shell.execute("   ") == 0
+
+    assert shell._last_command_duration is None
 
 
 def test_alias_can_be_overridden_via_alias_builtin(shell: PyShell) -> None:

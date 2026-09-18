@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/contracts/builtins.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -20,6 +21,12 @@ BUILTIN_NAMES: frozenset[str] = frozenset(
         "cd",
         "command",
         "compat_check",
+        "config_alias_pack",
+        "config_check",
+        "config_profile",
+        "config_reset",
+        "config_theme",
+        "deactivate",
         "dirs",
         "env_audit",
         "exit",

@@ -41,6 +41,7 @@ test-backed. Aspirational claims are not permitted in this documentation.
 | [system-shell-integration-policy.md](system-shell-integration-policy.md) | Safe/unsafe system shell integration modes and `/bin/sh` provider prohibition |
 | [zsh-scope.md](zsh-scope.md) | zsh scope: transition layer, static import, delegation |
 | [bash-scope.md](bash-scope.md) | bash scope: static import, explicit delegation only |
+| [xonsh-comparison.md](xonsh-comparison.md) | Xonsh shell technical comparison |
 | [unsupported-constructs.md](unsupported-constructs.md) | Complete list of unsupported shell constructs |
 | [validation-matrix.md](validation-matrix.md) | How each compatibility claim is validated |
 

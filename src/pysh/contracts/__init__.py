@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/contracts/__init__.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -12,11 +13,14 @@ terminal I/O, config loading, or subprocess calls.
 from __future__ import annotations
 
 from pysh.contracts.protocols import (
+    PLUGIN_API_VERSION,
     AliasRegistryView,
     CommandResolverView,
     CompatibilityBridge,
     ConfigView,
     EnvironmentView,
+    PluginHooks,
+    PluginMeta,
     PluginRegistrar,
     ShellStateView,
 )
@@ -27,6 +31,9 @@ __all__ = [
     "CommandResolverView",
     "ConfigView",
     "EnvironmentView",
+    "PLUGIN_API_VERSION",
+    "PluginHooks",
+    "PluginMeta",
     "PluginRegistrar",
     "ShellStateView",
 ]

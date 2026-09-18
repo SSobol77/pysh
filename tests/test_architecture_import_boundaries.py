@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_architecture_import_boundaries.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -46,6 +47,7 @@ DOMAIN_PACKAGES: frozenset[str] = frozenset({
     "pysh.services",
     "pysh.security",
     "pysh.diagnostics",
+    "pysh.plugins",
     "pysh.contracts",
     "pysh.cli",
     "pysh.shell",
@@ -65,6 +67,7 @@ IMPLEMENTATION_PACKAGES: frozenset[str] = frozenset({
     "pysh.services",
     "pysh.security",
     "pysh.diagnostics",
+    "pysh.plugins",
 })
 
 # Heavy modules that package __init__.py files must not import at the
@@ -350,7 +353,15 @@ _PERMITTED_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("pysh.editor", _PARSING_SHARED_LEAF),
     ("pysh.editor", "pysh.contracts"),
     ("pysh.diagnostics", _PARSING_SHARED_LEAF),
+    ("pysh.plugins", "pysh.contracts"),
     ("pysh.script_runner", _PARSING_SHARED_LEAF),
+    # pysh.contracts.block_syntax is the canonical, dependency-free home for
+    # the `py { ... }` block-opener/closer predicate (including the
+    # pipeline-prefixed form). pysh.parsing.grammar.split_pipeline and
+    # pysh.python_layer.runtime both build on it so neither package depends
+    # on the other's domain for this one shared piece of syntax.
+    (_PARSING_SHARED_LEAF, "pysh.contracts"),
+    ("pysh.python_layer", "pysh.contracts"),
 })
 
 

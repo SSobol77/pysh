@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/python_layer/runtime.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -30,8 +31,12 @@ from collections.abc import Callable, Iterable, Iterator
 from types import CodeType
 from typing import IO
 
-PY_BLOCK_OPENER = "py {"
-PY_BLOCK_CLOSER = "}"
+from pysh.contracts.block_syntax import (
+    PY_BLOCK_CLOSER,
+    PY_BLOCK_OPENER,
+    is_block_closer,
+    is_block_opener,
+)
 
 
 class UnterminatedBlockError(ValueError):
@@ -225,16 +230,6 @@ class PythonRuntime:
         self._interactive_buffer.clear()
 
 
-def is_block_opener(line: str) -> bool:
-    """Return True if ``line`` opens a multiline ``py { ... }`` block."""
-    return _strip_trailing_comment(line.strip()) == PY_BLOCK_OPENER
-
-
-def is_block_closer(line: str) -> bool:
-    """Return True if ``line`` closes a multiline ``py { ... }`` block."""
-    return _strip_trailing_comment(line.strip()) == PY_BLOCK_CLOSER
-
-
 def iter_logical_lines(lines: Iterable[str]) -> Iterator[str]:
     """Yield logical command strings from a stream of physical lines."""
     state: list[str] | None = None
@@ -265,29 +260,6 @@ def extract_block_body(text: str) -> str:
         raise ValueError("text does not end with a } closer")
     body = physical[1:-1]
     return "\n".join(body)
-
-
-def _strip_trailing_comment(text: str) -> str:
-    """Strip a trailing ``# ...`` comment outside of any string literal."""
-    quote: str | None = None
-    i = 0
-    n = len(text)
-    while i < n:
-        c = text[i]
-        if quote is not None:
-            if c == "\\" and i + 1 < n:
-                i += 2
-                continue
-            if c == quote:
-                quote = None
-            i += 1
-            continue
-        if c in ("'", '"'):
-            quote = c
-        elif c == "#":
-            return text[:i].rstrip()
-        i += 1
-    return text.rstrip()
 
 
 def _print_exc_to(

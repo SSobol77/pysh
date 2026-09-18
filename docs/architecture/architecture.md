@@ -61,6 +61,7 @@ It is not a full layer-boundary enforcement; that belongs to Issue #3's successo
 | `pysh.editor` | Interactive line editor (coordinator) | `Completer`, `HistoryManager`, `colors_enabled`, `paint` | Shell state, prompt rendering |
 | `pysh.editor.lineedit` | Raw-mode terminal line editing engine | `RawLineReader`, `LineBuffer`, `LineHighlighter`, `AutoSuggester`, `KeyDecoder`, Completion Engine v1 | Higher-level shell concepts, history persistence |
 | `pysh.prompt` | Prompt segment rendering | `colorize`, `color_to_hex`, `parse_color`, Debian profile helpers | Shell state, RC parsing |
+| `pysh.plugins` | Trusted local Plugin API 1.0 | Version compatibility, name validation, direct-file discovery, controlled module loading, public registration API, plugin command/completion/prompt/lifecycle records | Shell internals, config parsing, auto-installation, network access, sandboxing claims |
 | `pysh.python_layer` | Python command execution layer | `PythonRuntime`, `py` builtin, `#py` interactive mode, Python syntax highlighting | Shell builtins outside the Python layer, config loading |
 | `pysh.config` | Configuration and startup | RC file execution, mini rc-interpreter, plugin loader, `ConfigAPI` | Runtime command dispatch, builtin logic |
 | `pysh.compat` | Transition and compatibility helpers | Zsh bridge, alias/profile importers, MC detection | Core shell execution |
@@ -85,6 +86,7 @@ pysh.core.shell   ← fan-in hub: imports from all leaf packages
     ├── pysh.editor
     │   └── pysh.editor.lineedit
     ├── pysh.prompt
+    ├── pysh.plugins
     ├── pysh.python_layer
     ├── pysh.config
     ├── pysh.compat
@@ -135,6 +137,9 @@ pysh.contracts.CommandResolverView
 pysh.contracts.EnvironmentView
 pysh.contracts.ConfigView
 pysh.contracts.PluginRegistrar
+pysh.contracts.PluginMeta
+pysh.contracts.PluginHooks
+pysh.contracts.PLUGIN_API_VERSION
 pysh.contracts.CompatibilityBridge
 ```
 

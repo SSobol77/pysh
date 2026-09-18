@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: tests/test_redirection.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
 """Tests for the redirection parser."""
 from __future__ import annotations
 
-from pysh.parsing.redirection import parse_redirections
+from pysh.parsing.redirection import RedirectionActionKind, parse_redirections
 
 
 def test_no_redirection() -> None:
@@ -104,3 +105,41 @@ def test_two_not_treated_as_stderr_when_in_word() -> None:
     clean, spec = parse_redirections("echo ab2>foo")
     assert clean == "echo ab2"
     assert spec.stdout_path == "foo"
+
+
+def test_explicit_numeric_file_descriptors() -> None:
+    stdout_clean, stdout_spec = parse_redirections("echo hi 1>out")
+    stdin_clean, stdin_spec = parse_redirections("cat 0<input")
+    assert stdout_clean == "echo hi"
+    assert stdout_spec.actions[-1].fd == 1
+    assert stdout_spec.actions[-1].path == "out"
+    assert stdin_clean == "cat"
+    assert stdin_spec.actions[-1].fd == 0
+    assert stdin_spec.actions[-1].path == "input"
+
+
+def test_descriptor_duplication_is_ordered() -> None:
+    clean, spec = parse_redirections("cmd >out 2>&1")
+    assert clean == "cmd"
+    assert [action.kind for action in spec.actions] == [
+        RedirectionActionKind.WRITE,
+        RedirectionActionKind.DUP,
+    ]
+    assert spec.actions[1].fd == 2
+    assert spec.actions[1].source_fd == 1
+
+    _, reversed_spec = parse_redirections("cmd 2>&1 >out")
+    assert [action.kind for action in reversed_spec.actions] == [
+        RedirectionActionKind.DUP,
+        RedirectionActionKind.WRITE,
+    ]
+
+
+def test_stdout_to_stderr_shorthand() -> None:
+    clean, spec = parse_redirections("echo hi >&2")
+    assert clean == "echo hi"
+    assert spec.actions == [
+        spec.actions[0]
+    ]
+    assert spec.actions[0].fd == 1
+    assert spec.actions[0].source_fd == 2

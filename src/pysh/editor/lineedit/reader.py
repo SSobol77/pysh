@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# File: src/pysh/editor/lineedit/reader.py
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
@@ -51,6 +52,7 @@ from pysh.editor.completion import Completer
 from pysh.editor.highlight import colors_enabled
 from pysh.editor.lineedit.autosuggest import AutoSuggester
 from pysh.editor.lineedit.buffer import LineBuffer, _display_width
+from pysh.editor.lineedit.completion import CompletionResult, common_completion_prefix
 from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, ColorScheme, LineHighlighter
 from pysh.editor.lineedit.keys import Key, KeyDecoder, KeyEvent
 from pysh.parsing.parser import split_paste_commands
@@ -129,6 +131,9 @@ class RawLineReader:
         self.output_fd = output_fd
         self._start_rows = 0
         self._command_queue: list[QueuedCommand] = []
+        self._last_completion_buffer: str | None = None
+        self._last_completion_result: CompletionResult | None = None
+        self._completion_displayed = False
 
     def has_queued_commands(self) -> bool:
         """Return True when pasted commands are waiting to be replayed."""
@@ -493,6 +498,8 @@ class RawLineReader:
     ) -> tuple[int | None, str] | str:
         del highlighter, scheme, enabled
         suggestion = self._suggest(buffer, history, suggester, options)
+        if event.key is not Key.TAB:
+            self._reset_completion_state()
         if event.key is Key.ENTER:
             return buffer.text
         if event.key is Key.CTRL_C:
@@ -741,12 +748,45 @@ class RawLineReader:
         if len(result.candidates) == 1:
             text, cursor = completer.apply_raw_completion(buffer.text, result)
             buffer.set(text, cursor)
+            self._reset_completion_state()
         elif result.candidates:
-            self._write(
-                "\r\n" + "  ".join(result.display_candidates) + "\r\n",
-                self.output_fd,
-            )
-            self._start_rows = 0
+            common = common_completion_prefix(result)
+            if common and common != result.prefix:
+                text = buffer.text[: result.token_start] + common + buffer.text[result.token_end :]
+                buffer.set(text, result.token_start + len(common))
+                self._last_completion_buffer = buffer.text
+                self._last_completion_result = result
+                self._completion_displayed = False
+                return
+            repeated_same_buffer = self._last_completion_buffer == buffer.text
+            repeated_same_result = self._last_completion_result == result
+            if not self._completion_displayed or not (repeated_same_buffer and repeated_same_result):
+                self._write(
+                    "\r\n" + self._format_completion_menu(result.display_candidates) + "\r\n",
+                    self.output_fd,
+                )
+                self._start_rows = 0
+            self._last_completion_buffer = buffer.text
+            self._last_completion_result = result
+            self._completion_displayed = True
+
+    def _reset_completion_state(self) -> None:
+        """Forget repeated-TAB state after non-TAB input."""
+        self._last_completion_buffer = None
+        self._last_completion_result = None
+        self._completion_displayed = False
+
+    @staticmethod
+    def _format_completion_menu(candidates: Sequence[str], *, columns: int = 10) -> str:
+        """Return a compact, deterministic menu for completion candidates."""
+        if not candidates:
+            return ""
+        width = max(len(candidate) for candidate in candidates) + 2
+        lines: list[str] = []
+        for idx in range(0, len(candidates), columns):
+            row = candidates[idx: idx + columns]
+            lines.append("".join(item.ljust(width) for item in row).rstrip())
+        return "\r\n".join(lines)
 
     def _redraw(
         self,
