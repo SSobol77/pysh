@@ -4,6 +4,7 @@
 # Copyright (C) 2026 Siergej Sobolewski
 
 """Tests for the Python-native configuration layer (``~/.pyshrc.py``)."""
+
 from __future__ import annotations
 
 import os
@@ -527,7 +528,9 @@ def test_ensure_creation_failure_reports_deterministic_error(
     assert not target.exists()
 
 
-def test_default_template_applies_accepted_active_profile(tmp_path: Path, monkeypatch) -> None:
+def test_default_template_applies_accepted_active_profile(
+    tmp_path: Path, monkeypatch
+) -> None:
     target = tmp_path / ".pyshrc.py"
     ensure_default_config(target)
     shell = PyShell()
@@ -547,7 +550,11 @@ def test_default_template_applies_accepted_active_profile(tmp_path: Path, monkey
     }
     assert shell.highlight_colors == DEFAULT_HIGHLIGHT_COLORS
     assert shell.prompt_color_modes == DEFAULT_PROMPT_COLOR_MODES
-    assert shell.cursor_options == {**DEFAULT_CURSOR_OPTIONS, "enabled": True, "color": "#FF9900"}
+    assert shell.cursor_options == {
+        **DEFAULT_CURSOR_OPTIONS,
+        "enabled": True,
+        "color": "#FF9900",
+    }
     assert shell.editor_options == DEFAULT_EDITOR_OPTIONS
     assert shell.sensitive_input == {**DEFAULT_SENSITIVE_INPUT, "enabled": True}
 
@@ -921,7 +928,12 @@ def test_pyshell_prompt_custom_symbol(monkeypatch) -> None:
     [
         ("show_uv_version", "uv", "uv 0.9.16\n", "uv0.9.16"),
         ("show_ruff_version", "ruff", "ruff 0.15.15\n", "ruff0.15.15"),
-        ("show_rust_version", "rustc", "rustc 1.83.0 (90b35a623 2024-11-26)\n", "rust1.83.0"),
+        (
+            "show_rust_version",
+            "rustc",
+            "rustc 1.83.0 (90b35a623 2024-11-26)\n",
+            "rust1.83.0",
+        ),
         ("show_node_version", "node", "v22.3.0\n", "node22.3.0"),
         ("show_npm_version", "npm", "10.8.1\n", "npm10.8.1"),
     ],
@@ -940,7 +952,9 @@ def test_pyshell_prompt_tool_version_segments(
         stdout = output
         stderr = ""
 
-    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - local subprocess test double.
+    def fake_run(
+        argv, **_kwargs
+    ):  # noqa: ANN001,ANN202 - local subprocess test double.
         calls.append(argv)
         return Result()
 
@@ -961,7 +975,9 @@ def test_pyshell_prompt_tool_version_malformed_output_is_hidden(monkeypatch) -> 
         stderr = ""
 
     monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
-    monkeypatch.setattr("pysh.core.shell.subprocess.run", lambda *_args, **_kwargs: Result())
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda *_args, **_kwargs: Result()
+    )
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_uv_version", True)
@@ -971,7 +987,9 @@ def test_pyshell_prompt_tool_version_malformed_output_is_hidden(monkeypatch) -> 
 def test_pyshell_prompt_missing_tool_is_hidden(monkeypatch) -> None:
     calls: list[list[str]] = []
     monkeypatch.setattr("pysh.core.shell.shutil.which", lambda _exe: None)
-    monkeypatch.setattr("pysh.core.shell.subprocess.run", lambda argv, **_kwargs: calls.append(argv))
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda argv, **_kwargs: calls.append(argv)
+    )
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
     shell.set_prompt_option("show_node_version", True)
@@ -995,7 +1013,9 @@ def test_pyshell_prompt_all_tool_versions_are_cached(monkeypatch) -> None:
             self.stdout = stdout
             self.stderr = ""
 
-    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - local subprocess test double.
+    def fake_run(
+        argv, **_kwargs
+    ):  # noqa: ANN001,ANN202 - local subprocess test double.
         calls.append(argv)
         return Result(outputs[argv[0]])
 
@@ -1157,7 +1177,9 @@ def test_pyshell_prompt_k8s_context_enabled_and_disabled(
     tmp_path: Path,
 ) -> None:
     config = tmp_path / "kube.yaml"
-    config.write_text("apiVersion: v1\ncurrent-context: dev-cluster\n", encoding="utf-8")
+    config.write_text(
+        "apiVersion: v1\ncurrent-context: dev-cluster\n", encoding="utf-8"
+    )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KUBECONFIG", str(config))
     shell = PyShell()
@@ -1256,7 +1278,9 @@ def test_pyshell_prompt_cwd_can_be_hidden(monkeypatch) -> None:
     assert "tester:" not in shell._prompt()
 
 
-def test_pyshell_prompt_git_branch_from_git_directory(monkeypatch, tmp_path: Path) -> None:
+def test_pyshell_prompt_git_branch_from_git_directory(
+    monkeypatch, tmp_path: Path
+) -> None:
     repo = tmp_path / "repo"
     git_dir = repo / ".git"
     git_dir.mkdir(parents=True)
@@ -1286,7 +1310,9 @@ def test_pyshell_prompt_git_detached_head(monkeypatch, tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     git_dir = repo / ".git"
     git_dir.mkdir(parents=True)
-    (git_dir / "HEAD").write_text("0123456789abcdef0123456789abcdef01234567\n", encoding="utf-8")
+    (git_dir / "HEAD").write_text(
+        "0123456789abcdef0123456789abcdef01234567\n", encoding="utf-8"
+    )
     monkeypatch.chdir(repo)
     shell = PyShell()
     _use_legacy_single_line_prompt(shell)
@@ -1308,7 +1334,9 @@ def test_pyshell_prompt_git_obvious_dirty_state(monkeypatch, tmp_path: Path) -> 
     assert " git:main*$ " in shell._prompt()
 
 
-def test_pyshell_prompt_git_malformed_metadata_is_hidden(monkeypatch, tmp_path: Path) -> None:
+def test_pyshell_prompt_git_malformed_metadata_is_hidden(
+    monkeypatch, tmp_path: Path
+) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".git").write_text("not-a-gitdir\n", encoding="utf-8")
@@ -1353,7 +1381,9 @@ def test_pyshell_prompt_git_read_error_is_hidden(monkeypatch, tmp_path: Path) ->
     assert " git:" not in shell._prompt()
 
 
-def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path) -> None:
+def test_pyshell_two_line_fully_enabled_exact_render(
+    monkeypatch, tmp_path: Path
+) -> None:
     home = tmp_path / "home" / "ssobol"
     cwd = home / "Code" / "Project_PySH" / "pysh" / "pysh"
     git_dir = cwd / ".git"
@@ -1363,6 +1393,11 @@ def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path
     venv.mkdir()
     monkeypatch.chdir(cwd)
     monkeypatch.setenv("USER", "ssobol")
+    monkeypatch.setattr(
+        PyShell,
+        "_effective_username",
+        staticmethod(lambda: "ssobol"),
+    )
     monkeypatch.setenv("VIRTUAL_ENV", str(venv))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.setattr(socket, "gethostname", lambda: "sun")
@@ -1375,7 +1410,9 @@ def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path
             self.stdout = stdout
             self.stderr = ""
 
-    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - local subprocess test double.
+    def fake_run(
+        argv, **_kwargs
+    ):  # noqa: ANN001,ANN202 - local subprocess test double.
         if argv[0] == "uv":
             return Result("uv 0.9.16\n")
         if argv[0] == "ruff":
@@ -1396,12 +1433,19 @@ def test_pyshell_two_line_fully_enabled_exact_render(monkeypatch, tmp_path: Path
 
     info = shell._prompt_info_line()
     line1, line2 = info.split("\n", 1)
-    assert line1 == "┌─(.venv) 🐍 ssobol@sun ─ [~/Code/Project_PySH/pysh/pysh] ─ git:main"
-    assert line2 == f"│  py{py} · uv0.9.16 · ruff0.15.15 · rust1.83.0 · node22.3.0 · npm10.8.1"
+    assert (
+        line1 == "┌─(.venv) 🐍 ssobol@sun ─ [~/Code/Project_PySH/pysh/pysh] ─ git:main"
+    )
+    assert (
+        line2
+        == f"│  py{py} · uv0.9.16 · ruff0.15.15 · rust1.83.0 · node22.3.0 · npm10.8.1"
+    )
     assert shell._prompt() == "└─❯ "
 
 
-def test_colored_prompt_contains_ansi_and_preserves_semantics(monkeypatch, tmp_path: Path) -> None:
+def test_colored_prompt_contains_ansi_and_preserves_semantics(
+    monkeypatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(PyShell, "_prompt_icon", staticmethod(lambda: "🐍"))
     monkeypatch.setenv("USER", "tester")
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
