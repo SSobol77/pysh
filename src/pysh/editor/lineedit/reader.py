@@ -71,6 +71,14 @@ _BRACKETED_PASTE_DISABLE = b"\x1b[?2004l"
 _PASTE_DEBUG_ENV = "PYSH_PASTE_DEBUG"
 _PASTE_DEBUG_PATH = Path("logs") / "pysh-paste-debug.log"
 
+# BUG-022: hard cap on candidate ROWS the completion menu will print, so a
+# broad prefix (e.g. "p<TAB>") cannot flood the terminal. Candidate discovery
+# and ranking are unaffected; only how many of the already-ranked candidates
+# are rendered is bounded here. A summary line reporting the exact hidden
+# count is appended beyond this row budget, not counted within it.
+_MAX_COMPLETION_MENU_ROWS = 10
+_COMPLETION_MENU_COLUMN_SPACING = 2
+
 # ANSI SGR constants for reverse-search display.  Applied only when
 # colors_enabled() returns True so dumb/no-color terminals stay readable.
 # \033[2;37m (dim+white) is intentionally absent — it renders as black on
@@ -861,8 +869,14 @@ class RawLineReader:
             repeated_same_buffer = self._last_completion_buffer == buffer.text
             repeated_same_result = self._last_completion_result == result
             if not self._completion_displayed or not (repeated_same_buffer and repeated_same_result):
+                out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
+                terminal_width = self._terminal_width(out_fd)
                 self._write(
-                    "\r\n" + self._format_completion_menu(result.display_candidates) + "\r\n",
+                    "\r\n"
+                    + self._format_completion_menu(
+                        result.display_candidates, terminal_width=terminal_width
+                    )
+                    + "\r\n",
                     self.output_fd,
                 )
                 self._start_rows = 0
@@ -877,15 +891,40 @@ class RawLineReader:
         self._completion_displayed = False
 
     @staticmethod
-    def _format_completion_menu(candidates: Sequence[str], *, columns: int = 10) -> str:
-        """Return a compact, deterministic menu for completion candidates."""
+    def _format_completion_menu(
+        candidates: Sequence[str],
+        *,
+        terminal_width: int = 80,
+        max_rows: int = _MAX_COMPLETION_MENU_ROWS,
+    ) -> str:
+        """Return a compact, deterministic, viewport-bounded candidate menu.
+
+        Candidate order, ranking and deduplication are the caller's concern
+        (this only decides how many of the already-ranked candidates fit in
+        ``max_rows`` rows at the current ``terminal_width``). When some
+        candidates do not fit, an exact hidden-count summary line is
+        appended beyond the row budget so nothing is silently dropped.
+        """
         if not candidates:
             return ""
-        width = max(len(candidate) for candidate in candidates) + 2
+        column_width = (
+            max(_display_width(candidate) for candidate in candidates)
+            + _COMPLETION_MENU_COLUMN_SPACING
+        )
+        columns = max(1, terminal_width // column_width)
+        max_visible = max_rows * columns
+        visible = candidates[:max_visible]
+        hidden = len(candidates) - len(visible)
         lines: list[str] = []
-        for idx in range(0, len(candidates), columns):
-            row = candidates[idx: idx + columns]
-            lines.append("".join(item.ljust(width) for item in row).rstrip())
+        for idx in range(0, len(visible), columns):
+            row = visible[idx : idx + columns]
+            padded = "".join(
+                candidate + " " * max(0, column_width - _display_width(candidate))
+                for candidate in row
+            )
+            lines.append(padded.rstrip())
+        if hidden > 0:
+            lines.append(f"… {hidden} more candidates — type more characters to narrow")
         return "\r\n".join(lines)
 
     def _redraw(

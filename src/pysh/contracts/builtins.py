@@ -37,6 +37,7 @@ BUILTIN_NAMES: frozenset[str] = frozenset(
         "migrate",
         "path_audit",
         "paste_cancel",
+        "paste_edit",
         "paste_run",
         "paste_show",
         "plan",

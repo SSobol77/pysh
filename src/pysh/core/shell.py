@@ -589,11 +589,17 @@ class PyShell:
                             return exit_signal.code
                         continue
                     if pending_action == "clear":
+                        # PYSH-0.9.0-BUG-024: `clear` while a paste is staged
+                        # must actually clear the screen. Re-printing the full
+                        # staged-paste preview here would immediately redraw
+                        # everything `clear` just erased. The staged payload
+                        # is preserved untouched; the next prompt's existing
+                        # `[paste:N]` indicator communicates that it is still
+                        # pending, and paste_show/paste_edit/paste_run/
+                        # paste_cancel remain available as always.
                         self.last_status = self.execute(line)
                         if self._last_execute_parse_ok:
                             self.history_engine.add(line, raw_line=line)
-                        if self.pending_multiline_paste is not None:
-                            self._print_pending_paste_hint()
                         continue
                     if pending_action == "paste":
                         try:
@@ -739,8 +745,13 @@ class PyShell:
             collected.clear()
             self.line_reader.clear_editor_state()
 
-    def _read_multiline_interactive_line(self, prompt: str) -> str:
-        """Read one collector-owned continuation line through the active editor."""
+    def _read_multiline_interactive_line(self, prompt: str, *, initial_text: str = "") -> str:
+        """Read one collector-owned continuation line through the active editor.
+
+        *initial_text* pre-fills the line buffer (e.g. for ``paste_edit``
+        editing an existing staged line) and is ignored by the ``input()``
+        fallback, which has no concept of a pre-filled buffer.
+        """
         if self._should_use_raw_editor():
             options = SimpleNamespace(autosuggest=False, syntax_highlight=False)
             try:
@@ -752,6 +763,7 @@ class PyShell:
                     scheme=self._highlight_color_scheme(),
                     options=options,
                     echo_queued=False,
+                    initial_text=initial_text,
                 )
             except (OSError, termios.error):
                 return input(prompt)
@@ -837,6 +849,7 @@ class PyShell:
                 [
                     ("Enter", "run"),
                     ("Ctrl+C", "cancel"),
+                    ("paste_edit", "edit"),
                     ("paste_show", "inspect"),
                     ("paste_cancel", "discard"),
                 ],
@@ -927,7 +940,7 @@ class PyShell:
             return None
         if not argv:
             return None
-        if argv[0] in {"paste_show", "paste_run", "paste_cancel"}:
+        if argv[0] in {"paste_show", "paste_run", "paste_cancel", "paste_edit"}:
             return "paste"
         if argv[0] == "clear":
             return "clear"
@@ -962,6 +975,7 @@ class PyShell:
                 [
                     ("Enter", "run"),
                     ("Ctrl+C", "cancel"),
+                    ("paste_edit", "edit"),
                     ("paste_show", "inspect"),
                     ("paste_cancel", "discard"),
                 ],
@@ -1743,6 +1757,7 @@ class PyShell:
             "paste_show": self._builtin_paste_show,
             "paste_cancel": self._builtin_paste_cancel,
             "paste_run": self._builtin_paste_run,
+            "paste_edit": self._builtin_paste_edit,
             "which_all": self._builtin_which_all,
             "apt_check": self._builtin_apt_check,
             "apt_search": self._builtin_apt_search,
@@ -2072,6 +2087,67 @@ class PyShell:
             self.line_reader.clear_editor_state()
             self._executing_paste = False
             self._script_context = previous_context
+
+    def _builtin_paste_edit(self, args: list[str]) -> int:
+        """Edit the staged multiline paste line-by-line before it is run.
+
+        Each existing line is opened in the raw editor pre-filled with its
+        current text; accepting a line (Enter) never executes it. The
+        canonical ``self.pending_multiline_paste`` payload is replaced only
+        after every line has been accepted, so an interrupted edit (Ctrl+C
+        or EOF) leaves the original staged payload byte-for-byte intact.
+        """
+        if args:
+            print("paste_edit: usage: paste_edit", file=sys.stderr)
+            return 2
+        if self.pending_multiline_paste is None:
+            print("paste_edit: no pending multiline paste")
+            return 2
+        original = self.pending_multiline_paste
+        trailing_newline = original.endswith("\n")
+        original_lines = original.splitlines()
+        total = len(original_lines)
+        enabled = style_enabled()
+        edited_lines: list[str] = []
+        for index, original_line in enumerate(original_lines, start=1):
+            prompt = f"paste[{index}/{total}]> "
+            try:
+                edited_lines.append(
+                    self._read_multiline_interactive_line(prompt, initial_text=original_line)
+                )
+            except EOFError:
+                print()
+                print(
+                    style(
+                        "paste_edit: edit aborted at end of input; original payload preserved",
+                        "warning",
+                        enabled=enabled,
+                    )
+                )
+                return ExitCode.GENERAL_ERROR
+            except KeyboardInterrupt:
+                print()
+                print(
+                    style(
+                        "paste_edit: edit cancelled; original payload preserved",
+                        "warning",
+                        enabled=enabled,
+                    )
+                )
+                return ExitCode.SIGINT
+        updated_payload = "\n".join(edited_lines)
+        if trailing_newline:
+            updated_payload += "\n"
+        self.pending_multiline_paste = updated_payload
+        self.line_reader.enter_paste_mode(updated_payload)
+        print(
+            style(
+                f"paste_edit: staged paste updated ({total} lines).",
+                "warning",
+                enabled=enabled,
+            )
+        )
+        return 0
 
     def _builtin_compat_check(self, args: list[str]) -> int:
         if not args:
