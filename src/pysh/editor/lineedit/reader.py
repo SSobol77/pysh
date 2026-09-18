@@ -40,6 +40,7 @@ import atexit
 import os
 import re
 import select
+import signal
 import sys
 import termios
 import tty
@@ -55,6 +56,7 @@ from pysh.editor.lineedit.buffer import LineBuffer, _display_width
 from pysh.editor.lineedit.completion import CompletionResult, common_completion_prefix
 from pysh.editor.lineedit.highlight import DEFAULT_SCHEME, ColorScheme, LineHighlighter
 from pysh.editor.lineedit.keys import Key, KeyDecoder, KeyEvent
+from pysh.editor.lineedit.state import EditorMode, EditorState
 from pysh.parsing.parser import split_paste_commands
 
 
@@ -134,6 +136,61 @@ class RawLineReader:
         self._last_completion_buffer: str | None = None
         self._last_completion_result: CompletionResult | None = None
         self._completion_displayed = False
+        # Outer, cross-call collection mode (NORMAL/MULTILINE/HEREDOC/
+        # PASTE_STAGED). Owned by this reader but driven only by the caller
+        # (pysh.core.shell) through enter_multiline_mode()/enter_heredoc_mode()/
+        # enter_paste_mode()/clear_editor_state(): a single read_line() call
+        # never mutates it, so it survives unchanged across the repeated
+        # read_line() calls a multiline/heredoc continuation collector makes.
+        self._state = EditorState()
+        # Transient, per-call sub-interactions. These are tracked separately
+        # from ``_state`` (rather than through EditorState.enter()) because
+        # they may legitimately nest inside an outer collection mode set by
+        # the caller (e.g. TAB completion while a paste is staged, or Ctrl+R
+        # while collecting a heredoc body) and must resume that outer mode
+        # afterward rather than forcing NORMAL.
+        self._in_reverse_search = False
+
+    @property
+    def editor_mode(self) -> EditorMode:
+        """Return the editor mode currently in effect.
+
+        Transient sub-interactions (reverse search, an on-screen completion
+        menu) take precedence over the outer collection mode a caller may
+        have set, since they are what the user is actually looking at.
+        """
+        if self._in_reverse_search:
+            return EditorMode.REVERSE_SEARCH
+        if self._completion_displayed:
+            return EditorMode.COMPLETION
+        return self._state.mode
+
+    def enter_multiline_mode(self, *, opener: str | None = None) -> None:
+        """Mark the outer collection mode as MULTILINE for a `py { ... }` block."""
+        self._state.enter_multiline(opener=opener)
+
+    def enter_heredoc_mode(
+        self, *, opener: str | None = None, delimiters: list[str] | None = None
+    ) -> None:
+        """Mark the outer collection mode as HEREDOC for pending *delimiters*."""
+        self._state.enter_heredoc(opener=opener, delimiters=delimiters)
+
+    def enter_paste_mode(self, payload: str) -> None:
+        """Mark the outer collection mode as PASTE_STAGED with *payload*."""
+        self._state.enter_paste(payload)
+
+    def clear_editor_state(self) -> None:
+        """Return the outer collection mode to NORMAL, clearing its payload."""
+        self._state.exit_to_normal()
+
+    def _on_winch(self, signum: int, frame: object) -> None:
+        """SIGWINCH handler: signal-safe minimal work only.
+
+        Records that a resize happened; the redraw itself happens later, on
+        the next safe iteration of the ``read_line`` event loop.
+        """
+        del signum, frame
+        self._resize_pending = True
 
     def has_queued_commands(self) -> bool:
         """Return True when pasted commands are waiting to be replayed."""
@@ -205,6 +262,22 @@ class RawLineReader:
         paste_buf: list[str] = []
         _local_paste_pending = paste_pending
 
+        # SIGWINCH: the handler only sets a flag (signal-safe minimal work);
+        # the actual redraw happens on the next safe editor-loop iteration,
+        # below. Registration only succeeds on the main thread of the main
+        # interpreter, so background-thread callers (as used throughout the
+        # test suite) simply run without live resize handling instead of
+        # raising.
+        self._resize_pending = False
+        old_winch_handler: object | None = None
+        winch_installed = False
+        if hasattr(signal, "SIGWINCH"):
+            try:
+                old_winch_handler = signal.signal(signal.SIGWINCH, self._on_winch)
+                winch_installed = True
+            except ValueError:
+                pass
+
         try:
             self._enable_bracketed_paste(out_fd)
             self._redraw(
@@ -220,6 +293,22 @@ class RawLineReader:
                 data = os.read(in_fd, 512)
                 if not data:
                     raise EOFError
+                if self._resize_pending:
+                    self._resize_pending = False
+                    # The prior row count was computed for the old terminal
+                    # width and is invalid at the new one; _redraw() below
+                    # recomputes it from the current width. The input buffer
+                    # and active editor mode are untouched.
+                    self._start_rows = 0
+                    self._redraw(
+                        prompt,
+                        buffer,
+                        suggestion,
+                        highlighter,
+                        scheme,
+                        enabled,
+                        line_renderer,
+                    )
                 events = decoder.feed(data)
                 if data == b"\x1b":
                     ready, _, _ = select.select([in_fd], [], [], 0.005)
@@ -346,6 +435,9 @@ class RawLineReader:
                 if returned_line is None:
                     self._debug_read_chunk(data, events, buffer, returned=None)
         finally:
+            if winch_installed:
+                signal.signal(signal.SIGWINCH, old_winch_handler)
+            self._resize_pending = False
             self._disable_bracketed_paste(out_fd)
             termios.tcsetattr(in_fd, termios.TCSADRAIN, old_state)
             _saved_termios.pop(in_fd, None)
@@ -561,6 +653,10 @@ class RawLineReader:
                     return result
         elif event.key is Key.CTRL_L:
             self._write("\033[2J\033[H", self.output_fd)
+            # Screen is now blank and cursor is at the home position; the
+            # previous row count is invalid and would move the cursor up
+            # from the wrong origin on the next redraw.
+            self._start_rows = 0
         elif event.key is Key.TAB and tab_handler is not None and tab_handler(buffer):
             pass
         elif event.key is Key.TAB and completer is not None:
@@ -617,6 +713,7 @@ class RawLineReader:
         query = ""
         cycle_offset = 0
         out_fd = self.output_fd if self.output_fd is not None else sys.stdout.fileno()
+        self._in_reverse_search = True
 
         def current_match() -> str | None:
             matches = self._reverse_search_matches(history, query)
@@ -661,28 +758,31 @@ class RawLineReader:
             self._render_reverse_search(query, match, out_fd)
             return None
 
-        for event in initial_events:
-            outcome = process_event(event)
-            if outcome is not None:
-                return outcome or None
-
-        if input_fd is None or decoder is None:
-            return None
-
-        while True:
-            data = os.read(input_fd, 512)
-            if not data:
-                raise EOFError
-            events = decoder.feed(data)
-            if data == b"\x1b":
-                ready, _, _ = select.select([input_fd], [], [], 0.005)
-                if not ready:
-                    events.extend(decoder.flush_pending())
-
-            for event in events:
+        try:
+            for event in initial_events:
                 outcome = process_event(event)
                 if outcome is not None:
                     return outcome or None
+
+            if input_fd is None or decoder is None:
+                return None
+
+            while True:
+                data = os.read(input_fd, 512)
+                if not data:
+                    raise EOFError
+                events = decoder.feed(data)
+                if data == b"\x1b":
+                    ready, _, _ = select.select([input_fd], [], [], 0.005)
+                    if not ready:
+                        events.extend(decoder.flush_pending())
+
+                for event in events:
+                    outcome = process_event(event)
+                    if outcome is not None:
+                        return outcome or None
+        finally:
+            self._in_reverse_search = False
 
     @staticmethod
     def _reverse_search_matches(history: Sequence[str], query: str) -> list[str]:

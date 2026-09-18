@@ -563,6 +563,7 @@ class PyShell:
                     if self.pending_multiline_paste is not None:
                         self.pending_multiline_paste = None
                         self.line_reader.clear_command_queue()
+                        self.line_reader.clear_editor_state()
                         self._executing_paste = False
                         enabled = style_enabled()
                         print(style("paste_cancel: pending multiline paste discarded", "warning", enabled=enabled))
@@ -675,6 +676,7 @@ class PyShell:
         was cancelled by the user (Ctrl+C or EOF).
         """
         collected: list[str] = [opener]
+        self.line_reader.enter_multiline_mode(opener=opener)
         try:
             while True:
                 try:
@@ -697,6 +699,7 @@ class PyShell:
                     return "\n".join(collected)
         finally:
             collected.clear()
+            self.line_reader.clear_editor_state()
 
     def _collect_heredoc_interactive(self, command_line: str) -> str | None:
         """Read heredoc body lines until all pending delimiters are seen."""
@@ -707,6 +710,10 @@ class PyShell:
             self.last_status = ExitCode.BUILTIN_MISUSE
             return None
         collected: list[str] = [command_line]
+        self.line_reader.enter_heredoc_mode(
+            opener=command_line,
+            delimiters=[spec.delimiter for spec in specs],
+        )
         try:
             for spec in specs:
                 while True:
@@ -730,6 +737,7 @@ class PyShell:
             return "\n".join(collected)
         finally:
             collected.clear()
+            self.line_reader.clear_editor_state()
 
     def _read_multiline_interactive_line(self, prompt: str) -> str:
         """Read one collector-owned continuation line through the active editor."""
@@ -806,6 +814,7 @@ class PyShell:
                 style("pysh: previous pending paste replaced", "warning", enabled=enabled)
             )
         self.pending_multiline_paste = payload
+        self.line_reader.enter_paste_mode(payload)
         count = self._pending_multiline_paste_line_count()
         diagnostics.append(
             style(
@@ -964,6 +973,7 @@ class PyShell:
         """Drop pending paste before dispatching exit/quit."""
         self.pending_multiline_paste = None
         self.line_reader.clear_command_queue()
+        self.line_reader.clear_editor_state()
         self._executing_paste = False
         enabled = style_enabled()
         print(style("paste_cancel: pending multiline paste discarded", "warning", enabled=enabled))
@@ -2025,6 +2035,7 @@ class PyShell:
             return 2
         self.pending_multiline_paste = None
         self.line_reader.clear_command_queue()
+        self.line_reader.clear_editor_state()
         self._executing_paste = False
         enabled = style_enabled()
         print(style("paste_cancel: pending multiline paste discarded", "warning", enabled=enabled))
@@ -2058,6 +2069,7 @@ class PyShell:
         finally:
             self.pending_multiline_paste = None
             self.line_reader.clear_command_queue()
+            self.line_reader.clear_editor_state()
             self._executing_paste = False
             self._script_context = previous_context
 
