@@ -289,6 +289,51 @@ def _run_pty_session_phased(
     return bytes(buf)
 
 
+def _run_pty_session_phased_collecting(
+    chunks: list[bytes],
+    *,
+    prompt_timeout: float = _PROMPT_TIMEOUT,
+    settle: float = _SETTLE,
+    env: dict[str, str] | None = None,
+) -> list[bytes]:
+    """Like :func:`_run_pty_session_phased`, but return each phase's own
+    drained output separately instead of one cumulative buffer.
+
+    This lets a test assert on what appeared *after* a specific input (e.g.
+    a ``paste_show`` invoked partway through a session) without earlier
+    phases' output (e.g. the initial paste-capture preview) satisfying a
+    substring check by coincidence.
+    """
+    master_fd, slave_fd = pty.openpty()
+    _set_winsize(slave_fd)
+    proc = subprocess.Popen(
+        _PYSH_CMD,
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        env=env if env is not None else _PTY_ENV,
+        close_fds=True,
+    )
+    os.close(slave_fd)
+    phases: list[bytes] = [_wait_for_prompt(master_fd, timeout=prompt_timeout)]
+    try:
+        for chunk in chunks:
+            os.write(master_fd, chunk)
+            phases.append(_read_nonblocking(master_fd, settle=0.25, timeout=1.5))
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
+    return phases
+
+
 def _run_pty_exit_attempt(command: bytes) -> tuple[bytes, int | None]:
     """Run one interactive command and return output plus natural process status."""
     master_fd, slave_fd = pty.openpty()
@@ -740,10 +785,89 @@ def test_pty_ctrl_c_cancels_pending_multiline_paste() -> None:
     assert "two" not in lines
 
 
-def test_pty_repeated_same_paste_clear_retains_hint_and_allows_recovery() -> None:
-    """Repeated paste replacement followed by clear must not trap the prompt."""
+def test_pty_paste_edit_modifies_both_lines_and_runs_edited_payload_once() -> None:
+    """PYSH-0.9.0-BUG-021: paste_edit lets each staged line be edited in the
+    real raw editor (initial_text pre-fill + real keystrokes), paste_show
+    then reveals the edited payload, and paste_run executes it exactly once.
+    """
+    original_one = "echo ORIGINAL_ONE"
+    original_two = "echo ORIGINAL_TWO"
+    clear_one = b"\x7f" * len(original_one)
+    clear_two = b"\x7f" * len(original_two)
+    phases = _run_pty_session_phased_collecting(
+        [
+            f"\x1b[200~{original_one}\n{original_two}\x1b[201~".encode(),
+            b"paste_edit\n",
+            clear_one + b"echo EDITED_ONE\r",
+            clear_two + b"echo EDITED_TWO\r",
+            b"paste_show\n",
+            b"paste_run\nexit\n",
+        ]
+    )
+    _prompt, capture_output, _paste_edit_ack, edit_line1, edit_line2, show_output, run_output = (
+        phases
+    )
+
+    capture_lines = _visible_lines(capture_output)
+    assert "pysh: multiline paste captured (2 lines). Review below." in capture_lines
+    assert f"1 | {original_one}" in capture_lines
+    assert f"2 | {original_two}" in capture_lines
+
+    edit_lines = _visible_lines(edit_line1 + edit_line2)
+    assert "paste[1/2]> echo EDITED_ONE" in edit_lines
+    assert "paste[2/2]> echo EDITED_TWO" in edit_lines
+    assert "paste_edit: staged paste updated (2 lines)." in edit_lines
+
+    show_lines = _visible_lines(show_output)
+    assert any("EDITED_ONE" in line for line in show_lines)
+    assert any("EDITED_TWO" in line for line in show_lines)
+    assert not any("ORIGINAL_ONE" in line for line in show_lines)
+    assert not any("ORIGINAL_TWO" in line for line in show_lines)
+
+    run_lines = _visible_lines(run_output)
+    assert run_lines.count("EDITED_ONE") == 1
+    assert run_lines.count("EDITED_TWO") == 1
+    assert "ORIGINAL_ONE" not in run_lines
+    assert "ORIGINAL_TWO" not in run_lines
+
+
+def test_pty_paste_edit_ctrl_c_on_second_line_preserves_original_payload() -> None:
+    """Ctrl+C partway through paste_edit must discard ALL in-progress edits
+    (including an already-accepted earlier line) and leave the original
+    staged payload byte-for-byte intact.
+    """
+    original_one = "echo ORIGINAL_ONE"
+    original_two = "echo ORIGINAL_TWO"
+    clear_one = b"\x7f" * len(original_one)
+    phases = _run_pty_session_phased_collecting(
+        [
+            f"\x1b[200~{original_one}\n{original_two}\x1b[201~".encode(),
+            b"paste_edit\n",
+            clear_one + b"echo EDITED_ONE\r",
+            b"\x03",
+            b"paste_show\nexit\n",
+        ]
+    )
+    _prompt, _capture_output, _paste_edit_ack, _edit_line1, interrupt_output, show_output = (
+        phases
+    )
+
+    interrupt_lines = _visible_lines(interrupt_output)
+    assert any("original payload preserved" in line for line in interrupt_lines)
+
+    show_lines = _visible_lines(show_output)
+    assert any(f"1 | {original_one}" in line for line in show_lines)
+    assert any(f"2 | {original_two}" in line for line in show_lines)
+    assert not any("EDITED_ONE" in line for line in show_lines)
+
+
+def test_pty_repeated_same_paste_clear_recovers_without_redrawing_preview() -> None:
+    """PYSH-0.9.0-BUG-024: repeated paste replacement followed by clear must
+    not trap the prompt, and clear must not immediately redraw the staged
+    preview it was just asked to erase.
+    """
     paste = b"\x1b[200~echo loop-one\necho loop-two\necho loop-three\x1b[201~"
-    output = _run_pty_session_phased(
+    phases = _run_pty_session_phased_collecting(
         [
             paste,
             paste,
@@ -751,16 +875,24 @@ def test_pty_repeated_same_paste_clear_retains_hint_and_allows_recovery() -> Non
             b"paste_cancel\n",
             b"echo recovered\nexit\n",
         ],
-        collect_timeout=6.0,
     )
-    lines = _visible_lines(output)
-    text = _strip_ansi(output).decode("utf-8", errors="replace")
+    _prompt, _first_paste, _second_paste, clear_output, cancel_output, recover_output = phases
+    all_output = b"".join(phases)
+    lines = _visible_lines(all_output)
+    text = _strip_ansi(all_output).decode("utf-8", errors="replace")
 
     assert lines.count("pysh: multiline paste captured (3 lines). Review below.") >= 2
     assert "pysh: previous pending paste replaced" in lines
-    assert "pysh: pending multiline paste retained (3 lines). Review below." in lines
-    assert "paste_cancel: pending multiline paste discarded" in lines
-    assert "recovered" in lines
+    # The core BUG-024 fix: clear must not immediately redraw the full
+    # "pending multiline paste retained ... Review below." preview block.
+    clear_lines = _visible_lines(clear_output)
+    assert "pysh: pending multiline paste retained (3 lines). Review below." not in clear_lines
+    assert "[paste:begin]" not in clear_lines
+    # The payload was preserved (not silently dropped): paste_cancel right
+    # after clear still finds it and discards it explicitly.
+    cancel_lines = _visible_lines(cancel_output)
+    assert "paste_cancel: pending multiline paste discarded" in cancel_lines
+    assert "recovered" in _visible_lines(recover_output)
     assert "pysh: pending multiline paste exists; use paste_run or paste_cancel first" not in lines
     assert "loop-one\n" not in text
     assert "loop-two\n" not in text
@@ -768,24 +900,29 @@ def test_pty_repeated_same_paste_clear_retains_hint_and_allows_recovery() -> Non
 
 
 def test_pty_clear_while_paste_pending_keeps_paste_runnable() -> None:
-    """clear is a safe UI command; it must not discard or execute pending paste."""
-    output = _run_pty_session_phased(
+    """clear is a safe UI command; it must not discard or execute pending
+    paste, and (BUG-024) must not immediately redraw the staged preview.
+    """
+    phases = _run_pty_session_phased_collecting(
         [
             b"\x1b[200~echo clear-one\necho clear-two\necho clear-three\x1b[201~",
             b"clear\n",
             b"paste_run\n",
             b"echo after-clear\nexit\n",
         ],
-        collect_timeout=6.0,
     )
-    lines = _visible_lines(output)
+    _prompt, _capture_output, clear_output, run_output, _after = phases
+    all_lines = _visible_lines(b"".join(phases))
 
-    assert "pysh: pending multiline paste retained (3 lines). Review below." in lines
-    assert "pysh: pending multiline paste exists; use paste_run or paste_cancel first" not in lines
+    clear_lines = _visible_lines(clear_output)
+    assert "pysh: pending multiline paste retained (3 lines). Review below." not in clear_lines
+    assert "[paste:begin]" not in clear_lines
+
+    run_lines = _visible_lines(run_output)
+    assert "pysh: pending multiline paste exists; use paste_run or paste_cancel first" not in all_lines
     _assert_lines_in_order(
-        lines,
+        run_lines,
         [
-            "pysh: pending multiline paste retained (3 lines). Review below.",
             "[paste_run:begin]",
             "1 | echo clear-one",
             "2 | echo clear-two",
@@ -794,9 +931,64 @@ def test_pty_clear_while_paste_pending_keeps_paste_runnable() -> None:
             "clear-one",
             "clear-two",
             "clear-three",
-            "after-clear",
         ],
     )
+    assert run_lines.count("clear-one") == 1
+    assert run_lines.count("clear-two") == 1
+    assert run_lines.count("clear-three") == 1
+    assert "after-clear" in _visible_lines(b"".join(phases))
+
+
+def test_pty_paste_show_after_clear_displays_retained_payload() -> None:
+    """paste_show right after clear must explicitly show the untouched
+    original staged payload (clear only suppresses the *automatic* redraw)."""
+    phases = _run_pty_session_phased_collecting(
+        [
+            b"\x1b[200~echo show-one\necho show-two\x1b[201~",
+            b"clear\n",
+            b"paste_show\n",
+            b"paste_cancel\nexit\n",
+        ],
+    )
+    _prompt, _capture_output, clear_output, show_output, _cleanup = phases
+
+    clear_lines = _visible_lines(clear_output)
+    assert "[paste:begin]" not in clear_lines
+
+    show_lines = _visible_lines(show_output)
+    assert "[paste:begin]" in show_lines
+    assert "1 | echo show-one" in show_lines
+    assert "2 | echo show-two" in show_lines
+    assert "[paste:end]" in show_lines
+
+
+def test_pty_paste_cancel_after_clear_discards_normally() -> None:
+    """paste_cancel after clear must discard the staged payload exactly as
+    it would without an intervening clear."""
+    phases = _run_pty_session_phased_collecting(
+        [
+            b"\x1b[200~echo cancel-one\necho cancel-two\x1b[201~",
+            b"clear\n",
+            b"paste_cancel\n",
+            b"paste_show\nexit\n",
+        ],
+    )
+    _prompt, _capture_output, _clear_output, cancel_output, show_after_cancel = phases
+
+    cancel_lines = _visible_lines(cancel_output)
+    assert "paste_cancel: pending multiline paste discarded" in cancel_lines
+
+    show_lines = _visible_lines(show_after_cancel)
+    assert "paste_show: no pending multiline paste" in show_lines
+
+
+def test_pty_clear_outside_staged_paste_is_unchanged() -> None:
+    """BUG-024 only touches the pending-paste `clear` branch; plain clear
+    with no staged paste must keep working exactly as before."""
+    output = _run_pty_session(b"echo before-clear\nclear\necho after-clear\nexit\n")
+    lines = _visible_lines(output)
+    assert "before-clear" in lines
+    assert "after-clear" in lines
 
 
 def test_pty_repeated_same_paste_ctrl_c_recovers_normal_command_execution() -> None:

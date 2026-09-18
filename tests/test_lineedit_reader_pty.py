@@ -166,6 +166,14 @@ def test_reader_tab_filters_and_redraws_command_line(tmp_path, monkeypatch) -> N
     (tmp_path / ".venv").mkdir()
     (tmp_path / "README.md").write_text("", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
+    # PYSH-0.9.0-BUG-022 bounds the completion menu to a fixed number of
+    # visible rows. Leaving PATH untouched here would make the "s"-prefixed
+    # candidate set (and therefore whether "src/" survives truncation)
+    # depend on however many "s*" executables happen to exist on the host
+    # running the test. Clearing PATH keeps this test's candidate set fixed
+    # and small (builtins + the two local dirs), so it fits the bound
+    # deterministically regardless of the host's PATH.
+    monkeypatch.setenv("PATH", "")
     master_fd, slave = pty.openpty()
     result: dict[str, object] = {}
 

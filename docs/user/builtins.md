@@ -594,7 +594,7 @@ missing arguments.
 Limitations: native execution is PySH Script Mode v1, not full POSIX script
 semantics. POSIX `set -e`, `set -u` and `set -x` are not implemented.
 
-## `paste_show`, `paste_run`, `paste_cancel`
+## `paste_show`, `paste_run`, `paste_cancel`, `paste_edit`
 
 Syntax:
 
@@ -602,6 +602,7 @@ Syntax:
 paste_show
 paste_run
 paste_cancel
+paste_edit
 ```
 
 Purpose: Manage bracketed multiline paste captured by the raw interactive
@@ -629,8 +630,23 @@ frame. Pressing Ctrl+C at that prompt is equivalent to `paste_cancel`.
 Unrelated commands are blocked while paste is pending so the staged payload
 cannot be silently ignored.
 
+`paste_edit` opens each staged line, one at a time, in the raw editor
+pre-filled with its current text (prompt `paste[i/N]>`). Editing and
+accepting a line (Enter) never executes it. Only after every line has been
+accepted does PySH replace the staged payload; `paste_show` afterward reflects
+the edited version, and `paste_run` executes it exactly once. The shell stays
+in the staged-paste state throughout, so `paste_run`/`paste_cancel` remain
+available once editing finishes. This first implementation edits existing
+lines only — it does not add or remove lines.
+
+If Ctrl+C or Ctrl+D interrupts `paste_edit`, the edit is discarded in its
+entirety (including any lines already accepted earlier in the same
+`paste_edit` invocation) and the original staged payload is left unchanged.
+Ctrl+C returns status 130; Ctrl+D returns status 1. Both print a diagnostic
+confirming the original payload was preserved.
+
 Return behavior: each command returns 0 on success. If no pending paste exists,
-`paste_show`, `paste_run` and `paste_cancel` return 2 and print
+`paste_show`, `paste_run`, `paste_cancel` and `paste_edit` return 2 and print
 `<command>: no pending multiline paste`. Extra arguments also return 2.
 
 ## `compat_check`
