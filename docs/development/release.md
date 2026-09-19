@@ -52,6 +52,13 @@ the `pypi` GitHub environment.
    All steps must pass before tagging.
    The gate builds local artifacts, inspects metadata and contents, installs
    the wheel into a temporary virtual environment, and runs CLI smoke tests.
+   It also runs [`scripts/smoke_debian_package.sh`](../../scripts/smoke_debian_package.sh)
+   (Issue #33 RQG-D): a REAL `apt-get install ./pysh-shell_X.Y.Z-1_all.deb`
+   into a disposable `debian:13-slim` container, verifying the installed
+   `/usr/bin/pysh` entrypoint (`--version`, `python3 -m pysh --version`,
+   `pysh -c`, and a real PTY-driven interactive `exit`/`quit`) -- not merely
+   `dpkg-deb --contents`. This step requires Docker locally; the same
+   script also runs unconditionally in `ci.yml` on every push/PR.
    The gate must produce and validate PyPI wheel + sdist, Debian `.deb`,
    RPM `.rpm`, FreeBSD `.pkg`, and `SHA256SUMS` before a release can proceed.
    It does not tag, publish, upload or create GitHub releases. Local build

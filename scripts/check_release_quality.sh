@@ -44,6 +44,7 @@ require_command git
 require_command dpkg-deb
 require_command rpm
 require_command rpmbuild
+require_command docker
 require_command sha256sum
 require_command awk
 require_command grep
@@ -95,19 +96,19 @@ restore_freebsd_pkg() {
 
 preserve_freebsd_pkg
 
-log "[1/12] ruff check src tests"
+log "[1/13] ruff check src tests"
 uv run ruff check src tests
 
-log "[2/12] pytest -q"
+log "[2/13] pytest -q"
 uv run pytest -q
 
-log "[3/12] check headers"
+log "[3/13] check headers"
 bash "${REPO_ROOT}/scripts/check_headers.sh"
 
-log "[4/12] git diff --check"
+log "[4/13] git diff --check"
 git diff --check
 
-log "[5/12] required release files"
+log "[5/13] required release files"
 require_file pyproject.toml
 require_file uv.lock
 require_file README.md
@@ -124,7 +125,7 @@ require_file scripts/build_deb.sh
 require_file scripts/build_rpm.sh
 require_file scripts/build_freebsd_pkg.sh
 
-log "[6/12] clean and build mandatory release artifacts"
+log "[6/13] clean and build mandatory release artifacts"
 preserve_freebsd_pkg
 rm -rf dist build ./*.egg-info
 restore_freebsd_pkg
@@ -141,7 +142,7 @@ if [ "$(uname -s)" != "FreeBSD" ] && [ ! -s "${FREEBSD_PKG_PATH}" ]; then
 fi
 PYTHON_BIN="${PYTHON_WRAPPER}" bash "${REPO_ROOT}/scripts/build_release_artifacts.sh"
 
-log "[7/12] confirm mandatory artifact families"
+log "[7/13] confirm mandatory artifact families"
 shopt -s nullglob
 wheels=(dist/*.whl)
 sdists=(dist/*.tar.gz)
@@ -168,10 +169,10 @@ fi
 require_file dist/SHA256SUMS
 require_file dist/release-assets/SHA256SUMS
 
-log "[8/12] twine metadata check"
+log "[8/13] twine metadata check"
 uv run --with twine python -m twine check "${wheels[0]}" "${sdists[0]}"
 
-log "[9/12] inspect package metadata, contents and docs"
+log "[9/13] inspect package metadata, contents and docs"
 uv run python - <<'PY'
 from __future__ import annotations
 
@@ -410,7 +411,7 @@ for path in packaging_docs:
             fail(f"{path.relative_to(root)} contains forbidden packaging claim: {phrase}")
 PY
 
-log "[10/12] inspect OS package contents"
+log "[10/13] inspect OS package contents"
 DEB_LISTING="${TMPDIR}/deb-contents.txt"
 RPM_LISTING="${TMPDIR}/rpm-contents.txt"
 dpkg-deb --contents "${debs[0]}" | awk '{print $NF}' >"${DEB_LISTING}"
@@ -420,7 +421,10 @@ require_listed_path "Debian .deb" "${DEB_LISTING}" "/opt/pysh-shell/lib/pysh"
 require_listed_path "RPM .rpm" "${RPM_LISTING}" "/usr/bin/pysh"
 require_listed_path "RPM .rpm" "${RPM_LISTING}" "/opt/pysh-shell/lib/pysh"
 
-log "[11/12] clean virtualenv install smoke"
+log "[11/13] Debian package real install-and-run smoke (isolated debian:13-slim container)"
+bash "${REPO_ROOT}/scripts/smoke_debian_package.sh" "${debs[0]}"
+
+log "[12/13] clean virtualenv install smoke"
 PYTHON_BIN="$(uv run python -c 'import sys; print(sys.executable)')"
 "${PYTHON_BIN}" -m venv "${TMPDIR}/venv"
 VENV_PY="${TMPDIR}/venv/bin/python"
@@ -434,5 +438,5 @@ if [ "${SMOKE_OUTPUT}" != "release-smoke" ]; then
     fail "pysh -c smoke output mismatch: ${SMOKE_OUTPUT}"
 fi
 
-log "[12/12] release quality gate complete"
+log "[13/13] release quality gate complete"
 printf 'Release quality gate passed. Artifacts are in dist/.\n'

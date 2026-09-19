@@ -86,6 +86,9 @@ jobs:
             echo "dpkg-deb not available; skipping .deb build."
           fi
 
+      - name: Debian package real install-and-run smoke (isolated debian:13-slim container)
+        run: bash scripts/smoke_debian_package.sh dist/os/deb/*.deb
+
       - name: Build RPM .rpm (if rpmbuild available)
         run: |
           if command -v rpmbuild >/dev/null 2>&1; then

@@ -553,18 +553,24 @@ What is still **not** cross-checked, and remains open for a later slice:
 | **Validate (naming)** | `check_release_artifacts.sh` exact-filename checks | same | same | same |
 | **Validate (metadata/contents)** | `check_release_quality.sh` step 9 (zip/tar introspection, METADATA fields) | step 10 (`dpkg-deb --contents`) | step 10 (`rpm -qpl`) | `release-artifacts.yml` (`pkg info -F`, `pkg query -F`) — **not** in `check_release_quality.sh` itself beyond filename/checksum |
 | **Checksum** | `dist/SHA256SUMS` + flat `dist/release-assets/SHA256SUMS`, both self-verified via `sha256sum -c` | same | same | same |
-| **Install smoke** | Real: `check_release_quality.sh` step 11 (throwaway venv, `pip install --no-deps`) | Content-listing only (`dpkg-deb --contents`); **no actual `dpkg -i` install-and-run smoke anywhere** | Content-listing only; **no actual `rpm -i`/`dnf install` smoke anywhere** | Content-listing only inside the FreeBSD VM (`pkg info -F`, not `pkg install` + run); `docs/development/release.md`'s "Post-release" section documents a real `pkg install` + `pysh --version`/`-c` smoke, but only as a **manual, human-run** step |
-| **CLI smoke (installed entrypoint)** | `--version` (CI, every push); `-c`/`exit`/`quit` (local gate only, §5.2) | none automated | none automated | none automated (manual doc only) |
+| **Install smoke** | Real: `check_release_quality.sh` step 12 (throwaway venv, `pip install --no-deps`) | **Real (RQG-D):** `scripts/smoke_debian_package.sh` — genuine `apt-get install ./<pkg>.deb` inside a disposable `debian:13-slim` container, on every CI push/PR (unconditional, no `continue-on-error`) and in `check_release_quality.sh` step 11 | Content-listing only; **no actual `rpm -i`/`dnf install` smoke anywhere** | Content-listing only inside the FreeBSD VM (`pkg info -F`, not `pkg install` + run); `docs/development/release.md`'s "Post-release" section documents a real `pkg install` + `pysh --version`/`-c` smoke, but only as a **manual, human-run** step |
+| **CLI smoke (installed entrypoint)** | `--version` (CI, every push); `-c`/`exit`/`quit` (local gate only, §5.2) | **Real (RQG-D):** `--version`, `python3 -m pysh --version`, `pysh -c "echo deb-smoke"`, `pysh -c "exit"`, `pysh -c "quit"`, a non-TTY batch-mode check, and a genuine stdlib-`pty`-driven interactive `exit`/`quit` check — all against the installed `/usr/bin/pysh`, on every CI run | none automated | none automated (manual doc only) |
+| **Package isolation proof** | n/a | **New (RQG-D):** `command -v pysh` == `/usr/bin/pysh`; `PYTHONPATH=/opt/pysh-shell/lib python3 -c 'import pysh; print(pysh.__file__)'` == `/opt/pysh-shell/lib/pysh/__init__.py` — never the repo checkout or a venv | not yet | not yet |
 | **Publish** | `publish.yml` → PyPI Trusted Publishing, `release: published` only | `release-artifacts.yml` → GitHub Release asset upload | same | same |
 
-The clearest lifecycle gap, visible directly from this table: **wheel/sdist
-is the only artifact family with a real install-and-run smoke test
-anywhere in the pipeline.** Debian, RPM, and FreeBSD packages are all
-validated for naming, checksum, and static content listing, but none of
-them are actually installed into a container/VM and exercised with
-`pysh --version` / `pysh -c` as part of any automated (CI or local-script)
-run — only as a documented **manual** post-release step
-(`docs/development/release.md` lines 125-133).
+**Updated by RQG-D:** Debian is no longer the "content-listing only" case —
+it now has the same tier of real install-and-run smoke as wheel/sdist,
+reusing one script (`scripts/smoke_debian_package.sh`) from both `ci.yml`
+and `scripts/check_release_quality.sh` (no duplicate implementation). RPM
+and FreeBSD remain validated for naming, checksum, and static content
+listing only; neither is actually installed into a container/VM and
+exercised with `pysh --version` / `pysh -c` as part of any automated run —
+FreeBSD still only as a documented **manual** post-release step. A
+FreeBSD or RPM install-and-run smoke, following the same
+`scripts/smoke_debian_package.sh` pattern (a disposable, network-minimal
+container or VM; a real package-manager install; verification against the
+installed entrypoint; a package-isolation proof), is the natural next slice
+after RQG-D.
 
 ## 9. Proposed Implementation Slices for Issue #33
 
@@ -588,10 +594,17 @@ scratch":
   every push without needing a live FreeBSD VM every time (§5.1, §5.4).
   This is the highest-leverage slice: it turns an always-skipped CI step
   into a real one.
-- **RQG-D — Debian package install-and-run smoke.** Add a real
-  `dpkg -i`/container-based install of the built `.deb` followed by
-  `pysh --version` / `pysh -c "echo ok"` / `exit` / `quit`, closing the
-  biggest cell in the §8 table for this artifact family.
+- **RQG-D — Debian package install-and-run smoke. IMPLEMENTED.** Added
+  `scripts/smoke_debian_package.sh`: a real `apt-get install ./<pkg>.deb`
+  into a disposable `debian:13-slim` container, followed by
+  `pysh --version`, `python3 -m pysh --version`, `pysh -c "echo deb-smoke"`,
+  `pysh -c "exit"`/`"quit"`, a non-TTY batch-mode check, a genuine
+  `pty`-driven interactive `exit`/`quit` check, and a package-isolation
+  proof (`command -v pysh`, `pysh.__file__` under `/opt/pysh-shell/lib`).
+  Wired into `ci.yml` unconditionally (no `continue-on-error`) and reused
+  as-is by `check_release_quality.sh`; the pre-existing
+  `dpkg-deb --contents` check is preserved unchanged. See
+  `tests/test_debian_package_smoke_contract.py`.
 - **RQG-E — FreeBSD package validation scope decision + install smoke.**
   Product-owner decision on `freebsd-pkg.yml` vs `release-artifacts.yml`
   duplication and trigger scoping (§5.3); if kept, add a real
