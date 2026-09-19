@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Release Process (`vX.Y.Z`)
 
-> Each v0.8.2 release ships **four** artifact families: PyPI (wheel + sdist),
+> Each v0.9.0 release ships **four** artifact families: PyPI (wheel + sdist),
 > Debian `.deb`, Red Hat/Fedora `.rpm`, and FreeBSD `.pkg`. See
 > [`packaging.md`](packaging.md) for the canonical naming contract and
 > [`installation.md`](../user/installation.md) for end-user install commands.
@@ -57,7 +57,8 @@ the `pypi` GitHub environment.
    integration suite under both `TERM=dumb` and `TERM=xterm-256color`, a
    real wheel/sdist/`.deb`/`.rpm` build validated through
    `check_release_artifacts.sh`, the real Debian install-and-run smoke
-   (`smoke_debian_package.sh`), and the real FreeBSD install-and-run smoke
+   (`smoke_debian_package.sh`), the real RPM install-and-run smoke
+   (`smoke_rpm_package.sh`), and the real FreeBSD install-and-run smoke
    (`smoke_freebsd_package.sh`, Issue #33 RQG-E). It prints one PASS/FAIL/
    NOT_RUN/PLATFORM_BLOCKED manifest and exits `0` for `PASS` or
    `READY_EXCEPT_PLATFORM_VALIDATION`, `1` for `FAIL`, `2` for a misused
@@ -73,10 +74,12 @@ the `pypi` GitHub environment.
      PTY `TERM` variants, and a real wheel/sdist/`.deb`/`.rpm`
      artifact-naming contract check -- the same checks ordinary CI performs
      (minutes, no Docker required beyond what the test suite itself uses).
-   - `--mode full`: everything `ci` runs, plus the real Debian
-     install-and-run smoke (requires Docker; reported `PLATFORM_BLOCKED`,
-     not `FAIL`, if Docker is unavailable) and the real FreeBSD
-     install-and-run smoke. The FreeBSD smoke has no daemon-reachability
+   - `--mode full`: everything `ci` runs, plus the real Debian and RPM
+     install-and-run smokes (each requires Docker; each reported
+     `PLATFORM_BLOCKED`, not `FAIL`, if Docker is unavailable -- a
+     successful `build_rpm.sh`/`build_deb.sh` alone is never reported as
+     `PASS`) and the real FreeBSD install-and-run smoke. The FreeBSD smoke
+     has no daemon-reachability
      capability probe the way Docker does: the orchestrator checks
      `platform.system() == "FreeBSD"` directly. On any host that is not
      real FreeBSD 14+ -- which includes every ordinary Debian/Linux
@@ -87,15 +90,15 @@ the `pypi` GitHub environment.
      `scripts/smoke_freebsd_package.sh` against it for real, reporting
      `PASS`/`FAIL` on the genuine outcome. The real, unconditional
      execution of this smoke happens in
-     `.github/workflows/release-artifacts.yml`'s FreeBSD 14.3 VM job (see
+     `.github/workflows/release-artifacts.yml`'s FreeBSD 14.4 VM job (see
      below); `PLATFORM_BLOCKED` in a local `full`-mode run on Linux is
      expected and does not by itself indicate a problem.
 
    `READY_EXCEPT_PLATFORM_VALIDATION` means every check that could run on
    the current machine passed, but at least one platform-specific check
-   (FreeBSD on a non-FreeBSD host, Debian if Docker is unavailable) could
-   not run here at all -- it is a "clean as far as this environment can
-   tell" signal, not a green light to release without separately
+   (FreeBSD on a non-FreeBSD host, Debian/RPM if Docker is unavailable)
+   could not run here at all -- it is a "clean as far as this environment
+   can tell" signal, not a green light to release without separately
    confirming those platforms via the real FreeBSD VM workflow run.
 
    All steps must pass (or be a documented `PLATFORM_BLOCKED`) before
@@ -112,7 +115,15 @@ the `pypi` GitHub environment.
    `/usr/bin/pysh` entrypoint (`--version`, `python3 -m pysh --version`,
    `pysh -c`, and a real PTY-driven interactive `exit`/`quit`) -- not merely
    `dpkg-deb --contents`. This step requires Docker locally; the same
-   script also runs unconditionally in `ci.yml` on every push/PR.
+   script also runs unconditionally in `ci.yml` on every push/PR. It also
+   runs [`scripts/smoke_rpm_package.sh`](../../scripts/smoke_rpm_package.sh)
+   immediately after: a REAL `dnf install ./pysh-shell-X.Y.Z-1.noarch.rpm`
+   into a disposable Fedora container, verifying the same installed-
+   entrypoint contract against `/usr/bin/pysh` -- not merely
+   `rpm -qip`/`rpm -qlp`. This step also requires Docker locally; the same
+   script also runs unconditionally in `ci.yml` on every push/PR and in
+   `release-artifacts.yml`'s `build-and-validate` job, before the RPM
+   becomes eligible for the validated release-assets bundle.
    `check_release_quality.sh` runs on the maintainer's own (Linux) dev
    machine, so it cannot run the equivalent FreeBSD smoke -- FreeBSD's
    native `.pkg` format and `pkg(8)` tooling do not exist on Linux, with no
@@ -179,7 +190,7 @@ the `pypi` GitHub environment.
      and the two workflows never overlap.
    - `release-artifacts.yml`, as three jobs that must succeed in order:
      1. `freebsd-pkg` builds the real `pysh-shell-X.Y.Z.pkg` in a FreeBSD
-        14.3 VM (`vmactions/freebsd-vm`; this is a real virtual machine
+        14.4 VM (`vmactions/freebsd-vm`; this is a real virtual machine
         inside the `ubuntu-latest` runner, not a self-hosted runner),
         statically inspects it (`pkg info -F`, `pkg query -F`), then runs
         `scripts/smoke_freebsd_package.sh` inside that same VM (Issue #33

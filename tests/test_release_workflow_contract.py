@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,18 @@ REPO_ROOT = Path(__file__).parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "check_release_workflow.py"
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release-artifacts.yml"
 PUBLISH_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "publish.yml"
+
+# The canonical current release version, derived from pyproject.toml rather
+# than duplicated as a second hardcoded literal (Issue #33 RQG-E version
+# finalization): a "valid current-release fixture" test must always build
+# filenames for whatever version the repository actually declares today, or
+# it silently breaks on every version bump. Tests that deliberately exercise
+# version-independent changelog/ordering behavior with synthetic, fixed
+# version strings (e.g. the Unreleased-changelog test below) are unaffected
+# by this and keep their own literals.
+CANONICAL_VERSION = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+    "project"
+]["version"]
 
 
 def _load_module():
@@ -60,7 +73,7 @@ def _run(*args: str, timeout: float = 30.0) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _build_valid_fixture(root: Path, version: str = "0.8.2") -> None:
+def _build_valid_fixture(root: Path, version: str = CANONICAL_VERSION) -> None:
     (root / "os" / "deb").mkdir(parents=True)
     (root / "os" / "rpm").mkdir(parents=True)
     (root / "os" / "freebsd").mkdir(parents=True)
@@ -109,7 +122,7 @@ def test_complete_fixture_passes_pre_upload_sequence(tmp_path: Path) -> None:
 
 def test_missing_wheel_fails_pre_upload_sequence(tmp_path: Path) -> None:
     _build_valid_fixture(tmp_path)
-    (tmp_path / "pysh_shell-0.8.2-py3-none-any.whl").unlink()
+    (tmp_path / f"pysh_shell-{CANONICAL_VERSION}-py3-none-any.whl").unlink()
     errors = CHECK.simulate_pre_upload_sequence(tmp_path)
     assert errors
     assert any("artifact gate failed" in e for e in errors)
@@ -117,7 +130,7 @@ def test_missing_wheel_fails_pre_upload_sequence(tmp_path: Path) -> None:
 
 def test_missing_pkg_fails_pre_upload_sequence(tmp_path: Path) -> None:
     _build_valid_fixture(tmp_path)
-    (tmp_path / "os" / "freebsd" / "pysh-shell-0.8.2.pkg").unlink()
+    (tmp_path / "os" / "freebsd" / f"pysh-shell-{CANONICAL_VERSION}.pkg").unlink()
     errors = CHECK.simulate_pre_upload_sequence(tmp_path)
     assert errors
     assert any("artifact gate failed" in e for e in errors)
@@ -129,11 +142,11 @@ def test_corrupt_checksum_fails_pre_upload_sequence(tmp_path: Path) -> None:
     _build_valid_fixture(tmp_path)
     lines = []
     for relative in (
-        "pysh_shell-0.8.2-py3-none-any.whl",
-        "pysh_shell-0.8.2.tar.gz",
-        "os/deb/pysh-shell_0.8.2-1_all.deb",
-        "os/rpm/pysh-shell-0.8.2-1.noarch.rpm",
-        "os/freebsd/pysh-shell-0.8.2.pkg",
+        f"pysh_shell-{CANONICAL_VERSION}-py3-none-any.whl",
+        f"pysh_shell-{CANONICAL_VERSION}.tar.gz",
+        f"os/deb/pysh-shell_{CANONICAL_VERSION}-1_all.deb",
+        f"os/rpm/pysh-shell-{CANONICAL_VERSION}-1.noarch.rpm",
+        f"os/freebsd/pysh-shell-{CANONICAL_VERSION}.pkg",
     ):
         digest = hashlib.sha256((tmp_path / relative).read_bytes()).hexdigest()
         if relative.endswith(".whl"):
@@ -148,7 +161,7 @@ def test_corrupt_checksum_fails_pre_upload_sequence(tmp_path: Path) -> None:
 
 def test_wrong_version_filename_fails_pre_upload_sequence(tmp_path: Path) -> None:
     _build_valid_fixture(tmp_path)
-    (tmp_path / "pysh_shell-0.8.2-py3-none-any.whl").unlink()
+    (tmp_path / f"pysh_shell-{CANONICAL_VERSION}-py3-none-any.whl").unlink()
     (tmp_path / "pysh_shell-9.9.9-py3-none-any.whl").write_bytes(b"WRONG VERSION\n")
     errors = CHECK.simulate_pre_upload_sequence(tmp_path)
     assert errors
@@ -284,7 +297,7 @@ def test_release_workflow_still_has_real_freebsd_vm_build() -> None:
     text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
     assert "vmactions/freebsd-vm" in text
     assert "sh scripts/build_freebsd_pkg.sh" in text
-    assert 'release: "14.3"' in text
+    assert 'release: "14.4"' in text
 
 
 def test_release_workflow_never_uses_contract_only_fixture() -> None:
@@ -303,7 +316,7 @@ def test_cli_passes_on_real_repository() -> None:
 
 def test_cli_simulate_flag_fails_on_incomplete_fixture(tmp_path: Path) -> None:
     _build_valid_fixture(tmp_path)
-    (tmp_path / "pysh_shell-0.8.2-py3-none-any.whl").unlink()
+    (tmp_path / f"pysh_shell-{CANONICAL_VERSION}-py3-none-any.whl").unlink()
     result = _run("--simulate", str(tmp_path))
     assert result.returncode != 0
     assert "artifact gate failed" in result.stderr

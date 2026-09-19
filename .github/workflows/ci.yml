@@ -97,6 +97,9 @@ jobs:
             echo "rpmbuild not available; skipping .rpm build."
           fi
 
+      - name: RPM package real install-and-run smoke (isolated Fedora container)
+        run: bash scripts/smoke_rpm_package.sh dist/os/rpm/*.rpm
+
       - name: Verify artifact contract (portable, non-native)
         run: |
           set -euo pipefail

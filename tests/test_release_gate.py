@@ -191,7 +191,9 @@ def test_ci_mode_includes_expected_heavy_checks(expected_name: str) -> None:
     assert "fast" not in matching.modes
 
 
-@pytest.mark.parametrize("expected_name", ["Debian install smoke", "FreeBSD install smoke"])
+@pytest.mark.parametrize(
+    "expected_name", ["Debian install smoke", "RPM install smoke", "FreeBSD install smoke"]
+)
 def test_full_mode_includes_platform_checks_only_in_full(expected_name: str) -> None:
     checks = GATE.build_checks()
     matching = next(c for c in checks if c.name == expected_name)
@@ -332,6 +334,36 @@ def test_debian_smoke_is_platform_blocked_when_docker_unavailable(
     assert "Docker" in result.diagnostic
 
 
+def test_rpm_smoke_is_platform_blocked_when_docker_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(GATE, "docker_usable", lambda: False)
+    result = GATE.check_rpm_smoke(tmp_path)
+    assert result.status == GATE.STATUS_PLATFORM_BLOCKED
+    assert result.status != GATE.STATUS_PASS
+    assert "Docker" in result.diagnostic
+
+
+def test_rpm_smoke_never_reports_pass_from_build_success_alone() -> None:
+    """A successful build_rpm.sh run must never be conflated with a real
+    install-and-run PASS.
+
+    Structural proof: check_rpm_smoke's only STATUS_PASS-producing path is
+    its final `run_subprocess_check(...smoke_rpm_package.sh...)` return --
+    there is no early `return CheckResult(status=STATUS_PASS` anywhere in
+    the function, i.e. a successful build step alone can never short-
+    circuit to PASS without the real smoke script actually running.
+    """
+    source = SCRIPT.read_text(encoding="utf-8")
+    start = source.index("def check_rpm_smoke(")
+    end = source.index("\ndef check_freebsd_smoke(")
+    body = source[start:end]
+    assert "status=STATUS_PASS" not in body
+    assert body.strip().endswith(
+        'log_name="rpm-smoke",\n        timeout=600.0,\n    )'
+    )
+
+
 # ------------------------------------------------------- 12. FreeBSD unavailable
 
 
@@ -344,7 +376,7 @@ def test_freebsd_smoke_is_platform_blocked_on_non_freebsd_hosts(
     this repository's dev/CI/test environments are not; that real
     execution is exercised separately in
     tests/test_freebsd_package_smoke_contract.py and in
-    .github/workflows/release-artifacts.yml's FreeBSD 14.3 VM job.
+    .github/workflows/release-artifacts.yml's FreeBSD 14.4 VM job.
     """
     monkeypatch.setattr(GATE.platform, "system", lambda: "Linux")
     result = GATE.check_freebsd_smoke(tmp_path)
@@ -393,6 +425,7 @@ def test_fast_mode_does_not_run_heavy_checks_end_to_end() -> None:
         "PTY TERM=xterm-256color",
         "artifact contract",
         "Debian install smoke",
+        "RPM install smoke",
         "FreeBSD install smoke",
     ):
         assert f"[NOT RUN] {heavy}" in result.stdout

@@ -19,7 +19,7 @@ Argument validation and the "not FreeBSD" diagnostic run on every host,
 with no FreeBSD dependency, because the script rejects those inputs before
 ever touching ``pkg``. The full build-install-query-execute chain genuinely
 needs real FreeBSD 14+ and is exercised for real only in
-``.github/workflows/release-artifacts.yml``'s FreeBSD 14.3 VM job -- this
+``.github/workflows/release-artifacts.yml``'s FreeBSD 14.4 VM job -- this
 suite never fakes that outcome locally, it only marks the dynamic end-to-end
 test skipped on non-FreeBSD hosts (i.e. everywhere this test suite normally
 runs) so the rest of ``pytest -q`` remains fast and portable.
@@ -250,7 +250,7 @@ def test_real_freebsd_install_and_run_smoke_passes(tmp_path: Path) -> None:
     this file is fast and FreeBSD-independent by design. This test is
     skipped everywhere except a real FreeBSD 14+ host (this repository's
     normal dev/CI/test hosts are all Linux, so it is only ever exercised
-    inside .github/workflows/release-artifacts.yml's FreeBSD 14.3 VM job,
+    inside .github/workflows/release-artifacts.yml's FreeBSD 14.4 VM job,
     or by a maintainer running pytest directly on FreeBSD).
     """
     build_result = subprocess.run(

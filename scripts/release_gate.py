@@ -406,6 +406,59 @@ def check_debian_smoke(log_dir: Path) -> CheckResult:
     )
 
 
+def check_rpm_smoke(log_dir: Path) -> CheckResult:
+    """Real RPM install-and-run smoke, reusing scripts/smoke_rpm_package.sh.
+
+    Docker unavailability is an environment capability gap, not a product
+    defect: it is reported as PLATFORM_BLOCKED, never FAIL or a faked PASS.
+    A successful `build_rpm.sh` run is never treated as sufficient by
+    itself -- this check always attempts the real install, exactly like
+    check_debian_smoke.
+    """
+    if not docker_usable():
+        return CheckResult(
+            status=STATUS_PLATFORM_BLOCKED,
+            diagnostic="Docker is not installed or the daemon is not reachable",
+        )
+
+    start = time.monotonic()
+    build = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts" / "build_rpm.sh")],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if build.returncode != 0:
+        duration = time.monotonic() - start
+        log_path = log_dir / "rpm-smoke.log"
+        log_path.write_text(build.stdout + build.stderr, encoding="utf-8")
+        return CheckResult(
+            status=STATUS_FAIL,
+            exit_code=build.returncode,
+            duration_seconds=duration,
+            diagnostic=_last_lines(build.stdout + build.stderr, 6),
+            log_path=str(log_path),
+        )
+
+    rpms = sorted((REPO_ROOT / "dist" / "os" / "rpm").glob("*.rpm"))
+    if not rpms:
+        duration = time.monotonic() - start
+        return CheckResult(
+            status=STATUS_FAIL,
+            duration_seconds=duration,
+            diagnostic="build_rpm.sh did not produce a .rpm",
+        )
+
+    return run_subprocess_check(
+        ["bash", str(REPO_ROOT / "scripts" / "smoke_rpm_package.sh"), str(rpms[-1])],
+        log_dir=log_dir,
+        log_name="rpm-smoke",
+        timeout=600.0,
+    )
+
+
 def check_freebsd_smoke(log_dir: Path) -> CheckResult:
     """Real FreeBSD install-and-run smoke, reusing scripts/smoke_freebsd_package.sh.
 
@@ -416,7 +469,7 @@ def check_freebsd_smoke(log_dir: Path) -> CheckResult:
     a product defect, and is reported as PLATFORM_BLOCKED, never a faked
     PASS. The real build-install-query-execute lifecycle also runs,
     unconditionally, inside .github/workflows/release-artifacts.yml's
-    FreeBSD 14.3 VM job via this same script.
+    FreeBSD 14.4 VM job via this same script.
     """
     if platform.system() != "FreeBSD":
         return CheckResult(
@@ -426,7 +479,7 @@ def check_freebsd_smoke(log_dir: Path) -> CheckResult:
                 ".pkg install/run smoke requires real FreeBSD 14+ and has no "
                 "container/emulation fallback. The real smoke runs "
                 "unconditionally in .github/workflows/release-artifacts.yml's "
-                "FreeBSD 14.3 VM job via scripts/smoke_freebsd_package.sh."
+                "FreeBSD 14.4 VM job via scripts/smoke_freebsd_package.sh."
             ),
         )
 
@@ -487,6 +540,7 @@ def build_checks() -> list[Check]:
         Check("PTY TERM=xterm-256color", "tests", ci_full, check_pty_xterm),
         Check("artifact contract", "artifacts", ci_full, check_artifact_contract),
         Check("Debian install smoke", "platform", full_only, check_debian_smoke),
+        Check("RPM install smoke", "platform", full_only, check_rpm_smoke),
         Check("FreeBSD install smoke", "platform", full_only, check_freebsd_smoke),
     ]
 

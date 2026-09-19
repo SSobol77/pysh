@@ -182,7 +182,7 @@ def test_release_workflow_uploads_flat_staged_assets() -> None:
 
     assert "runs-on: [self-hosted, freebsd, x64]" not in text
     assert "vmactions/freebsd-vm" in text or "cross-platform-actions/action" in text
-    assert 'release: "14.3"' in text
+    assert 'release: "14.4"' in text
     assert "pkg install -y python313" in text
     assert "python3.13 --version" in text
     assert "pkg --version" in text
@@ -708,11 +708,20 @@ def test_changelog_081_section_covers_hotfix_scope() -> None:
     assert not missing, "CHANGELOG 0.8.1 section missing: " + ", ".join(missing)
 
 
-def test_changelog_current_release_covers_metadata_hotfix_scope() -> None:
-    """The current-release section must document the v0.8.2 metadata hotfix scope."""
+def test_changelog_v082_release_covers_metadata_hotfix_scope() -> None:
+    """The historical 0.8.2 section must document its metadata hotfix scope.
+
+    This is a fixed historical contract, deliberately anchored to the
+    literal ``## 0.8.2`` heading rather than ``CURRENT_VERSION``: 0.8.2 was
+    a metadata-only hotfix release, and that scope does not move forward
+    when the current release advances (Issue #33 RQG-E version
+    finalization). Anchoring this to ``CURRENT_VERSION`` would silently
+    start asserting 0.8.2-specific phrases against a later release's
+    section once the version bumps, which is not what this test is for.
+    """
     text = CHANGELOG.read_text(encoding="utf-8")
-    start = text.find(f"## {CURRENT_VERSION}")
-    assert start != -1, f"CHANGELOG.md missing ## {CURRENT_VERSION} section"
+    start = text.find("## 0.8.2")
+    assert start != -1, "CHANGELOG.md missing ## 0.8.2 section"
     rest = text[start:]
     nxt = rest.find("\n## ", 1)
     section = rest[:nxt] if nxt != -1 else rest
@@ -725,9 +734,7 @@ def test_changelog_current_release_covers_metadata_hotfix_scope() -> None:
         "No dependency changes",
     )
     missing = [p for p in required_phrases if p.lower() not in section.lower()]
-    assert not missing, (
-        f"CHANGELOG {CURRENT_VERSION} section missing: " + ", ".join(missing)
-    )
+    assert not missing, "CHANGELOG 0.8.2 section missing: " + ", ".join(missing)
 
 
 def test_docs_system_shell_policy_present() -> None:

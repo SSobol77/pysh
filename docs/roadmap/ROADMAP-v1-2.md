@@ -17,9 +17,10 @@ backlog and organizes work into three milestones, with the **assurance
 and contract layer** (security, API stability, performance budgets,
 specification, supply chain) placed *before* feature expansion.
 
-Status reference: released stable **PySH 0.8.2**, active development target
-**PySH 0.9.0**, target **Python 3.13+**, validated on **Debian 13** and
-Unix-like systems, GPL-2.0-only.
+Status reference: released stable **PySH 0.9.0**, next milestone
+**PySH v1.0.0** (see [Milestones](#2-milestones) below), target
+**Python 3.13+**, validated on **Debian 13** and Unix-like systems,
+GPL-2.0-only.
 
 ---
 

@@ -16,7 +16,7 @@ PySH is distributed on PyPI as the package **`pysh-shell`**. It installs a
 single console command, `pysh`, and can also be run as a module with
 `python -m pysh`.
 
-<!-- pysh-install:version -->Current release: **PySH 0.8.2**.<!-- /pysh-install:version -->
+<!-- pysh-install:version -->Current release: **PySH 0.9.0**.<!-- /pysh-install:version -->
 
 ## Requirements
 

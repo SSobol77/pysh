@@ -24,7 +24,7 @@ jobs:
       - name: Build and inspect FreeBSD .pkg
         uses: vmactions/freebsd-vm@v1
         with:
-          release: "14.3"
+          release: "14.4"
           usesh: true
           prepare: |
             pkg update -f
@@ -104,6 +104,9 @@ jobs:
 
       - name: Build RPM .rpm
         run: bash scripts/build_rpm.sh
+
+      - name: RPM package real install-and-run smoke (isolated Fedora container)
+        run: bash scripts/smoke_rpm_package.sh dist/os/rpm/*.rpm
 
       - name: Download FreeBSD .pkg
         uses: actions/download-artifact@v4

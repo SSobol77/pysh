@@ -71,7 +71,7 @@ if [ "$(uname -s)" != "FreeBSD" ]; then
     fail "this script installs and runs a native FreeBSD package via real" \
         "pkg(8) tooling and must be executed on FreeBSD 14+; found" \
         "$(uname -s) instead. There is no Linux/Docker/emulation fallback --" \
-        "see .github/workflows/release-artifacts.yml's FreeBSD 14.3 VM job or" \
+        "see .github/workflows/release-artifacts.yml's FreeBSD 14.4 VM job or" \
         "docs/development/release.md for the manual verification procedure."
 fi
 

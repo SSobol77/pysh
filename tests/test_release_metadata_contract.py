@@ -63,7 +63,8 @@ def test_check_release_metadata_passes_on_real_repository() -> None:
 
 
 def test_check_release_metadata_passes_in_release_mode_on_real_repository() -> None:
-    """0.8.2 is already released, so --release-mode must also pass today."""
+    """The real repository must pass release-mode validation for the
+    finalized current release."""
     result = _run("--release-mode")
     assert result.returncode == 0, result.stderr
 
