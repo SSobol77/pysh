@@ -16,6 +16,14 @@ jobs:
   freebsd-pkg:
     name: Build FreeBSD .pkg
     runs-on: ubuntu-latest
+    # Safety bound (Issue #33): the real run this job performs -- VM boot,
+    # pkg bootstrap, build, static inspection, and the full install-and-run
+    # smoke -- reached the interactive PTY step in under a minute in the
+    # one real run observed so far. 20 minutes is ample margin without
+    # letting an infrastructure or test-harness regression consume ~90
+    # minutes again (as happened when the old unbounded PTY read hung).
+    # Exceeding this must FAIL the job outright, never be masked.
+    timeout-minutes: 20
 
     steps:
       - name: Checkout

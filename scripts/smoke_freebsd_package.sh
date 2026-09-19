@@ -189,62 +189,22 @@ printf 'quit\n' | pysh
 echo "batch-mode quit status: $?"
 
 echo "--- real interactive PTY smoke (genuine pseudo-terminal) ---"
-python3.13 - <<'PYEOF'
-import os
-import pty
-import subprocess
-import sys
-import time
-
-
-def run_pty_command(argv, input_line, timeout=10.0):
-    master_fd, slave_fd = pty.openpty()
-    proc = subprocess.Popen(
-        argv, stdin=slave_fd, stdout=slave_fd, stderr=slave_fd, close_fds=True
-    )
-    os.close(slave_fd)
-    os.write(master_fd, (input_line + "\n").encode())
-    output = b""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            chunk = os.read(master_fd, 4096)
-        except OSError:
-            break
-        if not chunk:
-            break
-        output += chunk
-        if proc.poll() is not None:
-            break
-    os.close(master_fd)
-    try:
-        rc = proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        rc = -1
-    return rc, output.decode(errors="replace")
-
-
-failed = False
-for cmd in ("exit", "quit"):
-    rc, out = run_pty_command(["/usr/local/bin/pysh"], cmd)
-    print(f"PTY interactive {cmd!r}: rc={rc}")
-    if rc != 0:
-        print(
-            f"SMOKE FAIL: PTY interactive {cmd!r} exited {rc}, output={out!r}",
-            file=sys.stderr,
-        )
-        failed = True
-    if "Traceback" in out:
-        print(
-            f"SMOKE FAIL: PTY interactive {cmd!r} produced a traceback: {out!r}",
-            file=sys.stderr,
-        )
-        failed = True
-if failed:
-    sys.exit(1)
-print("PTY interactive smoke PASSED")
-PYEOF
+# Shared, strictly-bounded PTY driver (Issue #33): every read is gated by
+# select() on a shrinking deadline, so a stuck/non-exiting child cannot
+# hang this step -- it is killed and reported as a deterministic FAIL
+# instead, rather than hanging the whole VM job as the old bare
+# blocking-os.read() loop did. Referenced directly from the repository
+# checkout (unlike the Debian/RPM containers, this VM already has the
+# full workspace synced) -- never copied or duplicated.
+if ! python3.13 "${REPO_ROOT}/scripts/pty_smoke.py" 10 exit /usr/local/bin/pysh; then
+    echo "SMOKE FAIL: PTY interactive exit failed" >&2
+    exit 1
+fi
+if ! python3.13 "${REPO_ROOT}/scripts/pty_smoke.py" 10 quit /usr/local/bin/pysh; then
+    echo "SMOKE FAIL: PTY interactive quit failed" >&2
+    exit 1
+fi
+echo "PTY interactive smoke PASSED"
 
 echo "=== ALL FREEBSD INSTALL-AND-RUN SMOKE CHECKS PASSED ==="
 

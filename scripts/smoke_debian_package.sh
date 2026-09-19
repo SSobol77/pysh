@@ -96,6 +96,7 @@ docker run --rm -i \
     -e "PYSH_DEB_PATH=/pkg/${DEB_BASENAME}" \
     -e "PYSH_EXPECTED_VERSION=${VERSION}" \
     -v "${DEB_ABS_PATH}:/pkg/${DEB_BASENAME}:ro" \
+    -v "${REPO_ROOT}/scripts/pty_smoke.py:/pysh-pty-smoke.py:ro" \
     "${DEBIAN_IMAGE}" \
     bash -s <<'CONTAINER_EOF'
 set -eu
@@ -207,56 +208,20 @@ printf 'quit\n' | pysh
 echo "batch-mode quit status: $?"
 
 echo "--- real interactive PTY smoke (genuine pseudo-terminal) ---"
-python3 - <<'PYEOF'
-import os
-import pty
-import subprocess
-import sys
-import time
-
-
-def run_pty_command(argv, input_line, timeout=10.0):
-    master_fd, slave_fd = pty.openpty()
-    proc = subprocess.Popen(
-        argv, stdin=slave_fd, stdout=slave_fd, stderr=slave_fd, close_fds=True
-    )
-    os.close(slave_fd)
-    os.write(master_fd, (input_line + "\n").encode())
-    output = b""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            chunk = os.read(master_fd, 4096)
-        except OSError:
-            break
-        if not chunk:
-            break
-        output += chunk
-        if proc.poll() is not None:
-            break
-    os.close(master_fd)
-    try:
-        rc = proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        rc = -1
-    return rc, output.decode(errors="replace")
-
-
-failed = False
-for cmd in ("exit", "quit"):
-    rc, out = run_pty_command(["/usr/bin/pysh"], cmd)
-    print(f"PTY interactive {cmd!r}: rc={rc}")
-    if rc != 0:
-        print(
-            f"SMOKE FAIL: PTY interactive {cmd!r} exited {rc}, output={out!r}",
-            file=sys.stderr,
-        )
-        failed = True
-if failed:
-    sys.exit(1)
-print("PTY interactive smoke PASSED")
-PYEOF
+# Shared, strictly-bounded PTY driver (Issue #33): every read is gated by
+# select() on a shrinking deadline, so a stuck/non-exiting child cannot
+# hang this step -- it is killed and reported as a deterministic FAIL
+# instead. Mounted read-only as a standalone harness file, not part of
+# the PySH package under test.
+if ! python3 /pysh-pty-smoke.py 10 exit /usr/bin/pysh; then
+    echo "SMOKE FAIL: PTY interactive exit failed" >&2
+    exit 1
+fi
+if ! python3 /pysh-pty-smoke.py 10 quit /usr/bin/pysh; then
+    echo "SMOKE FAIL: PTY interactive quit failed" >&2
+    exit 1
+fi
+echo "PTY interactive smoke PASSED"
 
 echo "=== ALL DEBIAN INSTALL-AND-RUN SMOKE CHECKS PASSED ==="
 CONTAINER_EOF

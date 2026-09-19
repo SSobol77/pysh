@@ -291,11 +291,15 @@ def test_script_includes_non_tty_batch_checks() -> None:
 
 
 def test_script_includes_real_pty_driven_interactive_smoke() -> None:
+    """The genuine PTY smoke is delegated to the shared, strictly-bounded
+    scripts/pty_smoke.py helper (Issue #33), never a copied driver here."""
     text = SCRIPT.read_text(encoding="utf-8")
-    assert "import pty" in text
-    assert "pty.openpty()" in text
+    assert "def run_pty_command" not in text
+    assert "import pty" not in text
+    assert "pty_smoke.py:/pysh-pty-smoke.py:ro" in text
+    assert "python3 /pysh-pty-smoke.py 10 exit /usr/bin/pysh" in text
+    assert "python3 /pysh-pty-smoke.py 10 quit /usr/bin/pysh" in text
     assert "PTY interactive smoke PASSED" in text
-    assert "Traceback" in text  # checked for and rejected, not merely mentioned
 
 
 def test_script_never_calls_pip_install_pysh() -> None:

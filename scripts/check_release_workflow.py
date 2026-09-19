@@ -96,6 +96,25 @@ def check_release_artifacts_workflow_structure(text: str) -> list[str]:
     if "vmactions/freebsd-vm" not in text and "cross-platform-actions/action" not in text:
         errors.append("release-artifacts.yml: missing the real FreeBSD VM build action")
 
+    # Issue #33: the freebsd-pkg job must carry a bounded timeout so an
+    # infrastructure or test-harness regression (e.g. a hung PTY read)
+    # cannot silently consume the ~6-hour GitHub Actions job ceiling; a
+    # real full run reaches the interactive PTY step in well under a
+    # minute, so this is a generous safety margin, not a tight budget.
+    try:
+        freebsd_job_idx = text.index("freebsd-pkg:")
+        next_job_idx = text.index("\n  build-and-validate:")
+    except ValueError as exc:
+        errors.append(f"release-artifacts.yml: could not locate freebsd-pkg job bounds: {exc}")
+    else:
+        freebsd_job_text = text[freebsd_job_idx:next_job_idx]
+        if "timeout-minutes:" not in freebsd_job_text:
+            errors.append(
+                "release-artifacts.yml: freebsd-pkg job is missing timeout-minutes: "
+                "an infrastructure/test-harness hang must fail the job, not run "
+                "indefinitely"
+            )
+
     return errors
 
 

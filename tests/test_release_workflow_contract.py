@@ -216,6 +216,27 @@ def test_structural_check_flags_continue_on_error() -> None:
     assert any("continue-on-error" in e for e in errors)
 
 
+def test_real_workflow_bounds_the_freebsd_job_with_a_timeout() -> None:
+    """Issue #33: an infra/harness hang (the real PTY-hang incident) must
+    fail the job via a bounded timeout, not run for hours unattended."""
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    freebsd_job = text[text.index("freebsd-pkg:") : text.index("\n  build-and-validate:")]
+    assert "timeout-minutes:" in freebsd_job
+
+
+def test_structural_check_flags_missing_freebsd_timeout() -> None:
+    """Prove the timeout-minutes check is load-bearing, not a tautology."""
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    without_timeout = text.replace("    timeout-minutes: 20\n", "")
+    assert "timeout-minutes:" not in without_timeout[
+        without_timeout.index("freebsd-pkg:") : without_timeout.index(
+            "\n  build-and-validate:"
+        )
+    ]
+    errors = CHECK.check_release_artifacts_workflow_structure(without_timeout)
+    assert any("timeout-minutes" in e for e in errors)
+
+
 def test_structural_check_flags_contract_only_in_real_workflow() -> None:
     """A --contract-only fixture must never be substituted in the real release path."""
     text = RELEASE_WORKFLOW.read_text(encoding="utf-8") + "\n--contract-only\n"
