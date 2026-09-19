@@ -45,14 +45,55 @@ the `pypi` GitHub environment.
    - [`pyproject.toml`](../../pyproject.toml) → `version = "X.Y.Z"`
    - [`src/pysh/__init__.py`](../../src/pysh/__init__.py) → `__version__ = "X.Y.Z"`
    - Any user-facing version strings in [`README.md`](../../README.md).
-3. Run the full quality gate locally:
+3. Ask "is this release candidate ready?" with the single Release Quality
+   Gate 2.0 entrypoint (Issue #33 RQG-H):
+   ```bash
+   uv run python scripts/release_gate.py --mode full
+   ```
+   This orchestrates every check below (and does not reimplement any of
+   them): `check_release_metadata.sh`, `ruff`, `check_headers.sh`,
+   `git diff --check`, `check_installation_docs.py`,
+   `check_release_workflow.py`, the full `pytest -q` suite, the PTY
+   integration suite under both `TERM=dumb` and `TERM=xterm-256color`, a
+   real wheel/sdist/`.deb`/`.rpm` build validated through
+   `check_release_artifacts.sh`, and the real Debian install-and-run smoke
+   (`smoke_debian_package.sh`). It prints one PASS/FAIL/NOT_RUN/
+   PLATFORM_BLOCKED manifest and exits `0` for `PASS` or
+   `READY_EXCEPT_PLATFORM_VALIDATION`, `1` for `FAIL`, `2` for a misused
+   argument. Add `--json <path>` for a machine-readable manifest, and
+   `--keep-logs <dir>` to persist each sub-check's log past the run instead
+   of a disposable temp directory. It never publishes, uploads, tags,
+   pushes, or mutates the version/changelog -- it is read-only.
+
+   - `--mode fast`: the cheap, source-only checks (metadata, ruff, headers,
+     git diff, the doc/workflow contracts in their structural mode) --
+     seconds, no build, no Docker.
+   - `--mode ci`: everything `fast` runs, plus the full test suite, both
+     PTY `TERM` variants, and a real wheel/sdist/`.deb`/`.rpm`
+     artifact-naming contract check -- the same checks ordinary CI performs
+     (minutes, no Docker required beyond what the test suite itself uses).
+   - `--mode full`: everything `ci` runs, plus the real Debian
+     install-and-run smoke (requires Docker; reported `PLATFORM_BLOCKED`,
+     not `FAIL`, if Docker is unavailable) and a FreeBSD native
+     install-and-run smoke placeholder, always `PLATFORM_BLOCKED` today --
+     that check does not exist yet (a future Issue #33 slice) and this
+     orchestrator never fakes it.
+
+   `READY_EXCEPT_PLATFORM_VALIDATION` means every check that could run on
+   the current machine passed, but at least one platform-specific check
+   (FreeBSD always, Debian if Docker is unavailable) could not run here at
+   all -- it is a "clean as far as this environment can tell" signal, not
+   a green light to release without separately confirming those platforms.
+
+   All steps must pass (or be a documented `PLATFORM_BLOCKED`) before
+   tagging. The underlying local gate,
    ```bash
    scripts/check_release_quality.sh
    ```
-   All steps must pass before tagging.
-   The gate builds local artifacts, inspects metadata and contents, installs
-   the wheel into a temporary virtual environment, and runs CLI smoke tests.
-   It also runs [`scripts/smoke_debian_package.sh`](../../scripts/smoke_debian_package.sh)
+   remains available and unchanged: it builds local artifacts, inspects
+   metadata and contents, installs the wheel into a temporary virtual
+   environment, runs CLI smoke tests, and runs
+   [`scripts/smoke_debian_package.sh`](../../scripts/smoke_debian_package.sh)
    (Issue #33 RQG-D): a REAL `apt-get install ./pysh-shell_X.Y.Z-1_all.deb`
    into a disposable `debian:13-slim` container, verifying the installed
    `/usr/bin/pysh` entrypoint (`--version`, `python3 -m pysh --version`,
@@ -74,6 +115,9 @@ the `pypi` GitHub environment.
 - Every builtin is documented in `docs/user/builtins.md`.
 - Tests updated for every new builtin or behavior change.
 - CI is green.
+- `uv run python scripts/release_gate.py --mode full` reports `PASS` or
+  `READY_EXCEPT_PLATFORM_VALIDATION` (with every `PLATFORM_BLOCKED` entry
+  understood and accounted for, never silently ignored).
 - `scripts/check_release_quality.sh` passes.
 - `twine check dist/*.whl dist/*.tar.gz` passes.
 - `pysh --version` and `python -m pysh --version` print the target version.

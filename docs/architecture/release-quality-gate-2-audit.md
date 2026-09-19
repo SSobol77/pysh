@@ -436,28 +436,30 @@ This closes the "never executed" gap for the one artifact family
 `tests/test_installation_docs_contract.py` for fixture-based coverage of
 every failure mode and one real end-to-end dynamic test.
 
-### 5.6 No single command with a deterministic PASS/FAIL manifest
+### 5.6 No single command with a deterministic PASS/FAIL manifest — RESOLVED (RQG-H)
 
 The original Issue #33 design (`docs/issues/33-release-quality-gate-2.0.md`)
 calls for "a single command with a deterministic exit code... prints a
-check manifest and a per-check PASS/FAIL summary." `check_release_quality.sh`
-is close (it has 12 numbered `log` steps) but uses `set -euo pipefail`,
-so it **stops at the first failure** rather than running all checks and
-reporting a full PASS/FAIL manifest at the end — a later check's status
-is unknown if an earlier one fails. This matches the "fail fast" model
-but not the "manifest" model the issue doc describes.
+check manifest and a per-check PASS/FAIL summary." `scripts/check_release_quality.sh`
+still uses `set -euo pipefail` and still stops at the first failure
+internally (unchanged, by design — it is a strict, fail-fast local gate,
+not the manifest orchestrator).
 
-- Smallest reasonable implementation location: this is the natural
-  RQG-H orchestration slice — wrap the existing checks so each one's
-  result is captured (not `set -e`-propagated) and a summary table is
-  printed at the end, exit code `1` if any failed. This can be additive
-  (a new top-level script) rather than a rewrite of the 12 existing steps.
-- New code required: yes, an orchestration layer; the underlying checks
-  do not need to change.
-- Proposed test location: a `tests/test_release_gate_orchestration.py`
-  exercising the summary/exit-code contract against seeded pass/fail
-  fixtures (e.g. monkeypatched sub-check functions), not the full real
-  pipeline (too slow/heavy for a unit test).
+**`scripts/release_gate.py` is the new, additive orchestration layer.** It
+invokes `check_release_metadata.sh`, `check_release_artifacts.sh`
+(`--contract-only` against a locally-built fixture set),
+`check_installation_docs.py`, `check_release_workflow.py`, `ruff`,
+`scripts/check_headers.sh`, `git diff --check`, the full `pytest -q`
+suite, the PTY suite under both `TERM` values, and
+`scripts/smoke_debian_package.sh` as independent subprocess checks; each
+one's PASS/FAIL/PLATFORM_BLOCKED/NOT_RUN status is captured (not
+`set -e`-propagated), and every check that can safely run does, even
+after an earlier one fails — there is no destructive/release step to
+protect by stopping early, since this orchestrator never publishes,
+tags, or pushes. It exits `0` for `PASS`/`READY_EXCEPT_PLATFORM_VALIDATION`,
+`1` for `FAIL`, `2` for misuse, and supports `--json` for a
+machine-readable manifest and `--keep-logs` to persist each sub-check's
+captured stdout/stderr. See `tests/test_release_gate.py`.
 
 ### 5.7 CHANGELOG "Unreleased" currency is not checked against merged work
 
@@ -660,13 +662,18 @@ scratch":
   `workflow_dispatch` dry run of the real workflow remains a possible
   future refinement but was not required to close this slice's contract.
   See `tests/test_release_workflow_contract.py`.
-- **RQG-H — Single orchestrated gate with PASS/FAIL manifest.** Wrap the
-  now-more-complete set of checks from RQG-B through RQG-G behind one
-  command that runs all checks (not stopping at the first failure),
-  prints a manifest, and exits non-zero if any failed — closing §5.6 and
-  fulfilling the original issue design's "deterministic exit code... full
-  check manifest" requirement. This slice should be last because it
-  depends on the individual checks it orchestrates being finalized first.
+- **RQG-H — Single orchestrated gate with PASS/FAIL manifest. IMPLEMENTED.**
+  Added `scripts/release_gate.py`, wrapping the RQG-B through RQG-G checks
+  (plus ruff/pytest/PTY/headers/git-diff) behind three modes (`fast`,
+  `ci`, `full`) with a four-state status model (`PASS`/`FAIL`/`NOT_RUN`/
+  `PLATFORM_BLOCKED`), a deterministic overall status
+  (`PASS`/`FAIL`/`READY_EXCEPT_PLATFORM_VALIDATION`) and exit code
+  (`0`/`1`/`2`), and both human-readable and `--json` manifests — closing
+  §5.6 and fulfilling the original issue design's "deterministic exit
+  code... full check manifest" requirement. FreeBSD install smoke is
+  intentionally always `PLATFORM_BLOCKED` (RQG-E does not exist yet);
+  Debian install smoke is `PLATFORM_BLOCKED` specifically when Docker is
+  unavailable, never faked as `PASS`. See `tests/test_release_gate.py`.
 
 ## 10. Recommended Execution Order
 
@@ -679,17 +686,25 @@ scratch":
 3. **RQG-D** and **RQG-F** in either order — both are "close an obvious
    install-smoke gap" slices of comparable size (Debian install smoke;
    README command execution) and do not depend on each other.
-4. **RQG-E** — requires a product-owner decision (branch trigger /
-   workflow duplication) before implementation, so it should not block
-   RQG-B/C/D/F, but should be resolved before RQG-H so the orchestrator
-   has a settled FreeBSD story to wrap.
-5. **RQG-G** — depends on RQG-C's fixture/CI-reachability work existing
-   first, since a meaningful release-workflow dry run wants the same
-   "run without a live FreeBSD VM" capability.
-6. **RQG-H last** — orchestration should wrap finished, individually
-   trustworthy checks, not checks still being redesigned.
+4. **RQG-G** — the branch-trigger/workflow-duplication decision this
+   audit originally filed under a placeholder "RQG-E" was actually
+   resolved here: `freebsd-pkg.yml` was retired and
+   `release-artifacts.yml` got its explicit build → validate → upload job
+   boundary, depending on RQG-C's fixture/CI-reachability work already
+   existing.
+5. **RQG-H last** — orchestration wraps the finished, individually
+   trustworthy checks from RQG-B/C/D/F/G, not checks still being
+   redesigned.
 
-This order prioritizes turning existing-but-unreachable checks into
-reachable ones (RQG-C) before adding net-new checks, and defers the
-single-command orchestration (RQG-H) until there is a stable, complete
+This order prioritized turning existing-but-unreachable checks into
+reachable ones (RQG-C) before adding net-new checks, and deferred the
+single-command orchestration (RQG-H) until there was a stable, complete
 set of underlying checks worth orchestrating.
+
+**Status as of RQG-H: every slice above is implemented except a genuine
+native FreeBSD install-and-run smoke** (the Debian-parallel counterpart to
+RQG-D) **, which remains explicitly unimplemented by design** ("Do not
+implement RQG-E yet" — a future slice, not scoped here). `scripts/release_gate.py`
+reports this honestly as `PLATFORM_BLOCKED`, never as `PASS`, and the
+overall gate reports `READY_EXCEPT_PLATFORM_VALIDATION` rather than `PASS`
+until that slice exists.
