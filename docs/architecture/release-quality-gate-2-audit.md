@@ -467,61 +467,82 @@ slice.
 | FreeBSD | `freebsd-pkg.yml`'s push trigger (`release/v*`) does not match this project's real branch-naming convention and is very likely dead code. | Trigger-pattern/branch-model mismatch (§5.3). |
 | Linux/Debian CI | Cannot produce a FreeBSD `.pkg`, so the full 5-artifact-family gate (`check_release_artifacts.sh`) never runs unconditionally in `ci.yml` (§5.1). | Structural — needs a fixture or an accepted "skip FreeBSD, gate the rest" mode for ordinary CI, distinct from the release-time full gate. |
 | macOS / Windows dev machines | `check_release_quality.sh` hard-requires `dpkg-deb`, `rpm`, `rpmbuild` (`:44-46`) — not installable by default on macOS/Windows. | Documented implicitly (Debian-first project) but not stated as a constraint anywhere; not a defect, just worth naming explicitly so RQG slices don't assume a Linux-only contributor base without saying so. |
-| RPM | RPM validation exists at the same rigor as Debian (`build_rpm.sh`, content-listing check) but RPM is **not** one of the "Debian package build / FreeBSD package validation" items explicitly named in the Issue #33 scope list, even though it is fully wired into every script and workflow examined here. | Scope-definition gap in the issue text itself, not an implementation gap — worth the product owner explicitly deciding whether RPM is in or out of Issue #33's formal scope, since the tooling already treats it as mandatory alongside `.deb`. |
+| RPM | **RESOLVED (RQG-B).** RPM is a formally supported, mandatory release artifact family for the quality gate, on equal footing with Debian `.deb` and FreeBSD `.pkg`. Issue #33's original scope text naming only "Debian and FreeBSD" is superseded by actual, long-standing repository practice: `scripts/check_release_quality.sh`, `scripts/check_release_artifacts.sh`, `scripts/check_release_metadata.sh` (RQG-B), and `docs/development/release.md` (which already documents "four artifact families", RPM included) all treat it as mandatory. RPM install/native smoke testing remains explicitly out of scope for RQG-B — same as Debian and FreeBSD, neither of which has install smoke automated yet either (§8); that belongs to a future native-packaging-validation slice. | Scope-definition gap in the issue text itself, now closed by explicit product-owner-directed decision rather than left ambiguous. |
 
-## 7. Version-Consistency Map
+### 6.1 RQG-B / RQG-C Follow-up
 
-Three independent, manually-synchronized literal version strings exist
-today, all currently `"0.8.2"` (the `develop/v0.9.0` branch is active
-0.9.0 development; per this phase's explicit instruction, this audit does
-not change or challenge that policy):
+RQG-C closed the Linux/Debian CI gap in the row above: `ci.yml`'s artifact-contract
+step now runs unconditionally via `scripts/check_release_artifacts.sh --contract-only`
+against an isolated fixture directory, so it is no longer permanently skipped.
+RQG-B adds `scripts/check_release_metadata.sh` (version/changelog/tag/license/
+Requires-Python/entrypoint consistency), wired into `ci.yml` unconditionally
+(no tag required) and into `release-artifacts.yml` in `--release-mode`
+(plus `--tag` when triggered by an actual GitHub Release). The FreeBSD
+scheduling gap and the `freebsd-pkg.yml` trigger-pattern question (rows above)
+remain open for a future slice.
+
+## 7. Version-Consistency Map (updated by RQG-B)
+
+**Pre-RQG-B state** (for historical reference): three independent,
+manually-synchronized literal version strings existed — `pyproject.toml`,
+`src/pysh/__init__.py`, and a third hardcoded `CURRENT_VERSION` literal in
+`tests/test_docs_consistency.py` — each requiring a human to remember to
+update it in lockstep on every version bump.
+
+**Current state (RQG-B):** `pyproject.toml` is the single authoritative
+version source. `tests/test_docs_consistency.py::CURRENT_VERSION` is now
+*derived* from it at import time (`tomllib.loads(...)["project"]["version"]`),
+not independently maintained, eliminating that third literal per this
+audit's own §9 RQG-B recommendation. Only two literal copies remain by
+design: `pyproject.toml` (build/PyPI-authoritative) and
+`src/pysh/__init__.py` (packaged runtime metadata, kept as a literal
+deliberately — dynamically parsing `pyproject.toml` on every PySH startup
+was explicitly rejected to keep runtime startup cheap and package-safe).
 
 ```text
-pyproject.toml            [project] version = "0.8.2"      (authoritative for build/PyPI)
-src/pysh/__init__.py      __version__ = "0.8.2"             (authoritative for `pysh --version`)
-tests/test_docs_consistency.py   CURRENT_VERSION = "0.8.2"  (authoritative for the test suite's expectations)
+pyproject.toml            [project] version = "0.8.2"   (sole authoritative source)
+src/pysh/__init__.py      __version__ = "0.8.2"          (packaged runtime metadata; checked, not derived)
 ```
 
 Cross-checks that exist today:
 
-- `pyproject.toml` version == `CURRENT_VERSION` —
-  `test_pyproject_toml_version_is_current` (`test_docs_consistency.py:421`).
-- `src/pysh/__init__.py` `__version__` == `CURRENT_VERSION` —
-  `test_init_py_version_is_current` (`:430`).
-- `CHANGELOG.md` contains a `## {CURRENT_VERSION}` section —
-  `test_changelog_has_current_version_section` (`:620`).
-- Current-facing docs contain `CURRENT_VERSION` somewhere —
-  `test_current_facing_docs_contain_current_version` (`:462`).
+- `src/pysh/__init__.py` `__version__` == `pyproject.toml` version —
+  `test_init_py_version_is_current` (`test_docs_consistency.py`), now a
+  direct two-way check rather than "both agree with a third literal."
+- `pyproject.toml` version is well-formed (`X.Y.Z`) —
+  `test_pyproject_toml_version_is_well_formed` (replaces the now-retired,
+  previously-tautological `test_pyproject_toml_version_is_current`).
+- `pysh --version` (in-process) and `python -m pysh --version` (real
+  subprocess) both print the exact `pyproject.toml` version —
+  `tests/test_release_metadata_contract.py::test_cli_version_flag_matches_canonical_version`
+  and `::test_module_invocation_version_matches_canonical_version`, tracing
+  back to `pyproject.toml` directly rather than transitively through
+  `pysh.__version__` alone.
+- `scripts/check_release_metadata.sh` (new, RQG-B) consolidates the
+  version/license/Requires-Python/entrypoint/changelog/tag checks into one
+  reusable, CI-invoked command; wired into `ci.yml` unconditionally (no tag
+  required) and into `release-artifacts.yml` in `--release-mode` (plus
+  `--tag` when triggered by a real GitHub Release).
+- `CHANGELOG.md` heading contract (ordering, duplicates, target-version
+  presence, and — in `--release-mode` only — the target section must no
+  longer say "Unreleased") is enforced by the same script; see §9 RQG-B
+  for the full contract and `tests/test_release_metadata_contract.py` for
+  dynamic fixture-based coverage of every branch.
+- An explicit release tag (`v<version>`) is validated by the same script
+  via `--tag`, only when passed — never required by ordinary CI.
 - Release artifact filenames are derived from `pyproject.toml` via
   `scripts/_pysh_version.sh::pysh_read_version` (single shared awk
   extractor used by every build/check script), so **artifact naming is
   transitively tied to `pyproject.toml`**, not independently hardcoded.
-- `pysh --version` / `python -m pysh --version` both read
-  `pysh.__version__` (`src/pysh/cli.py:14,38`), so the two CLI-facing
-  commands can never disagree with each other — they share one source.
 
-What is **not** cross-checked:
+What is still **not** cross-checked, and remains open for a later slice:
 
-- Nothing compares `CURRENT_VERSION` (test-suite literal) against a git
-  tag. A tag `v0.8.2` is asserted to exist nowhere in code; the "Git tag
-  when present must all agree" requirement from the original Issue #33
-  design (`docs/issues/33-release-quality-gate-2.0.md:46`) has no
-  implementation.
-- `CHANGELOG.md`'s current-version section is checked for *existence*,
-  not for being the **first/top** section (an out-of-order or duplicated
-  header would not necessarily be caught) — though `test_changelog_has_current_version_section`'s
-  simple substring check is close to sufficient for this repo's actual
-  changelog shape (verified manually: `0.9.0 - Unreleased` is line 17,
-  above `0.8.2` at line 34, i.e. correctly ordered today).
-- Two version strings could be bumped (`pyproject.toml`,
-  `src/pysh/__init__.py`) while `CURRENT_VERSION` in the test file is
-  forgotten, in a way that keeps the two source strings mutually
-  consistent with each other but wrong relative to intent — the test
-  would then fail (because both would disagree with the stale
-  `CURRENT_VERSION`), which is a *safe* failure mode (loud, not silent),
-  but the error message would misleadingly suggest `pyproject.toml`/
-  `__init__.py` are wrong when actually the test fixture is stale. This
-  is a minor ergonomics point, not a correctness gap.
+- Nothing in the default/ordinary-CI path compares the current git
+  `HEAD`'s reachable tags against the canonical version — `--tag` only
+  validates a tag *string* handed to it explicitly (by a release workflow
+  event), not "does this commit actually have a matching tag." This
+  matches the task's explicit instruction that ordinary CI must never
+  require a tag to exist.
 
 ## 8. Artifact Lifecycle Map (source → build → validate → install → smoke → publish)
 
@@ -552,11 +573,15 @@ of the suggested slices already have strong partial implementations, so
 several are re-scoped as "close the gap" rather than "build from
 scratch":
 
-- **RQG-B — Version + metadata consistency hardening.** Add the missing
-  git-tag cross-check; document/resolve the `CURRENT_VERSION`
-  triple-source-of-truth ergonomics (§7); decide and codify RPM's formal
-  status in Issue #33's scope (§6). Small, mostly test-file changes.
-- **RQG-C — CI-reachable artifact gate (no FreeBSD dependency).** Wire
+- **RQG-B — Version + metadata consistency hardening. IMPLEMENTED.** Added
+  `scripts/check_release_metadata.sh` (version/license/Requires-Python/
+  entrypoint/changelog/tag consistency); eliminated the `CURRENT_VERSION`
+  triple-source-of-truth (§7); resolved RPM's formal scope status (§6).
+  Wired into `ci.yml` (unconditional, no tag) and `release-artifacts.yml`
+  (`--release-mode`, plus `--tag` on real releases). See
+  `tests/test_release_metadata_contract.py`.
+- **RQG-C — CI-reachable artifact gate (no FreeBSD dependency). IMPLEMENTED.**
+  Wire
   `check_release_artifacts.sh`/`check_release_quality.sh`'s non-FreeBSD
   checks into `ci.yml` unconditionally, using a fixture strategy for the
   FreeBSD `.pkg` slot so the naming/checksum contract is exercised on

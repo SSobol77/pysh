@@ -53,6 +53,9 @@ jobs:
       - name: Run ruff
         run: ruff check src tests
 
+      - name: Verify release metadata contract (version/changelog, no tag required)
+        run: bash scripts/check_release_metadata.sh
+
       - name: Build sdist and wheel
         run: |
           rm -rf dist build

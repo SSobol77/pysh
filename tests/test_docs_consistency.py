@@ -394,10 +394,21 @@ def test_no_affirmative_broad_compatibility_claims_in_public_docs() -> None:
 # Version gate tests — prevent stale release metadata from surviving a bump
 # ---------------------------------------------------------------------------
 
-CURRENT_VERSION = "0.8.2"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 INIT_PY = REPO_ROOT / "src" / "pysh" / "__init__.py"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+
+# The canonical release version has exactly one authoritative source:
+# pyproject.toml. Earlier revisions of this test module additionally
+# maintained a hardcoded ``CURRENT_VERSION = "0.8.2"`` literal that every
+# version bump had to remember to update in lockstep -- a second copy that
+# could itself drift. CURRENT_VERSION is now derived, not duplicated: every
+# test below that references it is really asserting "agrees with
+# pyproject.toml" (see docs/architecture/release-quality-gate-2-audit.md,
+# RQG-B). Runtime __version__ vs. pyproject.toml agreement is still
+# independently enforced by test_init_py_version_is_current below, and by
+# scripts/check_release_metadata.sh for CI/release use.
+CURRENT_VERSION = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
 CURRENT_FACING_DOCS: tuple[Path, ...] = (
     README,
     REPO_ROOT / "roadmap.md",
@@ -422,25 +433,35 @@ def _read_pyproject() -> dict[str, object]:
     return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
 
 
-def test_pyproject_toml_version_is_current() -> None:
-    """pyproject.toml must declare the current release version."""
+def test_pyproject_toml_version_is_well_formed() -> None:
+    """pyproject.toml's version must be a well-formed X.Y.Z release string.
+
+    This does not compare against a second hardcoded literal (there isn't
+    one any more -- CURRENT_VERSION *is* this value); it guards against a
+    malformed or accidentally-emptied version field, which the equality
+    checks below would not otherwise catch on their own.
+    """
     data = _read_pyproject()
     actual = data["project"]["version"]
-    assert actual == CURRENT_VERSION, (
-        f"pyproject.toml version must be {CURRENT_VERSION!r}, got {actual!r}"
+    assert re.match(r"^\d+\.\d+\.\d+$", actual), (
+        f"pyproject.toml version must be X.Y.Z, got {actual!r}"
     )
 
 
 def test_init_py_version_is_current() -> None:
-    """src/pysh/__init__.py __version__ must match the current release."""
-    text = INIT_PY.read_text(encoding="utf-8")
-    import re
+    """src/pysh/__init__.py __version__ must match pyproject.toml's version.
 
+    This is the real cross-check: runtime-packaged metadata
+    (``pysh.__version__``, which feeds both ``pysh --version`` and
+    ``python -m pysh --version`` via ``src/pysh/cli.py``) must never drift
+    from the single authoritative build version in pyproject.toml.
+    """
+    text = INIT_PY.read_text(encoding="utf-8")
     match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
     assert match, "__version__ not found in src/pysh/__init__.py"
     actual = match.group(1)
     assert actual == CURRENT_VERSION, (
-        f"__version__ must be {CURRENT_VERSION!r}, got {actual!r}"
+        f"__version__ must match pyproject.toml ({CURRENT_VERSION!r}), got {actual!r}"
     )
 
 

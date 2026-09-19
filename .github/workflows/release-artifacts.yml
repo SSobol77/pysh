@@ -82,6 +82,16 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build twine
 
+      - name: Verify release metadata contract (release mode)
+        if: github.event_name != 'release'
+        run: bash scripts/check_release_metadata.sh --release-mode
+
+      - name: Verify release metadata contract (release mode, with tag)
+        if: github.event_name == 'release'
+        run: |
+          bash scripts/check_release_metadata.sh --release-mode \
+            --tag "${{ github.event.release.tag_name }}"
+
       - name: Build PyPI artifacts
         run: bash scripts/build_pysh_package.sh
 
