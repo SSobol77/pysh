@@ -89,7 +89,8 @@ docs/
 │   ├── pysh-issue-backlog.md
 │   ├── documentation-policy.md
 │   ├── ISSUE-2-refactor-source-tree.md
-│   └── ISSUE-3-architecture-contracts.md
+│   ├── ISSUE-3-architecture-contracts.md
+│   └── release-quality-gate-2-audit.md
 ├── development/                       ← contributor and release guides
 │   ├── development.md
 │   ├── history-engine.md
@@ -212,6 +213,7 @@ Internal architecture decisions, issue tracking, and roadmap.
 | [documentation-policy.md](architecture/documentation-policy.md) | Required documentation coverage for new features |
 | [ISSUE-2-refactor-source-tree.md](architecture/ISSUE-2-refactor-source-tree.md) | Issue #2 design: relocating source into domain subpackages |
 | [ISSUE-3-architecture-contracts.md](architecture/ISSUE-3-architecture-contracts.md) | Issue #3 spec: enforceable import-boundary contracts |
+| [release-quality-gate-2-audit.md](architecture/release-quality-gate-2-audit.md) | Issue #33 Phase RQG-A: current-state audit and gap matrix for the release quality gate |
 
 ---
 
