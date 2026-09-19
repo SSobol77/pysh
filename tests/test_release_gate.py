@@ -335,11 +335,42 @@ def test_debian_smoke_is_platform_blocked_when_docker_unavailable(
 # ------------------------------------------------------- 12. FreeBSD unavailable
 
 
-def test_freebsd_smoke_is_always_platform_blocked_never_pass(tmp_path: Path) -> None:
+def test_freebsd_smoke_is_platform_blocked_on_non_freebsd_hosts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On a non-FreeBSD host, this must never fake a PASS.
+
+    Real FreeBSD execution only happens on an actual FreeBSD host, which
+    this repository's dev/CI/test environments are not; that real
+    execution is exercised separately in
+    tests/test_freebsd_package_smoke_contract.py and in
+    .github/workflows/release-artifacts.yml's FreeBSD 14.3 VM job.
+    """
+    monkeypatch.setattr(GATE.platform, "system", lambda: "Linux")
     result = GATE.check_freebsd_smoke(tmp_path)
     assert result.status == GATE.STATUS_PLATFORM_BLOCKED
     assert result.status != GATE.STATUS_PASS
-    assert "RQG-E" in result.diagnostic
+    assert "FreeBSD" in result.diagnostic
+    assert "smoke_freebsd_package.sh" in result.diagnostic
+
+
+def test_freebsd_smoke_attempts_real_build_and_install_on_freebsd_hosts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On a (simulated) FreeBSD host, the orchestrator must attempt the real
+    build/smoke chain rather than short-circuiting to PLATFORM_BLOCKED.
+
+    This cannot build a real .pkg on this (non-FreeBSD) test host, so
+    build_freebsd_pkg.sh is expected to fail fast with its own
+    "must be built on FreeBSD" guard -- the important behavior under test
+    is that check_freebsd_smoke() actually invokes that script instead of
+    skipping straight to PLATFORM_BLOCKED, and reports the failure as FAIL,
+    not PLATFORM_BLOCKED and not a faked PASS.
+    """
+    monkeypatch.setattr(GATE.platform, "system", lambda: "FreeBSD")
+    result = GATE.check_freebsd_smoke(tmp_path)
+    assert result.status == GATE.STATUS_FAIL
+    assert result.status != GATE.STATUS_PASS
 
 
 # --------------------------------------------------- 13/14/15. mode semantics

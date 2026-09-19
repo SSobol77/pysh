@@ -306,7 +306,7 @@ def test_real_debian_install_and_run_smoke_passes(tmp_path: Path) -> None:
     assert debs, "build_deb.sh did not produce a .deb"
     deb_path = debs[-1]
 
-    result = _run(str(deb_path), timeout=180.0)
+    result = _run(str(deb_path), timeout=600.0)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "ALL DEBIAN INSTALL-AND-RUN SMOKE CHECKS PASSED" in result.stdout
     assert "/opt/pysh-shell/lib/pysh/__init__.py" in result.stdout

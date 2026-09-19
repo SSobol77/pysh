@@ -406,20 +406,65 @@ def check_debian_smoke(log_dir: Path) -> CheckResult:
     )
 
 
-def check_freebsd_smoke(log_dir: Path) -> CheckResult:  # noqa: ARG001
-    """Native FreeBSD install-and-run smoke does not exist yet (RQG-E).
+def check_freebsd_smoke(log_dir: Path) -> CheckResult:
+    """Real FreeBSD install-and-run smoke, reusing scripts/smoke_freebsd_package.sh.
 
-    Always PLATFORM_BLOCKED, regardless of host OS: this orchestrator must
-    never fake FreeBSD validation. The real FreeBSD build/inspection lives
-    solely in .github/workflows/release-artifacts.yml's VM-based job.
+    FreeBSD's native .pkg format and pkg(8) tooling only exist on FreeBSD
+    itself -- there is no daemon-reachability capability probe the way
+    Docker has one for check_debian_smoke: the host either IS FreeBSD or
+    it isn't. On any other host this is an environment capability gap, not
+    a product defect, and is reported as PLATFORM_BLOCKED, never a faked
+    PASS. The real build-install-query-execute lifecycle also runs,
+    unconditionally, inside .github/workflows/release-artifacts.yml's
+    FreeBSD 14.3 VM job via this same script.
     """
-    return CheckResult(
-        status=STATUS_PLATFORM_BLOCKED,
-        diagnostic=(
-            "native FreeBSD install smoke (RQG-E) is not implemented yet; real "
-            "FreeBSD validation only exists in "
-            ".github/workflows/release-artifacts.yml's FreeBSD 14.3 VM build"
-        ),
+    if platform.system() != "FreeBSD":
+        return CheckResult(
+            status=STATUS_PLATFORM_BLOCKED,
+            diagnostic=(
+                f"this host is {platform.system()}, not FreeBSD; native FreeBSD "
+                ".pkg install/run smoke requires real FreeBSD 14+ and has no "
+                "container/emulation fallback. The real smoke runs "
+                "unconditionally in .github/workflows/release-artifacts.yml's "
+                "FreeBSD 14.3 VM job via scripts/smoke_freebsd_package.sh."
+            ),
+        )
+
+    start = time.monotonic()
+    build = subprocess.run(
+        ["sh", str(REPO_ROOT / "scripts" / "build_freebsd_pkg.sh")],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if build.returncode != 0:
+        duration = time.monotonic() - start
+        log_path = log_dir / "freebsd-smoke.log"
+        log_path.write_text(build.stdout + build.stderr, encoding="utf-8")
+        return CheckResult(
+            status=STATUS_FAIL,
+            exit_code=build.returncode,
+            duration_seconds=duration,
+            diagnostic=_last_lines(build.stdout + build.stderr, 6),
+            log_path=str(log_path),
+        )
+
+    pkgs = sorted((REPO_ROOT / "dist" / "os" / "freebsd").glob("*.pkg"))
+    if not pkgs:
+        duration = time.monotonic() - start
+        return CheckResult(
+            status=STATUS_FAIL,
+            duration_seconds=duration,
+            diagnostic="build_freebsd_pkg.sh did not produce a .pkg",
+        )
+
+    return run_subprocess_check(
+        ["sh", str(REPO_ROOT / "scripts" / "smoke_freebsd_package.sh"), str(pkgs[-1])],
+        log_dir=log_dir,
+        log_name="freebsd-smoke",
+        timeout=180.0,
     )
 
 

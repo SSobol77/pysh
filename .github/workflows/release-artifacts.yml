@@ -45,6 +45,7 @@ jobs:
             grep -Fx /usr/local/bin/pysh /tmp/pysh-freebsd-pkg-files
             grep -E '^/usr/local/lib/pysh-shell/pysh(/|$)' \
               /tmp/pysh-freebsd-pkg-files
+            sh scripts/smoke_freebsd_package.sh "${PKG_PATH}"
 
       - name: Verify FreeBSD .pkg artifact on host
         run: |

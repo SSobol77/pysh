@@ -574,24 +574,27 @@ What is still **not** cross-checked, and remains open for a later slice:
 | **Validate (naming)** | `check_release_artifacts.sh` exact-filename checks | same | same | same |
 | **Validate (metadata/contents)** | `check_release_quality.sh` step 9 (zip/tar introspection, METADATA fields) | step 10 (`dpkg-deb --contents`) | step 10 (`rpm -qpl`) | `release-artifacts.yml` (`pkg info -F`, `pkg query -F`) — **not** in `check_release_quality.sh` itself beyond filename/checksum |
 | **Checksum** | `dist/SHA256SUMS` + flat `dist/release-assets/SHA256SUMS`, both self-verified via `sha256sum -c` | same | same | same |
-| **Install smoke** | Real: `check_release_quality.sh` step 12 (throwaway venv, `pip install --no-deps`) | **Real (RQG-D):** `scripts/smoke_debian_package.sh` — genuine `apt-get install ./<pkg>.deb` inside a disposable `debian:13-slim` container, on every CI push/PR (unconditional, no `continue-on-error`) and in `check_release_quality.sh` step 11 | Content-listing only; **no actual `rpm -i`/`dnf install` smoke anywhere** | Content-listing only inside the FreeBSD VM (`pkg info -F`, not `pkg install` + run); `docs/development/release.md`'s "Post-release" section documents a real `pkg install` + `pysh --version`/`-c` smoke, but only as a **manual, human-run** step |
-| **CLI smoke (installed entrypoint)** | `--version` (CI, every push); `-c`/`exit`/`quit` (local gate only, §5.2) | **Real (RQG-D):** `--version`, `python3 -m pysh --version`, `pysh -c "echo deb-smoke"`, `pysh -c "exit"`, `pysh -c "quit"`, a non-TTY batch-mode check, and a genuine stdlib-`pty`-driven interactive `exit`/`quit` check — all against the installed `/usr/bin/pysh`, on every CI run | none automated | none automated (manual doc only) |
-| **Package isolation proof** | n/a | **New (RQG-D):** `command -v pysh` == `/usr/bin/pysh`; `PYTHONPATH=/opt/pysh-shell/lib python3 -c 'import pysh; print(pysh.__file__)'` == `/opt/pysh-shell/lib/pysh/__init__.py` — never the repo checkout or a venv | not yet | not yet |
+| **Install smoke** | Real: `check_release_quality.sh` step 12 (throwaway venv, `pip install --no-deps`) | **Real (RQG-D):** `scripts/smoke_debian_package.sh` — genuine `apt-get install ./<pkg>.deb` inside a disposable `debian:13-slim` container, on every CI push/PR (unconditional, no `continue-on-error`) and in `check_release_quality.sh` step 11 | Content-listing only; **no actual `rpm -i`/`dnf install` smoke anywhere** | **Real (RQG-E):** `scripts/smoke_freebsd_package.sh` — genuine `pkg add <local .pkg>` directly on real FreeBSD 14+, run inside `release-artifacts.yml`'s `vmactions/freebsd-vm` job immediately after the existing `pkg info -F`/`pkg query -F` static checks, unconditionally, no `continue-on-error`. `check_release_quality.sh` still cannot run it (it executes on a Linux dev machine and FreeBSD's `pkg(8)` has no Linux/container equivalent), so it keeps its existing preserve/restore-prebuilt-`.pkg` handling instead |
+| **CLI smoke (installed entrypoint)** | `--version` (CI, every push); `-c`/`exit`/`quit` (local gate only, §5.2) | **Real (RQG-D):** `--version`, `python3 -m pysh --version`, `pysh -c "echo deb-smoke"`, `pysh -c "exit"`, `pysh -c "quit"`, a non-TTY batch-mode check, and a genuine stdlib-`pty`-driven interactive `exit`/`quit` check — all against the installed `/usr/bin/pysh`, on every CI run | none automated | **Real (RQG-E):** `--version`, `python3.13 -m pysh --version`, `pysh -c "echo freebsd-smoke"`, `pysh -c "exit"`, `pysh -c "quit"`, a non-TTY batch-mode check, and a genuine stdlib-`pty`-driven interactive `exit`/`quit` check — all against the installed `/usr/local/bin/pysh`, inside the FreeBSD VM job |
+| **Package isolation proof** | n/a | **New (RQG-D):** `command -v pysh` == `/usr/bin/pysh`; `PYTHONPATH=/opt/pysh-shell/lib python3 -c 'import pysh; print(pysh.__file__)'` == `/opt/pysh-shell/lib/pysh/__init__.py` — never the repo checkout or a venv | not yet | **New (RQG-E):** `command -v pysh` == `/usr/local/bin/pysh`; `PYTHONPATH=/usr/local/lib/pysh-shell python3.13 -c 'import pysh; print(pysh.__file__)'` == `/usr/local/lib/pysh-shell/pysh/__init__.py` — never the VM's repository checkout |
 | **Publish** | `publish.yml` → PyPI Trusted Publishing, `release: published` only | `release-artifacts.yml` → GitHub Release asset upload | same | same |
 
-**Updated by RQG-D:** Debian is no longer the "content-listing only" case —
-it now has the same tier of real install-and-run smoke as wheel/sdist,
-reusing one script (`scripts/smoke_debian_package.sh`) from both `ci.yml`
-and `scripts/check_release_quality.sh` (no duplicate implementation). RPM
-and FreeBSD remain validated for naming, checksum, and static content
-listing only; neither is actually installed into a container/VM and
-exercised with `pysh --version` / `pysh -c` as part of any automated run —
-FreeBSD still only as a documented **manual** post-release step. A
-FreeBSD or RPM install-and-run smoke, following the same
-`scripts/smoke_debian_package.sh` pattern (a disposable, network-minimal
-container or VM; a real package-manager install; verification against the
-installed entrypoint; a package-isolation proof), is the natural next slice
-after RQG-D.
+**Updated by RQG-D, then RQG-E:** Debian and FreeBSD are no longer the
+"content-listing only" cases — both now have the same tier of real
+install-and-run smoke as wheel/sdist. Debian reuses one script
+(`scripts/smoke_debian_package.sh`) from both `ci.yml` and
+`scripts/check_release_quality.sh`; FreeBSD reuses one script
+(`scripts/smoke_freebsd_package.sh`) from both `release-artifacts.yml`'s
+FreeBSD VM job and `scripts/release_gate.py --mode full` (on an actual
+FreeBSD host) — no duplicate implementation in either case. RPM remains
+validated for naming, checksum, and static content listing only; it is
+not actually installed into a container/VM and exercised with
+`pysh --version` / `pysh -c` as part of any automated run. An RPM
+install-and-run smoke, following the same
+`smoke_debian_package.sh`/`smoke_freebsd_package.sh` pattern (a
+disposable, network-minimal container; a real package-manager install;
+verification against the installed entrypoint; a package-isolation
+proof), is the natural next slice after RQG-E.
 
 ## 9. Proposed Implementation Slices for Issue #33
 
@@ -626,11 +629,38 @@ scratch":
   as-is by `check_release_quality.sh`; the pre-existing
   `dpkg-deb --contents` check is preserved unchanged. See
   `tests/test_debian_package_smoke_contract.py`.
-- **RQG-E — FreeBSD package validation scope decision + install smoke.**
-  Product-owner decision on `freebsd-pkg.yml` vs `release-artifacts.yml`
-  duplication and trigger scoping (§5.3); if kept, add a real
-  `pkg install` + CLI smoke inside the existing `vmactions/freebsd-vm`
-  job (currently only `pkg info -F`/`pkg query -F`, never `pkg install`).
+- **RQG-E — FreeBSD package install-and-run smoke. IMPLEMENTED.** Added
+  `scripts/smoke_freebsd_package.sh`: a real `pkg add <local .pkg>` on
+  real FreeBSD 14+, followed by `pysh --version`,
+  `python3.13 -m pysh --version`, `pysh -c "echo freebsd-smoke"`,
+  `pysh -c "exit"`/`"quit"`, a non-TTY batch-mode check, a genuine
+  `pty`-driven interactive `exit`/`quit` check, and a package-isolation
+  proof (`command -v pysh`, `pysh.__file__` under
+  `/usr/local/lib/pysh-shell`). The script refuses to run on any host
+  that is not real FreeBSD 14+ (`uname -s` check, no silent skip, no
+  container/emulation fallback — FreeBSD's `.pkg` format and `pkg(8)`
+  simply do not exist elsewhere). Wired into
+  `release-artifacts.yml`'s FreeBSD VM job, immediately after the
+  pre-existing `pkg info -F`/`pkg query -F` static checks (preserved
+  unchanged) and before the artifact-verify/upload steps, with no
+  `continue-on-error`. `scripts/release_gate.py`'s `check_freebsd_smoke()`
+  now checks `platform.system() == "FreeBSD"` directly (there is no
+  daemon-reachability capability probe the way Docker has one for
+  Debian — the host either is FreeBSD or it isn't): `PLATFORM_BLOCKED`
+  with an accurate diagnostic on any other host, a real build-install-run
+  attempt (`PASS`/`FAIL` on the genuine outcome) on FreeBSD itself.
+  `check_release_quality.sh` is unchanged — it runs on a Linux dev machine
+  and keeps its existing preserve/restore-prebuilt-`.pkg` handling, since
+  it structurally cannot execute FreeBSD-native `pkg(8)` tooling. This
+  session's environment is Debian Linux, not FreeBSD, so the real smoke
+  was verified by full local host-side contract tests
+  (`tests/test_freebsd_package_smoke_contract.py`) plus argument
+  validation, static-content checks, and workflow wiring; the genuine
+  build→install→query→execute sequence itself was not re-run inside an
+  actual FreeBSD VM as part of this change (see the final report's
+  "REAL FREEBSD SMOKE" line). See
+  `tests/test_freebsd_package_smoke_contract.py` and
+  `tests/test_release_gate.py`.
 - **RQG-F — README/install command validation. IMPLEMENTED.** Added
   `scripts/check_installation_docs.py`: parses only explicitly marked
   (`<!-- pysh-install:NAME -->`) snippets in README.md and
@@ -670,10 +700,13 @@ scratch":
   (`PASS`/`FAIL`/`READY_EXCEPT_PLATFORM_VALIDATION`) and exit code
   (`0`/`1`/`2`), and both human-readable and `--json` manifests — closing
   §5.6 and fulfilling the original issue design's "deterministic exit
-  code... full check manifest" requirement. FreeBSD install smoke is
-  intentionally always `PLATFORM_BLOCKED` (RQG-E does not exist yet);
-  Debian install smoke is `PLATFORM_BLOCKED` specifically when Docker is
-  unavailable, never faked as `PASS`. See `tests/test_release_gate.py`.
+  code... full check manifest" requirement. At the time RQG-H shipped,
+  FreeBSD install smoke was intentionally always `PLATFORM_BLOCKED`
+  (RQG-E did not exist yet); **since RQG-E, it is `PLATFORM_BLOCKED` only
+  on non-FreeBSD hosts and attempts a real build/install/run on FreeBSD
+  itself**, on the same footing as Debian install smoke being
+  `PLATFORM_BLOCKED` specifically when Docker is unavailable — neither is
+  ever faked as `PASS`. See `tests/test_release_gate.py`.
 
 ## 10. Recommended Execution Order
 
@@ -701,10 +734,20 @@ reachable ones (RQG-C) before adding net-new checks, and deferred the
 single-command orchestration (RQG-H) until there was a stable, complete
 set of underlying checks worth orchestrating.
 
-**Status as of RQG-H: every slice above is implemented except a genuine
-native FreeBSD install-and-run smoke** (the Debian-parallel counterpart to
-RQG-D) **, which remains explicitly unimplemented by design** ("Do not
-implement RQG-E yet" — a future slice, not scoped here). `scripts/release_gate.py`
-reports this honestly as `PLATFORM_BLOCKED`, never as `PASS`, and the
-overall gate reports `READY_EXCEPT_PLATFORM_VALIDATION` rather than `PASS`
-until that slice exists.
+**Status as of RQG-E: every slice above (RQG-A through RQG-H) is
+implemented.** The genuine native FreeBSD install-and-run smoke — the
+Debian-parallel counterpart to RQG-D that RQG-H's initial ship left as an
+explicit, honestly-reported gap — now exists as
+`scripts/smoke_freebsd_package.sh`, wired into both
+`release-artifacts.yml`'s FreeBSD 14.3 VM job (unconditional, real
+build→install→query→execute) and `scripts/release_gate.py --mode full`
+(real on a FreeBSD host, `PLATFORM_BLOCKED` — never faked `PASS` — on
+every other host, including this project's own Linux dev/CI machines).
+`READY_EXCEPT_PLATFORM_VALIDATION` therefore now reflects only genuine,
+unavoidable environment gaps (no FreeBSD host, no Docker daemon) rather
+than a permanently-unimplemented check. This repository's own development
+environment is Debian Linux, not FreeBSD, so RQG-E's real
+build→install→query→execute sequence has not been re-verified end-to-end
+inside an actual FreeBSD VM as part of landing this slice; that
+verification is what `release-artifacts.yml`'s FreeBSD job performs on
+every `workflow_dispatch`/release run going forward.
