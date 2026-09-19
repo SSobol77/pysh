@@ -61,6 +61,16 @@ DEFAULT_PROMPT_OPTIONS: dict[str, object] = {
     "show_rust_version": True,
     "show_node_version": True,
     "show_npm_version": True,
+    # Issue #32 (Shell Integrations Pack, slice I32-B): optional and off by
+    # default so prompt startup/noise stays controlled. Enabling one probes
+    # the tool at most once per session via the existing bounded
+    # ToolVersionSpec/_detect_tool_version machinery added in I32-A.
+    "show_pip_version": False,
+    "show_docker_version": False,
+    "show_kubectl_version": False,
+    "show_ecli_version": False,
+    "show_guardbsd_version": False,
+    "show_aeronerve_version": False,
     "show_last_status": True,
     "show_command_duration": True,
     "show_ssh_indicator": True,
@@ -90,6 +100,12 @@ PROMPT_OPTION_TYPES: dict[str, type] = {
     "show_rust_version": bool,
     "show_node_version": bool,
     "show_npm_version": bool,
+    "show_pip_version": bool,
+    "show_docker_version": bool,
+    "show_kubectl_version": bool,
+    "show_ecli_version": bool,
+    "show_guardbsd_version": bool,
+    "show_aeronerve_version": bool,
     "show_command_duration": bool,
     "show_ssh_indicator": bool,
     "show_aws_profile": bool,
@@ -143,6 +159,15 @@ DEFAULT_PROMPT_COLORS: dict[str, str] = {
     "rust": "maroon",
     "node": "lime",
     "npm": "red",
+    # Issue #32 (Shell Integrations Pack, slice I32-B): conservative colors
+    # drawn from the existing HTML_NAMED_COLORS palette (see
+    # ``pysh.prompt.colors``); no new color names introduced.
+    "pip": "navy",
+    "docker": "olive",
+    "kubectl": "gray",
+    "ecli": "silver",
+    "guardbsd": "maroon",
+    "aeronerve": "teal",
     "status": "red",
     "duration": "yellow",
     "ssh": "fuchsia",
@@ -666,6 +691,12 @@ class ShellConfigAPI:
         * ``show_rust_version`` (bool) - append the active rustc version [True]
         * ``show_node_version`` (bool) - append the active Node.js version [True]
         * ``show_npm_version`` (bool) - append the active npm version [True]
+        * ``show_pip_version`` (bool) - append the active pip version [False]
+        * ``show_docker_version`` (bool) - append the active Docker client version [False]
+        * ``show_kubectl_version`` (bool) - append the active kubectl client version [False]
+        * ``show_ecli_version`` (bool) - append the active ecli version [False]
+        * ``show_guardbsd_version`` (bool) - append the active guardbsd version [False]
+        * ``show_aeronerve_version`` (bool) - append the active aeronerve version [False]
         * ``show_last_status`` (bool) - append non-zero last status [True]
         * ``show_command_duration`` (bool) - append slow command duration [True]
         * ``show_ssh_indicator`` (bool) - append SSH session marker [True]
@@ -676,6 +707,13 @@ class ShellConfigAPI:
         * ``cwd_style`` (str) - ``full``, ``home`` or ``basename`` ["home"]
         * ``prompt_layout`` (str) - ``single`` or ``two_line`` ["two_line"]
         * ``symbol`` (str) - command-line prompt symbol [">"]
+
+        The Issue #32 integrations (``show_pip_version`` through
+        ``show_aeronerve_version``) are optional and default to ``False``.
+        Enabling one probes its tool at most once per shell session (cached
+        for later prompt renders); a missing executable, a failed probe, or a
+        timeout silently omits the segment instead of raising or printing a
+        diagnostic.
         """
         validate_prompt_option(name, value)
         self._shell.set_prompt_option(name, value)
@@ -1026,6 +1064,23 @@ def configure(shell):
     shell.set_prompt_option("show_node_version", True)
     shell.set_prompt_option("show_npm_version", True)
 
+    # Issue #32 (Shell Integrations Pack): optional ecosystem tool versions.
+    # Off by default -- no probe runs, no subprocess is spawned, and the
+    # prompt is unchanged, unless you opt in below. A missing executable, a
+    # failed probe, or a timeout silently omits the segment.
+    shell.set_prompt_option("show_pip_version", False)
+    shell.set_prompt_option("show_docker_version", False)
+    shell.set_prompt_option("show_kubectl_version", False)
+    shell.set_prompt_option("show_ecli_version", False)
+    shell.set_prompt_option("show_guardbsd_version", False)
+    shell.set_prompt_option("show_aeronerve_version", False)
+    # shell.set_prompt_option("show_pip_version", True)
+    # shell.set_prompt_option("show_docker_version", True)
+    # shell.set_prompt_option("show_kubectl_version", True)
+    # shell.set_prompt_option("show_ecli_version", True)
+    # shell.set_prompt_option("show_guardbsd_version", True)
+    # shell.set_prompt_option("show_aeronerve_version", True)
+
     # ----------------------------------------------------------------------
     # Prompt colors
     # ----------------------------------------------------------------------
@@ -1052,6 +1107,12 @@ def configure(shell):
     shell.set_prompt_color("rust", "#FF6600")
     shell.set_prompt_color("node", "lime")
     shell.set_prompt_color("npm", "red")
+    shell.set_prompt_color("pip", "navy")
+    shell.set_prompt_color("docker", "olive")
+    shell.set_prompt_color("kubectl", "gray")
+    shell.set_prompt_color("ecli", "silver")
+    shell.set_prompt_color("guardbsd", "maroon")
+    shell.set_prompt_color("aeronerve", "teal")
     shell.set_prompt_color("status", "red")
     shell.set_prompt_color("duration", "yellow")
     shell.set_prompt_color("ssh", "fuchsia")
