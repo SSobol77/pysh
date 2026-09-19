@@ -91,14 +91,38 @@ jobs:
             echo "rpmbuild not available; skipping .rpm build."
           fi
 
-      - name: Verify release artifacts + SHA256SUMS
+      - name: Verify artifact contract (portable, non-native)
         run: |
-          if ls dist/*.whl >/dev/null 2>&1 \
-              && ls dist/*.tar.gz >/dev/null 2>&1 \
-              && ls dist/os/deb/*.deb >/dev/null 2>&1 \
-              && ls dist/os/rpm/*.rpm >/dev/null 2>&1 \
-              && ls dist/os/freebsd/*.pkg >/dev/null 2>&1; then
-            bash scripts/check_release_artifacts.sh
-          else
-            echo "Skipping check_release_artifacts.sh: full release artifact set not present (.whl/.tar.gz/.deb/.rpm/.pkg required)."
-          fi
+          set -euo pipefail
+
+          . scripts/_pysh_version.sh
+          VERSION="$(pysh_read_version pyproject.toml)"
+
+          CONTRACT_DIR="$(mktemp -d)"
+          trap 'rm -rf "${CONTRACT_DIR}"' EXIT
+
+          mkdir -p "${CONTRACT_DIR}/os/deb" "${CONTRACT_DIR}/os/rpm" "${CONTRACT_DIR}/os/freebsd"
+          cp dist/*.whl "${CONTRACT_DIR}/"
+          cp dist/*.tar.gz "${CONTRACT_DIR}/"
+          cp dist/os/deb/*.deb "${CONTRACT_DIR}/os/deb/"
+          cp dist/os/rpm/*.rpm "${CONTRACT_DIR}/os/rpm/"
+
+          # A real FreeBSD .pkg cannot be produced on this ubuntu-latest
+          # runner. Native FreeBSD package validation happens for real in
+          # .github/workflows/release-artifacts.yml via a FreeBSD 14+ VM
+          # build. This is a clearly labeled, non-empty CONTRACT-ONLY
+          # fixture used solely to exercise naming/presence/checksum
+          # semantics here; it is never copied into dist/, never staged as
+          # a release asset, and never uploaded anywhere. It is discarded
+          # with the rest of ${CONTRACT_DIR} when this step ends.
+          cat >"${CONTRACT_DIR}/os/freebsd/pysh-shell-${VERSION}.pkg" <<'FIXTURE'
+          PYSH ARTIFACT-CONTRACT TEST FIXTURE - NOT A REAL FREEBSD PACKAGE.
+          This file exists only to exercise
+          scripts/check_release_artifacts.sh --contract-only naming,
+          presence, and checksum semantics in ordinary Linux CI, where a
+          live FreeBSD builder is unavailable. Real FreeBSD .pkg validation
+          runs in .github/workflows/release-artifacts.yml via a FreeBSD 14+
+          VM build.
+          FIXTURE
+
+          bash scripts/check_release_artifacts.sh --contract-only "${CONTRACT_DIR}"

@@ -149,7 +149,11 @@ def test_release_artifact_script_stages_flat_github_release_assets() -> None:
     script = REPO_ROOT / "scripts" / "check_release_artifacts.sh"
     text = script.read_text(encoding="utf-8")
 
-    assert 'RELEASE_ASSETS_DIR="${REPO_ROOT}/dist/release-assets"' in text
+    assert 'RELEASE_ASSETS_DIR="${DIST_DIR}/release-assets"' in text
+    assert 'DIST_DIR="${1:-${REPO_ROOT}/dist}"' in text, (
+        "the default (no-args) invocation must still resolve to the real dist/, "
+        "even though DIST_DIR is now parameterized for --contract-only"
+    )
     assert 'rm -rf "${RELEASE_ASSETS_DIR}"' in text
     assert 'cp "${DEB_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_DEB}"' in text
     assert 'cp "${RPM_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_RPM}"' in text
