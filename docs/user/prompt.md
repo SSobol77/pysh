@@ -101,6 +101,12 @@ Lazy detection contract, identical to the pre-existing tool-version segments:
   timeout and an explicit argv list (`[executable, "--version"]`); the
   result (or the absence of one) is cached, so later prompt renders in the
   same session never re-probe.
+- The probe timeout is 0.2s for every tool except `pip`, which uses 0.5s: a
+  real `pip --version` pays Python interpreter startup for the environment
+  `pip` belongs to (which may differ from PySH's own interpreter), and that
+  can exceed 0.2s on some hosts. Every other tool -- including the
+  pre-existing uv/ruff/rustc/node/npm segments and the other Issue #32
+  segments (docker/kubectl/ecli/guardbsd/aeronerve) -- keeps the 0.2s bound.
 - A missing executable, a non-zero exit, unparsable output, or a timeout all
   omit the segment silently -- no stderr, no diagnostic, no crash.
 

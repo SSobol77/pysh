@@ -533,6 +533,25 @@ def configure(shell):
     assert DEFAULT_PYSHRC_PY == expected
 
 
+def test_default_template_documents_all_issue32_show_options() -> None:
+    """Discoverability: every Issue #32 show_* switch is in the default config.
+
+    A user who never reads the changelog should still discover these
+    switches simply by reading their generated ``~/.pyshrc.py``.
+    """
+    for option in (
+        "show_pip_version",
+        "show_docker_version",
+        "show_kubectl_version",
+        "show_ecli_version",
+        "show_guardbsd_version",
+        "show_aeronerve_version",
+    ):
+        assert f'shell.set_prompt_option("{option}", False)' in DEFAULT_PYSHRC_PY
+        # A commented opt-in example is present for discoverability.
+        assert f'# shell.set_prompt_option("{option}", True)' in DEFAULT_PYSHRC_PY
+
+
 def test_ensure_creates_parent_directory(tmp_path: Path) -> None:
     target = tmp_path / "nested" / "dir" / ".pyshrc.py"
     assert ensure_default_config(target) is True
@@ -1784,6 +1803,83 @@ def test_pyshell_prompt_k8s_multipath_precedence(monkeypatch, tmp_path: Path) ->
 
     first.write_text("apiVersion: v1\n", encoding="utf-8")
     assert " k8s:second$ " in shell._prompt()
+
+
+# --- I32-C: show_kubectl_version (CLI version probe) and show_k8s_context --- #
+# --- (KUBECONFIG current-context) are independent options/segments.       --- #
+
+
+def test_k8s_context_option_never_invokes_kubectl_subprocess(monkeypatch, tmp_path: Path) -> None:
+    """The Kubernetes context segment must be pure file parsing, never kubectl."""
+    calls: list[list[str]] = []
+    config = tmp_path / "kube.yaml"
+    config.write_text("current-context: dev-cluster\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KUBECONFIG", str(config))
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda argv, **_kwargs: calls.append(argv)
+    )
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_k8s_context", True)
+    assert " k8s:dev-cluster$ " in shell._prompt()
+    assert calls == []
+
+
+def test_kubectl_version_and_k8s_context_options_are_independent(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Enabling one of show_kubectl_version/show_k8s_context must not affect the other."""
+    config = tmp_path / "kube.yaml"
+    config.write_text("current-context: dev-cluster\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KUBECONFIG", str(config))
+
+    class Result:
+        returncode = 0
+        stdout = "Client Version: v1.29.0\n"
+        stderr = ""
+
+    run_calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        run_calls.append(argv)
+        return Result()
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
+
+    # Only show_kubectl_version enabled: no k8s: context segment, even though
+    # a valid KUBECONFIG is present.
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_kubectl_version", True)
+    prompt = shell._prompt()
+    assert "kubectl1.29.0" in prompt
+    assert "k8s:" not in prompt
+    assert run_calls == [["kubectl", "--version"]]
+
+    # Only show_k8s_context enabled: context segment appears, but no kubectl
+    # subprocess call is made for it.
+    run_calls.clear()
+    shell2 = PyShell()
+    _use_legacy_single_line_prompt(shell2)
+    shell2.set_prompt_option("show_k8s_context", True)
+    prompt2 = shell2._prompt()
+    assert "k8s:dev-cluster" in prompt2
+    assert "kubectl1.29.0" not in prompt2
+    assert run_calls == []
+
+    # Both enabled together: both segments render independently.
+    run_calls.clear()
+    shell3 = PyShell()
+    _use_legacy_single_line_prompt(shell3)
+    shell3.set_prompt_option("show_kubectl_version", True)
+    shell3.set_prompt_option("show_k8s_context", True)
+    prompt3 = shell3._prompt()
+    assert "kubectl1.29.0" in prompt3
+    assert "k8s:dev-cluster" in prompt3
+    assert run_calls == [["kubectl", "--version"]]
 
 
 def test_pyshell_prompt_cwd_basename(monkeypatch, tmp_path: Path) -> None:

@@ -10,6 +10,8 @@ import os
 import stat
 from pathlib import Path
 
+import pytest
+
 from pysh.editor.lineedit.completion import (
     CompletionCandidate,
     CompletionKind,
@@ -441,3 +443,126 @@ def test_candidate_labels_include_alias_and_job_id() -> None:
     job_candidate = CompletionCandidate("%1", CompletionKind.JOB)
     assert alias_candidate.labeled_menu_text == "gs [alias]"
     assert job_candidate.labeled_menu_text == "%1 [job]"
+
+
+# --------------------------------------------- Issue #32 integration commands
+#
+# PySH does not implement any Issue #32-specific completion code. External
+# integration commands (pip, docker, kubectl, ecli, guardbsd, aeronerve)
+# participate in command-position completion purely through the existing,
+# generic ``_PathCache``/``_path_command_candidates`` PATH executable
+# discovery already exercised above for arbitrary tools -- the same
+# prefix-only, deduplicated, non-executing contract BUG-020 locked in.
+# These tests prove that generic contract also covers the Issue #32 tools,
+# without adding a single line of tool-specific production code.
+
+
+def _make_executable(path: Path) -> None:
+    path.write_text("#!/bin/sh\n", encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
+def _integration_bin_dir(tmp_path: Path) -> Path:
+    """A PATH directory with stub executables for representative tools.
+
+    Includes pre-existing (uv, git) and Issue #32 (pip, docker, kubectl,
+    ecli, guardbsd, aeronerve) tools side by side to prove none of them is
+    treated specially by the completion engine.
+    """
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    for name in ("uv", "pip", "git", "ecli", "docker", "kubectl", "guardbsd", "aeronerve"):
+        _make_executable(bindir / name)
+    return bindir
+
+
+@pytest.mark.parametrize(
+    ("prefix", "expected"),
+    [
+        ("u", "uv"),
+        ("pi", "pip"),
+        ("gi", "git"),
+        ("doc", "docker"),
+        ("kub", "kubectl"),
+        ("ec", "ecli"),
+        ("gua", "guardbsd"),
+        ("aero", "aeronerve"),
+    ],
+)
+def test_issue32_integration_commands_match_by_prefix(
+    tmp_path: Path, prefix: str, expected: str
+) -> None:
+    bindir = _integration_bin_dir(tmp_path)
+    result = complete_line(prefix, len(prefix), builtins=(), aliases=(), path=str(bindir))
+    assert expected in result.candidates
+
+
+@pytest.mark.parametrize(
+    ("prefix", "excluded"),
+    [
+        ("ock", "docker"),
+        ("ctl", "kubectl"),
+        ("cli", "ecli"),
+    ],
+)
+def test_issue32_integration_commands_never_match_by_substring(
+    tmp_path: Path, prefix: str, excluded: str
+) -> None:
+    """A substring occurring mid-name must never produce a completion match."""
+    bindir = _integration_bin_dir(tmp_path)
+    result = complete_line(prefix, len(prefix), builtins=(), aliases=(), path=str(bindir))
+    assert excluded not in result.candidates
+    assert result.candidates == ()
+
+
+def test_issue32_integration_candidates_are_deterministic_and_deduplicated(
+    tmp_path: Path,
+) -> None:
+    bindir = _integration_bin_dir(tmp_path)
+    first = complete_line("d", 1, builtins=(), aliases=(), path=str(bindir))
+    second = complete_line("d", 1, builtins=(), aliases=(), path=str(bindir))
+    assert first.candidates == second.candidates
+    assert len(first.candidates) == len(set(first.candidates))
+
+
+def test_issue32_completion_never_calls_subprocess(monkeypatch, tmp_path: Path) -> None:
+    """Command-position completion must never shell out to find a candidate.
+
+    Only filesystem inspection (``Path.iterdir``/``os.access``, used
+    internally by ``_PathCache``) is allowed, even for integration-looking
+    prefixes.
+    """
+    import subprocess  # noqa: PLC0415
+
+    def explode(*_args, **_kwargs):  # noqa: ANN002,ANN003,ANN202
+        raise AssertionError("completion must not invoke subprocess.run")
+
+    monkeypatch.setattr(subprocess, "run", explode)
+    bindir = _integration_bin_dir(tmp_path)
+    for prefix in ("pi", "doc", "kub", "ec", "gua", "aero"):
+        complete_line(prefix, len(prefix), builtins=(), aliases=(), path=str(bindir))
+
+
+def test_issue32_absent_integration_executable_does_not_appear(tmp_path: Path) -> None:
+    """A tool absent from PATH must not be offered as a command candidate."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _make_executable(bindir / "docker")  # only docker is "installed"
+    result = complete_line("gua", 3, builtins=(), aliases=(), path=str(bindir))
+    assert result.candidates == ()
+    result = complete_line("aero", 4, builtins=(), aliases=(), path=str(bindir))
+    assert result.candidates == ()
+
+
+def test_issue32_integration_commands_use_ordinary_command_ranking(
+    tmp_path: Path,
+) -> None:
+    """Integration executables are ordinary COMMAND candidates.
+
+    No new ``CompletionKind`` and no ranking exception exists merely because
+    a command happens to be an Issue #32 integration.
+    """
+    bindir = _integration_bin_dir(tmp_path)
+    result = complete_line("doc", 3, builtins=(), aliases=(), path=str(bindir))
+    assert result.rich_candidates[0].kind is CompletionKind.COMMAND
+    assert result.rich_candidates[0].match_type is CompletionMatchType.PREFIX

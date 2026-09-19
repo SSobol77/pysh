@@ -54,6 +54,28 @@ def test_config_check_diff_prints_changed_option(tmp_path: Path, monkeypatch, ca
     assert "prompt.prompt_layout" not in out
 
 
+def test_config_check_diff_discovers_issue32_integration_toggle(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """config_check --diff surfaces Issue #32 switches with no dedicated code.
+
+    ``_config_diff_lines()`` is generic over ``DEFAULT_PROMPT_OPTIONS`` /
+    ``self.prompt_options``, so a user enabling ``show_docker_version``
+    becomes visible through the existing diagnostic builtin without any
+    Issue #32-specific discoverability code.
+    """
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    shell = PyShell()
+    shell.set_prompt_option("show_docker_version", True)
+    assert shell._dispatch_builtin(["config_check", "--diff"]) == 0
+    out = capsys.readouterr().out
+    assert "prompt.show_docker_version=True" in out
+    # Untouched Issue #32 options stay at their False default and are not
+    # reported as a diff.
+    assert "prompt.show_pip_version" not in out
+    assert "prompt.show_kubectl_version" not in out
+
+
 def test_config_check_diff_redacts_secret_like_alias(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     shell = PyShell()
