@@ -73,13 +73,13 @@ time only** (`release: published` / `workflow_dispatch`), not to ordinary
 pushes — so a FreeBSD-breaking change is not caught until someone actually
 publishes a release or manually dispatches the workflow.
 
-## 2. Current Release Pipeline Map
+## 2. Current Release Pipeline Map (updated by RQG-B/C/D/F/G)
 
 ```text
                      ┌─────────────────────────────────────────────┐
                      │  Developer machine (manual, human-run)        │
                      │                                                │
-  pyproject.toml ───▶│  scripts/check_release_quality.sh (12 steps)  │
+  pyproject.toml ───▶│  scripts/check_release_quality.sh (13 steps)  │
   src/pysh/__init__  │    -> ruff, pytest, headers, git diff --check │
   CHANGELOG.md        │    -> build_release_artifacts.sh              │
                      │       -> build_pysh_package.sh (wheel+sdist)  │
@@ -92,6 +92,8 @@ publishes a release or manually dispatches the workflow.
                      │    -> twine check                              │
                      │    -> Python metadata/contents inspection      │
                      │    -> dpkg-deb/rpm content listing              │
+                     │    -> smoke_debian_package.sh (RQG-D: REAL     │
+                     │       apt-get install in debian:13-slim)       │
                      │    -> clean venv install + `pysh -c` smoke     │
                      └─────────────────────────────────────────────┘
                                         │  (never invoked by CI)
@@ -99,52 +101,81 @@ publishes a release or manually dispatches the workflow.
                      ┌─────────────────────────────────────────────┐
                      │  .github/workflows/ci.yml (push:main, PR)     │
                      │    -> pytest -q, ruff                          │
+                     │       (includes test_release_metadata_contract,│
+                     │        test_release_artifact_contract,         │
+                     │        test_debian_package_smoke_contract,     │
+                     │        test_installation_docs_contract,        │
+                     │        test_release_workflow_contract)         │
+                     │    -> check_release_metadata.sh (RQG-B:        │
+                     │       version/changelog/license/entrypoint,    │
+                     │       no tag required)                         │
                      │    -> python -m build (wheel+sdist only)       │
                      │    -> twine check                              │
                      │    -> smoke: pysh --version / python -m pysh   │
-                     │       --version  (NOT -c, NOT exit/quit)       │
-                     │    -> bash -n syntax-check on packaging shell  │
-                     │    -> conditionally build .deb/.rpm if tools   │
-                     │       present; conditionally run               │
-                     │       check_release_artifacts.sh ONLY if all   │
-                     │       5 artifact families already exist        │
-                     │       (FreeBSD .pkg never exists here, so this │
-                     │       step is always skipped in practice)      │
+                     │       --version                                │
+                     │    -> build .deb/.rpm (tools always present)   │
+                     │    -> smoke_debian_package.sh (RQG-D: REAL     │
+                     │       install-and-run, unconditional)          │
+                     │    -> check_release_artifacts.sh --contract-   │
+                     │       only <isolated tmpdir> (RQG-C: real      │
+                     │       wheel/sdist/deb/rpm + one labeled         │
+                     │       FreeBSD .pkg fixture, unconditional)      │
                      └─────────────────────────────────────────────┘
 
                      ┌─────────────────────────────────────────────┐
                      │  .github/workflows/release-artifacts.yml       │
                      │    on: release[published], workflow_dispatch   │
+                     │                                                │
+                     │  freebsd-pkg (needs: none)                     │
                      │    -> REAL FreeBSD 14.3 VM build (.pkg)        │
+                     │    -> upload-artifact "freebsd-pkg"            │
+                     │         │                                      │
+                     │         ▼                                      │
+                     │  build-and-validate (needs: freebsd-pkg)       │
+                     │    -> check_release_metadata.sh --release-mode │
+                     │       [+ --tag on a real release event]        │
                      │    -> REAL wheel/sdist/deb/rpm build           │
-                     │    -> check_release_artifacts.sh (real)        │
+                     │    -> download-artifact "freebsd-pkg"          │
+                     │    -> check_release_artifacts.sh (real, no     │
+                     │       --contract-only)                         │
+                     │    -> upload-artifact "release-assets"         │
+                     │         │                                      │
+                     │         ▼                                      │
+                     │  upload (needs: build-and-validate,             │
+                     │          if: event == 'release')                │
+                     │    -> download-artifact "release-assets"       │
                      │    -> gh release upload (real assets)          │
                      └─────────────────────────────────────────────┘
                      ┌─────────────────────────────────────────────┐
                      │  .github/workflows/publish.yml                 │
                      │    on: release[published], workflow_dispatch   │
-                     │    -> independent python -m build + PyPI       │
-                     │       Trusted Publishing (no twine check,      │
-                     │       does not depend on release-artifacts.yml)│
-                     └─────────────────────────────────────────────┘
-                     ┌─────────────────────────────────────────────┐
-                     │  .github/workflows/freebsd-pkg.yml             │
-                     │    on: push[branches: release/v*],             │
-                     │        workflow_dispatch                       │
-                     │    -> duplicate of release-artifacts.yml's     │
-                     │       freebsd-pkg job                          │
-                     │    -> trigger branch pattern "release/v*" does │
-                     │       not match this repo's real branch model  │
-                     │       (develop/vX.Y.Z per CLAUDE.md §13; no    │
-                     │       release/v* branch exists or is created)  │
+                     │    -> check_release_metadata.sh --release-mode │
+                     │       [+ --tag on a real release event]        │
+                     │       (RQG-G: PyPI can no longer publish a      │
+                     │       version whose metadata contract fails)   │
+                     │    -> python -m build + PyPI Trusted Publishing│
+                     │    -> never touches GitHub Release assets;      │
+                     │       stays independent of release-artifacts.yml│
+                     │       by design (separate responsibility, not  │
+                     │       an oversight -- see docs/development/     │
+                     │       release.md)                               │
                      └─────────────────────────────────────────────┘
 ```
 
-`tests/test_docs_consistency.py` sits outside this diagram: it runs inside
-`pytest -q` (both locally and in `ci.yml`) and validates, by reading
-source text, that the scripts/workflows above *say* the right things. It
-is a static-text safety net over the pipeline, not a substitute for
-running it.
+`.github/workflows/freebsd-pkg.yml` was retired by RQG-G: it was a
+byte-for-byte duplicate of `release-artifacts.yml`'s `freebsd-pkg` job,
+with a push trigger that never matched this project's real branch model
+and no unique behavior. See §5.3/§6.
+
+`tests/test_docs_consistency.py` and the dedicated `test_*_contract.py`
+modules sit outside this diagram: they run inside `pytest -q` (both
+locally and in `ci.yml`) and validate, by a mix of reading source text
+(for GitHub-specific `needs:`/`if:` wiring that cannot run locally) and
+real dynamic execution against fixtures (for everything else), that the
+scripts/workflows above behave as documented. `check_release_metadata.sh`,
+`check_release_artifacts.sh`, `smoke_debian_package.sh`,
+`check_installation_docs.py`, and `check_release_workflow.py` are all real,
+independently invocable scripts, not test-only logic.
 
 ## 3. Requirement-by-Requirement Matrix
 
@@ -163,7 +194,7 @@ running it.
 | Changelog version | IMPLEMENTED | `tests/test_docs_consistency.py::test_changelog_has_current_version_section` asserts `## {CURRENT_VERSION}` exists; `test_changelog_080_section_covers_mandatory_features` / `_081_section_covers_hotfix_scope` / `_current_release_covers_metadata_hotfix_scope` assert specific content per historical release. No automated check that the **current `0.9.0 - Unreleased`** section content stays in sync with recently merged issue work (observed gap: the Issue #32 slices A-C are not yet mentioned there as of this audit — a content-currency gap, not a tooling gap). |
 | License metadata | IMPLEMENTED | `check_release_quality.sh:207-217` and `:336` assert `project.license == "GPL-2.0-only"` in `pyproject.toml` and wheel `METADATA` `License-Expression`. |
 | PyPI metadata | IMPLEMENTED | `twine check` (both `ci.yml` and `check_release_quality.sh`); name/version/summary/requires-python cross-checked against wheel METADATA in `check_release_quality.sh`. |
-| GitHub release asset workflow | PARTIAL | `tests/test_docs_consistency.py::test_release_workflow_uploads_flat_staged_assets` statically asserts `release-artifacts.yml`/`freebsd-pkg.yml` contain expected strings (script invocations, `vmactions/freebsd-vm`, upload-artifact usage) — it does not execute the workflow. The workflow itself only runs for real on `release: published`/`workflow_dispatch`, so its correctness is unverified between releases except by this text-level test. |
+| GitHub release asset workflow | IMPLEMENTED (RQG-G) | `release-artifacts.yml` now has an explicit `freebsd-pkg` → `build-and-validate` → `upload` job chain with `needs:` enforcement, no `continue-on-error`, and an `upload` job gated on `if: github.event_name == 'release'` that can only obtain files via a workflow-artifact handoff from the validate job. `scripts/check_release_workflow.py` validates the job-graph structure as text (the one place string checks remain appropriate — `needs:`/`if:` cannot be executed locally) AND dynamically simulates the exact pre-upload sequence (`check_release_metadata.sh` then `check_release_artifacts.sh --contract-only`) against fixture directories in `tests/test_release_workflow_contract.py`, proving PASS/FAIL for complete, missing-artifact, corrupt-checksum, and wrong-version scenarios without executing the workflow itself (still not possible locally) and without publishing anything. |
 | Broken CLI entrypoint (required failure) | PARTIAL | `tests/test_cli.py` calls `main()` in-process (fast, but never exercises the installed console-script `pysh` binary or its `pyproject.toml` `[project.scripts]` wiring). `ci.yml` smoke-tests the **real installed** `pysh --version` / `python -m pysh --version` on every push/PR. `check_release_quality.sh` step 11 additionally installs into a throwaway venv and runs the real entrypoint. No CI step currently would fail if `[project.scripts]` pointed at a nonexistent function, other than `ci.yml`'s `--version` smoke (which would in fact catch that). |
 | Broken `pysh -c` (required failure) | PARTIAL | Unit-level: `tests/test_cli.py::test_dash_c_runs_command` (in-process). Real-entrypoint level: only inside `scripts/check_release_quality.sh` step 11 (`"${VENV_PYSH}" -c "echo release-smoke"`), which never runs in CI. `ci.yml` never runs `pysh -c` at all. |
 | Broken interactive smoke (exit/quit) | PARTIAL | Unit-level: `tests/test_cli.py::test_dash_c_exit_and_quit_return_success_without_internal_error` (in-process, via `-c`, not truly interactive). PTY-level: `tests/test_pty_integration.py` exercises real interactive `exit`. No workflow step anywhere runs `pysh -c "exit"` / `pysh -c "quit"` against the **installed** console-script entrypoint; `docs/development/release.md`'s "Post-release" section documents this as a **manual** step only. |
@@ -329,44 +360,30 @@ CI (§5.1's sibling problem — this script is not wired into any workflow).
   text assertions, or add a new `test_ci_workflow_smokes_dash_c_and_exit_quit`
   in the same file, asserting `ci.yml` contains these three `run:` lines.
 
-### 5.3 FreeBSD validation is release-scoped, not push-scoped
+### 5.3 FreeBSD validation is release-scoped, not push-scoped — PARTIALLY RESOLVED (RQG-G)
 
 `release-artifacts.yml`'s FreeBSD job only triggers on
 `release: [published]` or manual `workflow_dispatch`. A change that
 breaks `scripts/build_freebsd_pkg.sh` or FreeBSD-specific runtime
-behavior is invisible until someone actually cuts a release or manually
-dispatches the workflow — by definition, after the fact.
+behavior is still invisible until someone actually cuts a release or
+manually dispatches the workflow — by definition, after the fact. This
+half of the finding remains open; running a full FreeBSD VM boot on every
+push is disproportionately expensive, and no scheduled dry-run was added
+in this slice.
 
-`freebsd-pkg.yml` (a near-duplicate of `release-artifacts.yml`'s FreeBSD
-job) triggers on `push: branches: [release/v*]`. This project's actual
-branch-workflow convention (CLAUDE.md §13; confirmed by
-`git branch --show-current` → `develop/v0.9.0`) never creates a
-`release/v*` branch — development branches are `develop/vX.Y.Z`, merged
-directly to `main`. `tests/test_docs_consistency.py:204` pins the literal
-string `"release/v*"` as an expected substring, so the test suite has
-codified this trigger pattern without verifying it can ever actually
-fire under the project's real branching model. This is not necessarily
-wrong (it may be intentionally forward-looking for a not-yet-adopted
-`release/*` convention), but as written it means `freebsd-pkg.yml` is
-very likely **dead weight that has never fired via its push trigger**,
-duplicating logic already present and reachable (via `workflow_dispatch`)
-in `release-artifacts.yml`.
-
-- Smallest reasonable implementation location: either (a) change
-  `freebsd-pkg.yml`'s trigger to match a branch pattern this project
-  actually uses (e.g. `develop/v*`) and give it a real purpose distinct
-  from `release-artifacts.yml`, or (b) delete `freebsd-pkg.yml` and rely
-  solely on `release-artifacts.yml` + `workflow_dispatch` for pre-release
-  FreeBSD dry runs, removing the duplication. This is a design decision
-  for the product owner, not something to resolve silently in this audit.
-  Running FreeBSD builds on *every* push is likely too expensive (a full
-  VM boot per commit) — a scheduled or manually-triggered "FreeBSD dry
-  run before tagging" step is the more proportionate middle ground and
-  matches `docs/development/release.md`'s existing checklist mindset.
-- New code required: workflow YAML edits only; no application code.
-- Proposed test location: a `test_freebsd_workflow_trigger_matches_actual_branch_model`
-  style test, or explicit removal of the stale assertion once the trigger
-  question is decided.
+**The duplication half is resolved.** `freebsd-pkg.yml` (a byte-for-byte
+duplicate of `release-artifacts.yml`'s `freebsd-pkg` job body, confirmed
+by direct diff) triggered on `push: branches: [release/v*]`, which this
+project's actual branch-workflow convention (CLAUDE.md §13; branches are
+`develop/vX.Y.Z`, merged to `main`) never creates — a dead trigger with
+zero unique release guarantee, since its `workflow_dispatch` trigger
+offered nothing `release-artifacts.yml`'s own `workflow_dispatch` did not
+already provide. **Decision: retired.** `.github/workflows/freebsd-pkg.yml`
+was deleted; the real FreeBSD 14.3 VM build now lives solely in
+`release-artifacts.yml`'s `freebsd-pkg` job, unchanged and still reachable
+via both `release: published` and `workflow_dispatch`. See
+`tests/test_release_workflow_contract.py::test_freebsd_pkg_workflow_was_retired`
+and `::test_release_workflow_still_has_real_freebsd_vm_build`.
 
 ### 5.4 No committed FreeBSD `.pkg` fixture for non-release CI
 
@@ -458,12 +475,12 @@ slice.
 | Platform | Gap | Nature |
 | --- | --- | --- |
 | FreeBSD | Real `.pkg` build only reachable via `release: published` or `workflow_dispatch`, never on ordinary push/PR (§5.3). | Scheduling/trigger gap, not a capability gap — the VM-based build genuinely works (`release-artifacts.yml`). |
-| FreeBSD | `freebsd-pkg.yml`'s push trigger (`release/v*`) does not match this project's real branch-naming convention and is very likely dead code. | Trigger-pattern/branch-model mismatch (§5.3). |
+| FreeBSD | **RESOLVED (RQG-G).** `freebsd-pkg.yml`'s push trigger (`release/v*`) never matched this project's real branch-naming convention and was proven (byte-for-byte diff) to duplicate `release-artifacts.yml`'s `freebsd-pkg` job with no unique behavior. It was retired; the real FreeBSD VM build is now single-sourced in `release-artifacts.yml`. | Trigger-pattern/branch-model mismatch, now closed by deletion rather than left ambiguous (§5.3). |
 | Linux/Debian CI | Cannot produce a FreeBSD `.pkg`, so the full 5-artifact-family gate (`check_release_artifacts.sh`) never runs unconditionally in `ci.yml` (§5.1). | Structural — needs a fixture or an accepted "skip FreeBSD, gate the rest" mode for ordinary CI, distinct from the release-time full gate. |
 | macOS / Windows dev machines | `check_release_quality.sh` hard-requires `dpkg-deb`, `rpm`, `rpmbuild` (`:44-46`) — not installable by default on macOS/Windows. | Documented implicitly (Debian-first project) but not stated as a constraint anywhere; not a defect, just worth naming explicitly so RQG slices don't assume a Linux-only contributor base without saying so. |
 | RPM | **RESOLVED (RQG-B).** RPM is a formally supported, mandatory release artifact family for the quality gate, on equal footing with Debian `.deb` and FreeBSD `.pkg`. Issue #33's original scope text naming only "Debian and FreeBSD" is superseded by actual, long-standing repository practice: `scripts/check_release_quality.sh`, `scripts/check_release_artifacts.sh`, `scripts/check_release_metadata.sh` (RQG-B), and `docs/development/release.md` (which already documents "four artifact families", RPM included) all treat it as mandatory. RPM install/native smoke testing remains explicitly out of scope for RQG-B — same as Debian and FreeBSD, neither of which has install smoke automated yet either (§8); that belongs to a future native-packaging-validation slice. | Scope-definition gap in the issue text itself, now closed by explicit product-owner-directed decision rather than left ambiguous. |
 
-### 6.1 RQG-B / RQG-C Follow-up
+### 6.1 RQG-B / RQG-C / RQG-D / RQG-F / RQG-G Follow-up
 
 RQG-C closed the Linux/Debian CI gap in the row above: `ci.yml`'s artifact-contract
 step now runs unconditionally via `scripts/check_release_artifacts.sh --contract-only`
@@ -471,9 +488,17 @@ against an isolated fixture directory, so it is no longer permanently skipped.
 RQG-B adds `scripts/check_release_metadata.sh` (version/changelog/tag/license/
 Requires-Python/entrypoint consistency), wired into `ci.yml` unconditionally
 (no tag required) and into `release-artifacts.yml` in `--release-mode`
-(plus `--tag` when triggered by an actual GitHub Release). The FreeBSD
-scheduling gap and the `freebsd-pkg.yml` trigger-pattern question (rows above)
-remain open for a future slice.
+(plus `--tag` when triggered by an actual GitHub Release). RQG-D added a
+real Debian install-and-run smoke, reused by both `ci.yml` and
+`scripts/check_release_quality.sh`. RQG-F added a structural + portable-execution
+contract for README/installation-guide install commands. RQG-G closed the
+`freebsd-pkg.yml` duplication (row above, deleted), gave
+`release-artifacts.yml` an explicit build → validate → upload job boundary
+with `needs:`-enforced ordering, and added the same `--release-mode`
+metadata gate to `publish.yml` so PyPI publication cannot proceed on a
+version whose release metadata contract fails. The FreeBSD
+release-time-only scheduling gap (first row above) remains open for a
+future slice.
 
 ## 7. Version-Consistency Map (updated by RQG-B)
 
@@ -619,12 +644,22 @@ scratch":
   added: `pytest -q` already runs unconditionally on every PR/push, and
   this gate's tests are part of that suite. See
   `tests/test_installation_docs_contract.py`.
-- **RQG-G — GitHub release asset workflow completeness.** Add a
-  behavioral (not just text-presence) check — most practically, a
-  `workflow_dispatch`-triggered dry run of `release-artifacts.yml` on a
-  schedule or on every push to `develop/vX.Y.Z`, rather than only
-  trusting static YAML text assertions (§4.3's `test_release_workflow_uploads_flat_staged_assets`
-  caveat).
+- **RQG-G — GitHub release asset workflow completeness. IMPLEMENTED.**
+  Restructured `release-artifacts.yml` into an explicit
+  `freebsd-pkg` → `build-and-validate` → `upload` job chain (`needs:`
+  enforced, no `continue-on-error`, upload gated on a real `release`
+  event and only able to see files the validate job explicitly staged and
+  uploaded). Added `scripts/check_release_workflow.py`: static job-graph
+  checks (the one place text assertions remain appropriate) plus a dynamic
+  `simulate_pre_upload_sequence()` that runs the real metadata-then-artifact
+  gate sequence against fixture directories. Retired `freebsd-pkg.yml`
+  (proven byte-for-byte duplicate, §5.3/§6). Added the same
+  `--release-mode` metadata gate to `publish.yml`, and confirmed textually
+  that it never uploads GitHub Release assets (that responsibility stays
+  exclusive to `release-artifacts.yml`). A true scheduled/push-triggered
+  `workflow_dispatch` dry run of the real workflow remains a possible
+  future refinement but was not required to close this slice's contract.
+  See `tests/test_release_workflow_contract.py`.
 - **RQG-H — Single orchestrated gate with PASS/FAIL manifest.** Wrap the
   now-more-complete set of checks from RQG-B through RQG-G behind one
   command that runs all checks (not stopping at the first failure),

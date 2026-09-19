@@ -97,19 +97,48 @@ the `pypi` GitHub environment.
    git push origin main
    git push origin vX.Y.Z
    ```
-4. The `publish.yml` workflow runs on tag push, builds artifacts in an
-   isolated CI environment, and uploads to PyPI using Trusted Publishing.
-5. The `freebsd-pkg.yml` workflow builds `pysh-shell-X.Y.Z.pkg` on a FreeBSD
-   14+ self-hosted runner and uploads it as a workflow artifact for release
-   staging.
-6. The `release-artifacts.yml` workflow attaches all mandatory GitHub Release
-   assets from `dist/release-assets/`: wheel, sdist, Debian `.deb`, RPM
-   `.rpm`, FreeBSD `.pkg`, and flat `SHA256SUMS`.
-7. Verify the release on
+4. Publish a GitHub Release pointing at the pushed tag. **Pushing the tag
+   alone does not trigger anything** -- both `publish.yml` and
+   `release-artifacts.yml` trigger on `release: types: [published]`, not
+   on tag push:
+   ```bash
+   gh release create vX.Y.Z --title "PySH vX.Y.Z" --generate-notes
+   ```
+5. Publishing the release triggers, independently:
+   - `publish.yml`: re-verifies the release metadata contract in
+     `--release-mode --tag vX.Y.Z` (failing closed on version/changelog/tag
+     drift), builds sdist+wheel in an isolated CI environment, and uploads
+     to PyPI using Trusted Publishing. It never builds or uploads OS
+     packages -- that is `release-artifacts.yml`'s exclusive responsibility,
+     and the two workflows never overlap.
+   - `release-artifacts.yml`, as three jobs that must succeed in order:
+     1. `freebsd-pkg` builds the real `pysh-shell-X.Y.Z.pkg` in a FreeBSD
+        14.3 VM (`vmactions/freebsd-vm`; this is a real virtual machine
+        inside the `ubuntu-latest` runner, not a self-hosted runner) and
+        uploads it as a workflow artifact.
+     2. `build-and-validate` (needs `freebsd-pkg`) re-verifies the release
+        metadata contract, builds wheel/sdist/`.deb`/`.rpm`, downloads the
+        FreeBSD `.pkg`, and runs `scripts/check_release_artifacts.sh`
+        (naming, non-empty, checksum-complete, checksum-verified) before
+        staging the flat `dist/release-assets/` tree as a workflow
+        artifact.
+     3. `upload` (needs `build-and-validate`, and only runs on a real
+        `release` event -- never on a manual `workflow_dispatch` dry run)
+        downloads that validated artifact and attaches it to the GitHub
+        Release. It has no other way to obtain files, so it structurally
+        cannot run before validation succeeds.
+
+   `release-artifacts.yml` can also be run manually
+   (`workflow_dispatch`) at any time, including with no tag or release
+   present, to dry-run the metadata gate, all four builds, the real
+   FreeBSD VM build, and the artifact-naming/checksum gate -- everything
+   except the final GitHub upload, which stays disabled outside a real
+   `release` event.
+6. Verify the release on
    [PyPI](https://pypi.org/project/pysh-shell/) and that the GitHub
    release page lists `vX.Y.Z` under
    [Releases](https://github.com/SSobol77/pysh/releases).
-8. Verify downloaded GitHub Release assets:
+7. Verify downloaded GitHub Release assets:
    ```bash
    mkdir -p /tmp/pysh-release-vX.Y.Z
    cd /tmp/pysh-release-vX.Y.Z
@@ -144,9 +173,17 @@ the `pypi` GitHub environment.
 ## Notes
 
 - Tag format is always `vX.Y.Z` (lowercase `v`).
+- Publishing a GitHub Release (not merely pushing a tag) is what triggers
+  `publish.yml` and `release-artifacts.yml`; both listen for
+  `release: types: [published]`.
 - Never run `twine upload` from a developer machine for production
   releases — Trusted Publishing in CI is the only sanctioned path.
 - Never push the tag before the local quality gates are green.
+- `.github/workflows/freebsd-pkg.yml` was retired (Issue #33 RQG-G): it was
+  a byte-for-byte duplicate of `release-artifacts.yml`'s `freebsd-pkg` job,
+  with a `push: branches: [release/v*]` trigger that never matched this
+  project's real `develop/vX.Y.Z` branch model. The real FreeBSD VM build
+  lives solely in `release-artifacts.yml` now.
 - PySH packages must not replace `/bin/sh`, divert the system shell, or claim
   POSIX sh, bash or zsh compatibility beyond the documented compatibility
   matrix.

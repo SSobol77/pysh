@@ -58,8 +58,8 @@ jobs:
           path: dist/os/freebsd/pysh-shell-*.pkg
           if-no-files-found: error
 
-  release-assets:
-    name: Build & attach release assets
+  build-and-validate:
+    name: Build artifacts & validate release contract
     runs-on: ubuntu-latest
     needs: freebsd-pkg
 
@@ -82,6 +82,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build twine
 
+      # Metadata/changelog/tag validation runs before any artifact is built,
+      # so a version-drift or unfinalized-changelog problem fails fast
+      # without spending the cost of building wheel/sdist/deb/rpm.
       - name: Verify release metadata contract (release mode)
         if: github.event_name != 'release'
         run: bash scripts/check_release_metadata.sh --release-mode
@@ -110,8 +113,34 @@ jobs:
       - name: Verify canonical artifact names + stage flat release assets
         run: bash scripts/check_release_artifacts.sh
 
+      # The validated, flat dist/release-assets/ tree is the ONLY thing the
+      # upload job can see: it never has repository source, never rebuilds
+      # anything, and cannot run until this job succeeds. This is the
+      # explicit validate -> upload job boundary (Issue #33 RQG-G): a
+      # failure anywhere above (metadata, any build, naming, checksum)
+      # means this upload never happens, and the upload job has nothing to
+      # download.
+      - name: Upload validated release assets for the upload job
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/release-assets/*
+          if-no-files-found: error
+
+  upload:
+    name: Attach validated assets to GitHub Release
+    runs-on: ubuntu-latest
+    needs: build-and-validate
+    if: github.event_name == 'release'
+
+    steps:
+      - name: Download validated release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist/release-assets
+
       - name: Attach artifacts to GitHub Release
-        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -119,4 +148,5 @@ jobs:
           TAG="${{ github.event.release.tag_name }}"
           gh release upload "${TAG}" \
             dist/release-assets/* \
+            --repo "${{ github.repository }}" \
             --clobber
