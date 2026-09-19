@@ -147,9 +147,11 @@ validated primarily on **Debian 13** and Unix-like systems.
 
 ### From PyPI
 
+<!-- pysh-install:pypi -->
 ```bash
 pip install pysh-shell
 ```
+<!-- /pysh-install:pypi -->
 
 Then start the shell with:
 
@@ -178,6 +180,7 @@ py import platform; print(platform.platform())
 
 ### Development install
 
+<!-- pysh-install:dev -->
 ```bash
 # Recommended: uv-based dev workflow
 uv sync
@@ -191,6 +194,7 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
+<!-- /pysh-install:dev -->
 
 ### Running
 

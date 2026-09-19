@@ -398,32 +398,26 @@ naming/content check, never presented as a real release artifact).
   (new file) exercising the naming/checksum logic against the fixture
   directory, independent of a real build.
 
-### 5.5 README/install-doc commands are never executed
+### 5.5 README/install-doc commands are never executed — RESOLVED (RQG-F)
 
-Confirmed by direct search: no test extracts a fenced code block from
-`README.md` or `docs/user/installation.md` and runs it. Coverage today is
-limited to (a) link resolution (`test_docs_markdown_local_links_resolve`,
-`check_release_quality.sh`'s README-link scan) and (b) forbidden-phrase
-scans. The commands themselves (`pip install pysh-shell`,
-`sudo dpkg -i ./pysh-shell_X.Y.Z-1_all.deb`, `sudo pkg install
-./pysh-shell-X.Y.Z.pkg`, etc.) are template text with an `X.Y.Z`
-placeholder and have never been substituted with the real current version
-and actually run.
-
-- Smallest reasonable implementation location: a new script,
-  `scripts/check_install_docs.sh`, that greps fenced `bash`/`sh` blocks
-  from `docs/user/installation.md`, substitutes `X.Y.Z` with the real
-  `pyproject.toml` version, and for the PyPI path actually performs the
-  `pip install` step against the just-built wheel in a throwaway venv
-  (this overlaps with `check_release_quality.sh` step 11 and should reuse
-  it rather than duplicate it). For `.deb`/`.rpm`/`.pkg`, exact-command
-  extraction plus a dry-run/`--assert-file-exists`-style check is more
-  realistic than actually invoking `sudo dpkg -i` in CI.
-- New code required: yes, a new script plus a lightweight parser for
-  fenced code blocks (regex over Markdown is sufficient given the
-  existing codebase's stdlib-only, no-new-dependency policy).
-- Proposed test location: `tests/test_install_docs_commands.py` (new
-  file), plus a `check_headers.sh`-style CI step.
+`scripts/check_installation_docs.py` now parses explicitly marked
+(`<!-- pysh-install:NAME -->`) snippets in `README.md` and
+`docs/user/installation.md`, validates every documented install path
+structurally (package name, explicit version statement, OS-package naming
+pattern, Python-version requirement, referenced script existence, no
+legacy `setup.py install` syntax, README-vs-guide agreement on shared
+commands), and, for the PyPI path specifically, builds a real local wheel
+and sdist and installs each into a disposable temporary virtualenv,
+verifying `pysh --version` / `python -m pysh --version` /
+`pysh -c "echo ..."` against the installed artifact -- no PyPI/network
+access, no repo-source PYTHONPATH contamination (checked explicitly). The
+`.deb`/`.rpm`/`.pkg` commands remain structural-only, as originally
+proposed: their naming and local-file-argument shape is validated, but
+`apt`/`dnf`/`pkg` are never invoked here (that is RQG-D's job for Debian).
+This closes the "never executed" gap for the one artifact family
+(PyPI/wheel/sdist) it was ever realistic to portably execute; see
+`tests/test_installation_docs_contract.py` for fixture-based coverage of
+every failure mode and one real end-to-end dynamic test.
 
 ### 5.6 No single command with a deterministic PASS/FAIL manifest
 
@@ -610,10 +604,21 @@ scratch":
   duplication and trigger scoping (§5.3); if kept, add a real
   `pkg install` + CLI smoke inside the existing `vmactions/freebsd-vm`
   job (currently only `pkg info -F`/`pkg query -F`, never `pkg install`).
-- **RQG-F — README/install command validation.** New
-  `scripts/check_install_docs.sh` (or equivalent) that substitutes the
-  real version into documented install commands and, at minimum for the
-  PyPI path, actually runs them against a built wheel (§5.5).
+- **RQG-F — README/install command validation. IMPLEMENTED.** Added
+  `scripts/check_installation_docs.py`: parses only explicitly marked
+  (`<!-- pysh-install:NAME -->`) snippets in README.md and
+  docs/user/installation.md, validates package name/version/Python-version/
+  OS-package-naming/legacy-syntax/script-existence structurally against
+  pyproject.toml, cross-checks README against the installation guide for
+  shared-command agreement, and (by default; `--skip-portable` to disable)
+  builds a real local wheel and sdist and installs each into a disposable
+  temporary virtualenv for a genuine `pysh --version`/`-c "echo ..."` smoke
+  -- with no PyPI/network access. Debian/RPM/FreeBSD install commands are
+  validated structurally only, never executed (that remains RQG-D's job
+  for Debian, and a future slice's for RPM/FreeBSD). No new CI step was
+  added: `pytest -q` already runs unconditionally on every PR/push, and
+  this gate's tests are part of that suite. See
+  `tests/test_installation_docs_contract.py`.
 - **RQG-G — GitHub release asset workflow completeness.** Add a
   behavioral (not just text-presence) check — most practically, a
   `workflow_dispatch`-triggered dry run of `release-artifacts.yml` on a

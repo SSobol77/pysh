@@ -16,7 +16,7 @@ PySH is distributed on PyPI as the package **`pysh-shell`**. It installs a
 single console command, `pysh`, and can also be run as a module with
 `python -m pysh`.
 
-Current release: **PySH 0.8.2**.
+<!-- pysh-install:version -->Current release: **PySH 0.8.2**.<!-- /pysh-install:version -->
 
 ## Requirements
 
@@ -31,17 +31,21 @@ package-manager hooks.
 
 ## Install from PyPI
 
+<!-- pysh-install:pypi -->
 ```bash
 python3.13 -m pip install --upgrade pip
 python3.13 -m pip install pysh-shell
 ```
+<!-- /pysh-install:pypi -->
 
 Verify the installation:
 
+<!-- pysh-install:pypi-verify -->
 ```bash
 pysh --version
 python -m pysh --version
 ```
+<!-- /pysh-install:pypi-verify -->
 
 Both commands must print the installed `pysh` version.
 
@@ -49,14 +53,18 @@ Both commands must print the installed `pysh` version.
 
 For PySH version `X.Y.Z`, the canonical Debian artifact is:
 
+<!-- pysh-install:deb-name -->
 ```
 pysh-shell_X.Y.Z-1_all.deb
 ```
+<!-- /pysh-install:deb-name -->
 
+<!-- pysh-install:deb -->
 ```bash
 sudo apt install ./pysh-shell_X.Y.Z-1_all.deb
 pysh --version
 ```
+<!-- /pysh-install:deb -->
 
 The `.deb` installs the Python package under `/opt/pysh-shell/lib/pysh`
 and a wrapper at `/usr/bin/pysh`. Depends on `python3 (>= 3.13)`.
@@ -65,14 +73,18 @@ and a wrapper at `/usr/bin/pysh`. Depends on `python3 (>= 3.13)`.
 
 For PySH version `X.Y.Z`, the canonical RPM artifact is:
 
+<!-- pysh-install:rpm-name -->
 ```
 pysh-shell-X.Y.Z-1.noarch.rpm
 ```
+<!-- /pysh-install:rpm-name -->
 
+<!-- pysh-install:rpm -->
 ```bash
 sudo dnf install ./pysh-shell-X.Y.Z-1.noarch.rpm
 pysh --version
 ```
+<!-- /pysh-install:rpm -->
 
 The `.rpm` shares the install layout with the Debian package and
 requires `python3 >= 3.13`.
@@ -85,14 +97,18 @@ requires `python3 >= 3.13`.
 
 For PySH version `X.Y.Z`, the canonical FreeBSD artifact is:
 
+<!-- pysh-install:freebsd-name -->
 ```
 pysh-shell-X.Y.Z.pkg
 ```
+<!-- /pysh-install:freebsd-name -->
 
+<!-- pysh-install:freebsd -->
 ```sh
 sudo pkg install ./pysh-shell-X.Y.Z.pkg
 pysh --version
 ```
+<!-- /pysh-install:freebsd -->
 
 The `.pkg` installs the wrapper at `/usr/local/bin/pysh` and the Python
 package under `/usr/local/lib/pysh-shell/pysh/`. It must not replace
@@ -101,9 +117,11 @@ an existing `~/.pyshrc.py`.
 
 The FreeBSD package is built on FreeBSD 14+ with:
 
+<!-- pysh-install:freebsd-build -->
 ```sh
 bash scripts/build_freebsd_pkg.sh
 ```
+<!-- /pysh-install:freebsd-build -->
 
 FreeBSD 14+ validation also includes the Python/wheel smoke path:
 
@@ -197,12 +215,14 @@ flat download workflow.
 
 Use a virtual environment so PySH does not interfere with system Python:
 
+<!-- pysh-install:dev -->
 ```bash
 python3.13 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
+<!-- /pysh-install:dev -->
 
 The `[dev]` extra pulls in `pytest`, `ruff`, `build`, and `twine`.
 
