@@ -34,6 +34,12 @@ these plugin files, or make trusted callbacks isolated. See the
 [isolated-plugin contract](../security/plugin-isolation.md) for the distinct
 runtime and its documented OS-level limitations.
 
+The normative [v1.0 layering contract](../architecture/layering.md) assigns
+the core-to-extension integration seam to `pysh.plugins` and keeps
+`pysh.plugins.isolated` as a separately owned domain. Trusted Plugin API
+objects do not gain access to isolated broker/runtime internals, and isolated
+Python implementation objects are not part of this public API.
+
 ## Versioning
 
 New external tooling should import the stable version contract from the

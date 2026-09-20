@@ -1,0 +1,243 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# File: architecture.toml
+#
+# Copyright (C) 2026 Siergej Sobolewski
+
+schema_version = 1
+
+[public_api]
+stable_modules = ["pysh", "pysh.api"]
+compatibility_modules = ["pysh.contracts", "pysh.plugins", "pysh.shell"]
+internal_type_prefixes = [
+  "pysh.__main__",
+  "pysh.cli",
+  "pysh.compat",
+  "pysh.config",
+  "pysh.core",
+  "pysh.diagnostics",
+  "pysh.editor",
+  "pysh.migration",
+  "pysh.parsing",
+  "pysh.plugins.",
+  "pysh.prompt",
+  "pysh.python_layer",
+  "pysh.script_runner",
+  "pysh.security",
+  "pysh.services",
+]
+versioned_external_protocols = [
+  "trusted_plugin_api",
+  "isolated_plugin_manifest",
+  "isolated_plugin_ipc",
+]
+
+[[domains]]
+module = "pysh"
+layer = "package_public_api"
+classification = "stable_public"
+owner = "Package identity and metadata"
+extension_status = "root_metadata_only"
+allowed_dependencies = []
+
+[[domains]]
+module = "pysh.api"
+layer = "package_public_api"
+classification = "stable_public"
+owner = "Canonical Python facade and embedding lifecycle"
+extension_status = "canonical_python_api"
+allowed_dependencies = ["pysh.contracts", "pysh.config", "pysh.core"]
+
+[[domains]]
+module = "pysh.contracts"
+layer = "contracts"
+classification = "compatibility_public"
+owner = "Dependency-light protocols and shared immutable contract data"
+extension_status = "supported_contract_compatibility_path"
+allowed_dependencies = []
+
+[[domains]]
+module = "pysh.parsing"
+layer = "syntax_parsing"
+classification = "internal"
+owner = "Shared parser, syntax, expansion, heredoc, and redirection primitives"
+extension_status = "shared_low_level_leaf"
+allowed_dependencies = ["pysh.contracts"]
+
+[[domains]]
+module = "pysh.script_runner"
+layer = "script_runner"
+classification = "internal"
+owner = "Native script sequencing and explicit interpreter delegation"
+extension_status = "none"
+allowed_dependencies = ["pysh.parsing"]
+
+[[domains]]
+module = "pysh.diagnostics"
+layer = "diagnostics"
+classification = "internal"
+owner = "Advisory planning, tracing, and redaction implementation"
+extension_status = "schemas_not_stable_until_issue_50"
+allowed_dependencies = ["pysh.parsing"]
+
+[[domains]]
+module = "pysh.editor"
+layer = "interactive_editor"
+classification = "internal"
+owner = "Interactive editing, completion integration, history, and highlighting"
+extension_status = "none"
+allowed_dependencies = ["pysh.contracts", "pysh.parsing"]
+
+[[domains]]
+module = "pysh.prompt"
+layer = "interactive_presentation"
+classification = "internal"
+owner = "Prompt colors, terminal presentation, and system-profile rendering"
+extension_status = "none"
+allowed_dependencies = []
+
+[[domains]]
+module = "pysh.python_layer"
+layer = "python_execution"
+classification = "internal"
+owner = "Persistent Python execution and Python command mode"
+extension_status = "none"
+allowed_dependencies = ["pysh", "pysh.contracts"]
+
+[[domains]]
+module = "pysh.config"
+layer = "configuration"
+classification = "internal"
+owner = "Startup policy, configuration parsing, validation, and application"
+extension_status = "documented_configuration_schema"
+allowed_dependencies = []
+
+[[domains]]
+module = "pysh.compat"
+layer = "compatibility"
+classification = "internal"
+owner = "Static profile import and explicit foreign-shell compatibility bridges"
+extension_status = "none"
+allowed_dependencies = []
+
+[[domains]]
+module = "pysh.services"
+layer = "services"
+classification = "internal"
+owner = "Service client and PyInit metadata implementation"
+extension_status = "none"
+allowed_dependencies = []
+
+[[domains]]
+module = "pysh.security"
+layer = "security"
+classification = "internal"
+owner = "Security policy declarations and explicit sensitive-input PTY runner"
+extension_status = "issue_43_security_boundary"
+allowed_dependencies = []
+
+[[domains]]
+module = "pysh.plugins"
+layer = "plugins"
+classification = "compatibility_public"
+owner = "Trusted in-process Plugin API 1.0 and plugin lifecycle"
+extension_status = "trusted_plugin_api_1_0"
+allowed_dependencies = ["pysh.contracts"]
+
+[[domains]]
+module = "pysh.plugins.isolated"
+layer = "isolated_plugin_boundary"
+classification = "internal"
+owner = "Issue #44 manifest, IPC, broker, and isolated subprocess implementation"
+extension_status = "manifest_and_ipc_are_external_python_objects_are_internal"
+allowed_dependencies = ["pysh.plugins"]
+
+[[domains]]
+module = "pysh.migration"
+layer = "migration_analysis"
+classification = "internal"
+owner = "Static migration analysis and reporting"
+extension_status = "none"
+allowed_dependencies = []
+
+[[domains]]
+module = "pysh.core"
+layer = "runtime_composition"
+classification = "internal"
+owner = "Application runtime composition, shell state, dispatch, jobs, and execution"
+extension_status = "none"
+allowed_dependencies = [
+  "pysh",
+  "pysh.compat",
+  "pysh.config",
+  "pysh.contracts",
+  "pysh.diagnostics",
+  "pysh.editor",
+  "pysh.migration",
+  "pysh.parsing",
+  "pysh.plugins",
+  "pysh.prompt",
+  "pysh.python_layer",
+  "pysh.script_runner",
+  "pysh.security",
+  "pysh.services",
+]
+
+[[domains]]
+module = "pysh.cli"
+layer = "entrypoints"
+classification = "internal"
+owner = "Console argument parsing and top-level error/status conversion"
+extension_status = "documented_cli_contract_not_python_embedding_api"
+allowed_dependencies = [
+  "pysh",
+  "pysh.config",
+  "pysh.core",
+  "pysh.diagnostics",
+  "pysh.parsing",
+]
+
+[[domains]]
+module = "pysh.shell"
+layer = "package_public_api"
+classification = "compatibility_public"
+owner = "Deprecated PyShell compatibility import"
+extension_status = "removal_not_before_1_2_0"
+allowed_dependencies = ["pysh.core"]
+
+[[domains]]
+module = "pysh.__main__"
+layer = "entrypoints"
+classification = "internal"
+owner = "python -m pysh dispatch"
+extension_status = "documented_cli_entrypoint"
+allowed_dependencies = ["pysh.cli"]
+
+[[exceptions]]
+importer = "pysh.config"
+imported = "pysh.editor"
+reason = "Configuration defaults and validation currently consume editor history, width, and highlight-role data."
+cleanup_issue = "Issue #19"
+
+[[exceptions]]
+importer = "pysh.config"
+imported = "pysh.prompt"
+reason = "Configuration validation currently consumes prompt color parsing and conversion helpers."
+cleanup_issue = "Issue #19"
+
+[[exceptions]]
+importer = "pysh.config"
+imported = "pysh.python_layer"
+reason = "The rc logical-line adapter currently consumes Python-block coalescing helpers."
+cleanup_issue = "Issue #14"
+
+[[exceptions]]
+importer = "pysh.python_layer"
+imported = "pysh.editor"
+reason = "Interactive Python command mode currently reuses the terminal editor engine and rendering adapter."
+cleanup_issue = "Issue #12"
+
+[[exceptions]]
+importer = "pysh.security"
+imported = "pysh.prompt"
+reason = "The explicit sensitive-input runner currently reuses prompt color parsing and rendering helpers."
+cleanup_issue = "Issue #19"

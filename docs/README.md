@@ -81,6 +81,7 @@ docs/
 │   └── zsh-compatibility.md
 ├── architecture/                      ← architecture decisions and roadmap
 │   ├── architecture.md
+│   ├── layering.md
 │   ├── error-exit-code-contract.md
 │   ├── completion-engine-contract.md
 │   ├── heredoc-contract.md
@@ -219,7 +220,8 @@ Internal architecture decisions, issue tracking, and roadmap.
 
 | Document | Description |
 | -------- | ----------- |
-| [architecture.md](architecture/architecture.md) | Architecture contracts (Issue #3): boundaries, protocols, ratchet, shim policy |
+| [architecture.md](architecture/architecture.md) | Architecture contracts: protocols, enforced boundaries, and shim policy |
+| [layering.md](architecture/layering.md) | Normative Issue #46 v1.0 ownership map, dependency directions, extension seams, and exact debt exceptions |
 | [error-exit-code-contract.md](architecture/error-exit-code-contract.md) | Error and exit-code contract (Issue #5): ExitCode enum, PyShError taxonomy, $? propagation |
 | [heredoc-contract.md](architecture/heredoc-contract.md) | Here-document and here-string stdin contract (Issue #10) |
 | [observability-diagnostics-contract.md](architecture/observability-diagnostics-contract.md) | Observability and diagnostics contract (Issue #13): opt-in trace, stderr contract, redaction, diagnostic builtins |

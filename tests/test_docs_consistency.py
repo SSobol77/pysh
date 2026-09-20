@@ -20,6 +20,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent
 README = REPO_ROOT / "README.md"
 DOCS = REPO_ROOT / "docs"
+ARCHITECTURE_POLICY = REPO_ROOT / "architecture.toml"
+LAYERING_DOC = DOCS / "architecture" / "layering.md"
 
 MARKDOWN_FILES: tuple[Path, ...] = (
     *tuple(
@@ -1283,3 +1285,63 @@ def test_issue_34_fish_migration_and_manual_evidence_contract() -> None:
     assert "# Release Notes Template" in release_template
     assert "## Validation evidence" in release_template
     assert "## Known limitations" in release_template
+
+
+# ---------------------------------------------------------------------------
+# Issue #46 — architecture policy/documentation consistency
+# ---------------------------------------------------------------------------
+
+
+def test_issue_46_layering_policy_is_normative_and_indexed() -> None:
+    """The machine policy and normative layer document must be discoverable."""
+    assert ARCHITECTURE_POLICY.is_file()
+    assert LAYERING_DOC.is_file()
+
+    index = (DOCS / "README.md").read_text(encoding="utf-8")
+    architecture = (DOCS / "architecture" / "architecture.md").read_text(
+        encoding="utf-8"
+    )
+    source_tree = (DOCS / "architecture" / "source-tree.md").read_text(
+        encoding="utf-8"
+    )
+    assert "[layering.md](architecture/layering.md)" in index
+    assert "[layering.md](layering.md)" in architecture
+    assert "[layering.md](layering.md)" in source_tree
+    assert "architecture.toml" in architecture
+    assert "architecture.toml" in source_tree
+
+
+def test_issue_46_layering_document_covers_policy_domains_and_exceptions() -> None:
+    """Every machine-owned domain and debt edge must appear in normative prose."""
+    with ARCHITECTURE_POLICY.open("rb") as stream:
+        policy = tomllib.load(stream)
+    layering = LAYERING_DOC.read_text(encoding="utf-8")
+
+    for domain in policy["domains"]:
+        assert f"`{domain['module']}`" in layering
+    for exception in policy["exceptions"]:
+        assert f"`{exception['importer']}`" in layering
+        assert f"`{exception['imported']}`" in layering
+        assert exception["cleanup_issue"] in layering
+
+    assert "boundary freeze, not implementation freeze" in layering
+    assert "Private helper" in layering
+    assert "ordinary `pytest -q` step" in layering
+
+
+def test_issue_46_related_contracts_reference_layering_owner() -> None:
+    """API and both plugin contracts must point to the same ownership model."""
+    api_stability = (DOCS / "development" / "api-stability.md").read_text(
+        encoding="utf-8"
+    )
+    plugin_api = (DOCS / "plugins" / "plugin-api.md").read_text(encoding="utf-8")
+    isolation = (DOCS / "security" / "plugin-isolation.md").read_text(
+        encoding="utf-8"
+    )
+    roadmap = (DOCS / "roadmap" / "ROADMAP-v1-2.md").read_text(encoding="utf-8")
+
+    for text in (api_stability, plugin_api, isolation, roadmap):
+        assert "layering.md" in text
+    assert "architecture.toml" in api_stability
+    assert "core-to-extension integration boundary" in isolation
+    assert "pysh.plugins.isolated" in isolation

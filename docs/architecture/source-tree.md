@@ -29,6 +29,11 @@ Issue #3 has been implemented: `pysh.contracts` exists, import-boundary tests
 run in CI, and the full contract layer is documented in
 [architecture.md](architecture.md).
 
+Issue #46 freezes the resulting v1.0 boundaries. The canonical ownership and
+dependency model is [layering.md](layering.md), with its machine-readable
+policy in [`architecture.toml`](../../architecture.toml). This source-tree
+inventory describes layout; it does not supersede that policy.
+
 ---
 
 ## Current source tree (`src/pysh/`)
@@ -237,6 +242,8 @@ pysh.core.shell
     │       └── pysh.parsing  (split_paste_commands)
     ├── pysh.prompt           (colors, system_profile)
     ├── pysh.plugins          (Plugin API manager; trusted local extensions)
+    │   └── pysh.plugins.isolated  (separate manifest/IPC/broker boundary;
+    │                               may consume trusted identity helpers)
     ├── pysh.python_layer     (runtime, mode, render, highlighting)
     │   └── pysh.editor.lineedit  (lineedit primitives used by #py mode)
     ├── pysh.config           (api, rc, plugins)
@@ -261,6 +268,8 @@ pysh.core.shell
 - `pysh.editor.lineedit` is also shared: used by `core`, `python_layer`, and
   `config`. This reflects the editor engine serving multiple consumers.
 - `pysh.prompt.colors` is used by `core`, `config`, and `security`.
+- `pysh.plugins.isolated` is a distinct domain that may import only the
+  trusted-plugin domain; `core` does not import isolated runtime internals.
 - No circular imports exist as of the Issue #2 relocation.
 
 ---
@@ -280,17 +289,18 @@ and enters the REPL or executes a `-c` command string.
 
 ## Internal package boundaries
 
-Issue #3 turned the post-Issue #2 boundary model into active quality gates.
-The current enforcement split is:
+Issue #3 introduced the static checks; Issue #46 turned the complete v1.0
+domain model into active, deny-by-default quality gates:
 
 | Rule | Status |
 | ---- | ------ |
 | Import graph must not contain cycles | Hard gate in `tests/test_architecture_import_boundaries.py` |
 | `pysh.contracts` must remain stdlib-only and isolated from implementation packages | Hard gate in `tests/test_architecture_import_boundaries.py` |
 | Package `__init__.py` files must remain side-effect minimal | Hard gate in `tests/test_architecture_import_boundaries.py` |
-| Cross-domain imports outside permitted fan-in/entrypoint paths | Ratcheted with documented known violations |
-| `pysh.diagnostics` must remain advisory and must not execute commands | Architectural contract; covered by code review and focused tests |
-| `pysh.editor.lineedit` must remain a self-contained editing engine | Architectural contract; cross-domain imports are ratcheted |
+| Cross-domain imports outside exact policy edges | Hard gate driven by `architecture.toml` |
+| Temporary violations | Five exact, reasoned, cleanup-owned exceptions; no wildcard or prefix inheritance |
+| `pysh.api`, contracts, parser and isolated-plugin direction | Hard gate with synthetic negative regression tests |
+| `pysh.diagnostics` must remain advisory and must not import core | Hard dependency gate plus focused behavior tests |
 
 ---
 
@@ -363,6 +373,8 @@ All gates must show PASS before a release tag is applied.
 | Issue #8 | Parser/expansion/multiline foundation; classifies `pysh.parsing` as a shared leaf for editor, diagnostics and script runner consumers | Implemented pending commit |
 | Issue #14 | Script/config mode cleanup: resolves `pysh.config → pysh.python_layer` and finalizes script semantics | Open |
 | Issue #45 | Canonical `pysh.api`, public/internal contract, SemVer and deprecated `pysh.shell.PyShell` lifecycle | Implemented pending commit |
+| Issue #46 | Canonical ownership map, declarative dependency policy, exact debt exceptions, and negative boundary tests | Implemented pending commit — see [layering.md](layering.md) |
 
-The import-boundary ratchet and cycle tests run in CI as of Issue #3.
-New cross-package violations fail automatically.
+The complete import-boundary and cycle tests run through the ordinary CI
+`pytest -q` step. New or unclassified cross-package dependencies fail
+automatically.

@@ -401,7 +401,7 @@ first release and every minor bump breaks plugins.
 
 ## #46 Internal Architecture Freeze & Dependency Boundary Enforcement
 **Labels:** `architecture` `documentation` `release-blocking`
-**Milestone:** v1.0.0 · **Status:** filed as GitHub #46
+**Milestone:** v1.0.0 · **Status:** implemented pending commit
 **Depends on:** #44 (IPC seam), #45 (public/internal split) · **Blocks:** planned Plugin SDK v1; also stabilizes the parse surface fuzzed by #49
 
 **Description**
@@ -419,17 +419,19 @@ stays free to change and be fixed; what is frozen is *who may import whom*,
 code freeze would block bug fixes and is explicitly **not** the intent.
 
 **Design & implementation**
-- Define the layer map and allowed **dependency direction**, e.g.: parser
-  must not depend on runtime/editor; core must not depend on feature
-  plugins; the `pysh.api` layer re-exports only and is never imported by
-  internals for logic. Record as an Architecture Decision Record (ADR).
-- Enforce with an automated **import-direction / boundary check** in CI
-  (e.g. `import-linter` or a custom AST rule) so violations fail the build,
-  not code review.
+- Define the canonical layer map in
+  [layering.md](../architecture/layering.md). `pysh.core` is explicitly the
+  application/runtime composition fan-in, not a low-level leaf; parser must
+  not depend on runtime/editor, and internals never import `pysh.api` for
+  logic.
+- Enforce the exact policy from repository-root `architecture.toml` with the
+  stdlib AST boundary test already discovered by ordinary CI, so violations
+  fail the build rather than relying on code review.
 - Establish a module **ownership map** and a stable seam between core and
   the `#44` IPC boundary, so plugins bind to a fixed internal contract.
-- Make the public/internal partition the **single source of truth** shared
-  with the `#45` API snapshot test (one definition, two consumers).
+- Make `architecture.toml` the public/internal partition's **single source of
+  truth**, consumed by boundary and API validation while retaining #45's
+  independently authored literal symbol/signature snapshots.
 
 **Watch out for**
 - Sequence is `#45 → #46`: the boundary definitions depend on the public
@@ -442,8 +444,8 @@ code freeze would block bug fixes and is explicitly **not** the intent.
   function signatures of internal helpers (that is churn, not contract).
 
 **Acceptance Criteria**
-- `docs/architecture/layering.md` (or an ADR) with the layer map and
-  allowed dependency direction.
+- `docs/architecture/layering.md` and `architecture.toml` define the layer map
+  and allowed dependency direction.
 - CI import-direction / boundary check fails on violation.
 - Public/internal partition is consistent with the `#45` API snapshot.
 - The core↔plugin seam is stable and referenced by #44 and the planned Plugin SDK v1.
