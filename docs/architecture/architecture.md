@@ -24,6 +24,7 @@ shim lifecycle policy.
 - [parser-expansion-contract.md](parser-expansion-contract.md) — Issue #8: parser modules, expansion order, multiline grammar, unsupported syntax ownership.
 - [signal-handling.md](signal-handling.md) — Issue #6: signal-handling architecture, terminal restoration guarantees, exit-code mapping.
 - [security-trust-model.md](security-trust-model.md) — Issue #7: security and trust model, execution surfaces table, static import policy, sensitive input boundary.
+- [../security/threat-model.md](../security/threat-model.md) — Issue #43: v1.0 STRIDE analysis, data classification, safe startup, redaction and future-boundary requirements.
 - [job-control-contract.md](job-control-contract.md) — Issue #11: job-control model, process-group ownership, `jobs`/`fg`/`bg` builtins, SIGTSTP handling, background job reaping.
 - [path-expansion-contract.md](path-expansion-contract.md) — Issue #9: native glob and path expansion, tilde expansion, dotfile policy, quoting contract.
 - [ISSUE-2-refactor-source-tree.md](ISSUE-2-refactor-source-tree.md) — Issue #2 scope (relocation only).
@@ -317,6 +318,7 @@ subprocess calls) that should be deferred to first use.
 | Issue #3 | This document. Contract layer, boundary tests, ratchet, public API snapshot, cold-start budget. |
 | Issue #6 | Signal-handling architecture: deterministic SIGINT/SIGTERM exit-code behavior, explicit SIGTSTP/job-control non-support, `returncode_to_exit_status()`, terminal restoration guarantees. Does not resolve the `pysh.security → pysh.prompt` violation (deferred to Issue #19). |
 | Issue #7 | Security and trust model: execution surfaces, static import policy, sensitive input boundary, trust levels, diagnostics non-mutation. See [security-trust-model.md](security-trust-model.md). |
+| Issue #43 | v1.0 threat model and security architecture: `--no-rc` startup policy, data classification, trust-boundary diagram, threat register, centralized redaction requirements, and capability principles for #44. See [threat-model.md](../security/threat-model.md). |
 | Issue #8 | Parser/expansion/multiline foundation: decomposes parser modules, defines unsupported syntax ownership, and classifies `pysh.parsing` as a shared leaf consumed by editor, diagnostics and script runner. |
 | Issue #9 | Native path and glob expansion: `tokenize_and_glob_expand`, tilde expansion, dotfile policy, no-match policy. See [path-expansion-contract.md](path-expansion-contract.md). |
 | Issue #13 | Observability and diagnostics: opt-in `--debug`/`--trace`, stderr-only trace output, redaction policy, and formalized diagnostic builtins. See [observability-diagnostics-contract.md](observability-diagnostics-contract.md). |

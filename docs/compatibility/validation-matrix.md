@@ -87,6 +87,10 @@ Current release line: **PySH 0.9.0**.
 | Script heredoc, glob and Python blocks work | Unit test | `tests/test_script_mode.py` | None | #14 |
 | Python runtime is not sandboxed (predicate) | Unit test | `tests/test_security_trust_model.py` | None | #7 |
 | No forbidden security claims in docs | Doc consistency test | `tests/test_docs_consistency.py` | None | #7 |
+| `--no-rc` skips executable rc, TOML, plugin discovery and startup hooks | Unit/integration test | `tests/test_safe_startup.py` | None | #43 |
+| `--no-rc` does not create `~/.pyshrc.py` or default TOML | Unit/integration test | `tests/test_safe_startup.py` | None | #43 |
+| Console and `python -m pysh` accept `--no-rc` with `-c` | Unit/subprocess test | `tests/test_safe_startup.py` | None | #43 |
+| Debug trace redacts stderr while command stdout remains unchanged | Unit test | `tests/test_observability_diagnostics.py` | None | #43 / #50 |
 | Comments (`#`) work correctly | Unit test | `tests/test_comments.py` | None | — |
 | Aliases are expanded correctly | Unit test | `tests/test_shell.py` | None | — |
 | `unalias` works | Unit test | `tests/test_unalias.py` | None | — |

@@ -18,6 +18,13 @@ newer contract section. It describes what PySH executes, what it reads, what it
 delegates, and what it explicitly does not do.  All claims in this document are
 backed by tests in `tests/test_security_trust_model.py`.
 
+For PySH v1.0 assurance analysis, this document remains the normative execution
+surface contract. The complementary
+[v1.0 Threat Model and Security Architecture](../security/threat-model.md) owns
+the STRIDE analysis, data classification, threat register, `--no-rc` recovery
+contract, centralized redaction requirements, and future boundary requirements.
+The two documents are intentionally not duplicate security models.
+
 ---
 
 ## Scope
@@ -196,6 +203,11 @@ They are:
 PySH does not apply import filtering, capability restriction, or content
 scanning to rc files or plugins.  A malicious rc file has full access to
 the user's session.  This is the same trust level as any shell dotfile.
+
+For deterministic recovery, `pysh --no-rc` starts without reading or creating
+user startup configuration and without plugin discovery or startup hooks. The
+strict v1.0 behavior also skips declarative and plugin TOML. See the
+[safe-startup contract](../security/threat-model.md#safe-startup---no-rc).
 
 ---
 

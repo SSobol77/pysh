@@ -94,7 +94,8 @@ src/pysh/
 ├── config/
 │   ├── api.py               ← ConfigAPI: prompt/cursor/color config
 │   ├── plugins.py           ← plugin directory loader (~/.pyshrc.d/)
-│   └── rc.py                ← RC file loader and mini rc-interpreter
+│   ├── rc.py                ← RC file loader and mini rc-interpreter
+│   └── startup.py           ← immutable user-startup policy (`--no-rc`)
 │
 ├── compat/
 │   ├── mc.py                ← Midnight Commander environment detection
@@ -177,6 +178,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.editor.lineedit.completion` | `CompletionEngine`, `CompletionContext`, `CompletionCandidate`, `CompletionResult`, `apply_single_completion`: PySH-native completion |
 | `pysh.prompt.colors` | `colorize`, `color_to_hex`, `parse_color`: VGA + truecolor; `NO_COLOR` awareness |
 | `pysh.prompt.system_profile` | `sys_info`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search` |
+| `pysh.config.startup` | Immutable default/safe startup policy selected by the CLI and enforced at the configuration boundary |
 | `pysh.plugins.version` | `PLUGIN_API_VERSION` compatibility checks for Plugin API 1.0 |
 | `pysh.plugins.errors` | Plugin-specific exception hierarchy |
 | `pysh.plugins.names` | Strict plugin, command and prompt segment identifier validation |

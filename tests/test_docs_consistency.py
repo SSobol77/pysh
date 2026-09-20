@@ -368,6 +368,43 @@ def test_no_forbidden_security_claims() -> None:
     )
 
 
+def test_v1_threat_model_preserves_security_assurance_contract() -> None:
+    """Issue #43 must remain explicit about implemented and deferred controls."""
+    threat_model = DOCS / "security" / "threat-model.md"
+    assert threat_model.is_file()
+    text = threat_model.read_text(encoding="utf-8")
+
+    required_contracts = (
+        "CPython in-process execution is\n**not a security boundary**",
+        "## Data classification",
+        "## Safe startup: `--no-rc`",
+        "`pysh.diagnostics.trace.RedactionPolicy` is the canonical policy",
+        "## Threat register",
+        "TM-PARSER-001",
+        "TM-RUNTIME-001",
+        "TM-RC-001",
+        "TM-PLUGIN-001",
+        "TM-HISTORY-001",
+        "TM-DIAG-001",
+        "TM-PTY-001",
+        "TM-AI-001",
+        "TM-REMOTE-001",
+        "TM-PKG-001",
+        "## Capability principles for Issue #44",
+    )
+    for contract in required_contracts:
+        assert contract in text, f"v1 threat model is missing contract: {contract}"
+
+
+def test_v1_threat_model_does_not_claim_current_plugin_sandboxing() -> None:
+    text = (DOCS / "security" / "threat-model.md").read_text(encoding="utf-8")
+    normalized = " ".join(text.split())
+
+    assert "Current plugins remain executable trusted-local code" in normalized
+    assert "do not retrofit isolation onto today's trusted in-process" in normalized
+    assert "until a separate isolated runtime exists and is tested" in normalized
+
+
 def test_no_affirmative_broad_compatibility_claims_in_public_docs() -> None:
     """Broad shell-compatibility claims must be negated or avoided."""
     forbidden = (

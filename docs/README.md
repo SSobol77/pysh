@@ -58,6 +58,8 @@ docs/
 │   ├── multiline-paste.md
 │   ├── security-sensitive-input.md
 │   └── system-profile.md
+├── security/                          ← v1.0 assurance and threat analysis
+│   └── threat-model.md
 ├── python/                            ← Python execution layer
 │   ├── python-runtime.md
 │   └── python-command-execution-layer.md
@@ -144,6 +146,14 @@ Internal shell feature documentation.
 | [multiline-paste.md](shell/multiline-paste.md) | Multiline paste handling and replay queue |
 | [security-sensitive-input.md](shell/security-sensitive-input.md) | Password/passphrase security boundary; `secure <cmd>` PTY runner |
 | [system-profile.md](shell/system-profile.md) | `sys_info`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search` |
+
+---
+
+## Security assurance
+
+| Document | Description |
+| -------- | ----------- |
+| [threat-model.md](security/threat-model.md) | PySH v1.0 threat model: STRIDE register, data classification, trust boundaries, `--no-rc`, redaction policy, and deferred capability requirements |
 
 ---
 

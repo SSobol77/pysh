@@ -32,6 +32,7 @@ canonical repository-relative path for the file.
 │   ├── migration/
 │   ├── python/
 │   ├── shell/
+│   ├── security/
 │   └── user/
 ├── packaging/
 │   ├── debian/
@@ -66,6 +67,7 @@ canonical repository-relative path for the file.
 | `docs/architecture/` | Architecture contracts, trust model, parser and execution contracts, roadmap, and issue-backed design records. |
 | `docs/compatibility/` | Explicit shell compatibility scope, feature matrices, validation policy, and non-goals for POSIX, bash, zsh, and xonsh comparisons. |
 | `docs/development/` | Contributor-facing development, packaging, release, completion-engine, and repository-structure documentation. |
+| `docs/security/` | v1.0 threat model, assurance boundaries, data classification, and security follow-up ownership. |
 | `docs/user/` | End-user guides for installation, usage, completion, builtins, operators, configuration, limitations, and Midnight Commander behavior. |
 | `scripts/` | Shell-script orchestration for release quality, package builds, artifact validation, and header checks. Packaging orchestration belongs here. |
 | `src/` | Python source tree for the installable package. |
