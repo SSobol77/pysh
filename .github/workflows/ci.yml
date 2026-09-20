@@ -45,7 +45,7 @@ jobs:
           fi
 
       - name: Ensure build/quality tools are available
-        run: python -m pip install --upgrade pytest ruff build twine
+        run: python -m pip install --upgrade pytest ruff build twine uv
 
       - name: Run pytest
         run: pytest -q
