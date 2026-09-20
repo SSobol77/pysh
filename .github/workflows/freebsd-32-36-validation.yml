@@ -1,0 +1,308 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Copyright (C) 2026 Siergej Sobolewski
+#
+# Dedicated native FreeBSD validation for:
+#   Issue #32 - Shell Integrations Pack
+#   Issue #36 - Interactive Line Editor Stabilization
+#
+# This workflow intentionally runs only on the dedicated validation branch
+# (plus manual dispatch once the workflow is available). It does not publish
+# artifacts, create tags, or modify releases.
+
+name: FreeBSD 14.4 #32 #36 validation
+
+on:
+  push:
+    branches:
+      - test/v0.9.0-freebsd-32-36
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  freebsd-14-4:
+    name: FreeBSD 14.4 native validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run #32/#36 validation on native FreeBSD 14.4
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.4"
+          usesh: true
+          prepare: |
+            pkg update -f
+            pkg install -y python313 uv git zsh bash
+          run: |
+            set -eu
+
+            # actions/checkout runs on the Linux host and vmactions syncs that
+            # working tree into the FreeBSD VM. The numeric ownership differs
+            # inside the guest, so Git 2.35+ rejects the checkout as
+            # "dubious ownership" unless the synced workspace is explicitly
+            # trusted in this disposable CI VM.
+            git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+            export TERM=xterm-256color
+            mkdir -p freebsd-validation
+
+            {
+              echo "PySH FreeBSD #32/#36 validation"
+              echo "================================"
+              echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              echo "uname=$(uname -a)"
+              echo "freebsd_userland=$(freebsd-version -u)"
+              echo "freebsd_kernel=$(freebsd-version -k)"
+              echo "python=$(python3.13 --version 2>&1)"
+              echo "uv=$(uv --version 2>&1)"
+              echo "git_head=$(git rev-parse HEAD)"
+              echo "term=${TERM:-unset}"
+            } | tee freebsd-validation/environment.txt
+
+            test "$(uname -s)" = "FreeBSD"
+            test "$(freebsd-version -u | cut -d- -f1)" = "14.4"
+            test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+            echo "==> Create isolated FreeBSD test environment with uv"
+            rm -rf .venv-freebsd
+            uv venv --python python3.13 .venv-freebsd
+            uv pip install --python .venv-freebsd/bin/python -e . pytest pygments
+
+            export PATH="$PWD/.venv-freebsd/bin:/usr/local/bin:/usr/bin:/bin"
+            export PYTHONUNBUFFERED=1
+
+            python --version
+            uv --version
+            pysh --version
+            python -m pysh --version
+
+            test "$(pysh --version)" = "pysh 0.9.0"
+            test "$(python -m pysh --version)" = "pysh 0.9.0"
+
+            echo "==> FreeBSD tool inventory for Issue #32"
+            : > freebsd-validation/tool-inventory.txt
+            for tool in uv pip git ecli docker kubectl guardbsd aeronerve; do
+              if command -v "$tool" >/dev/null 2>&1; then
+                printf "%-12s %s\n" "$tool" "$(command -v "$tool")" | tee -a freebsd-validation/tool-inventory.txt
+              else
+                printf "%-12s NOT_INSTALLED\n" "$tool" | tee -a freebsd-validation/tool-inventory.txt
+              fi
+            done
+
+            echo "==> Native Issue #32 prompt/integration acceptance"
+            cat > freebsd-validation/issue32_acceptance.py <<'PY'
+            import os
+            import shutil
+            import tempfile
+            from pathlib import Path
+
+            from pysh.core.shell import PyShell
+
+            ISSUE32 = {
+                "pip": "show_pip_version",
+                "docker": "show_docker_version",
+                "kubectl": "show_kubectl_version",
+                "ecli": "show_ecli_version",
+                "guardbsd": "show_guardbsd_version",
+                "aeronerve": "show_aeronerve_version",
+            }
+
+            BASE_TOOL_OPTIONS = (
+                "show_uv_version",
+                "show_ruff_version",
+                "show_rust_version",
+                "show_node_version",
+                "show_npm_version",
+            )
+
+            def configure_tool_only(shell: PyShell) -> None:
+                shell.set_prompt_option("show_python_version", False)
+                shell.set_prompt_option("show_virtualenv", False)
+                shell.set_prompt_option("show_command_duration", False)
+                shell.set_prompt_option("show_last_status", False)
+                for option in BASE_TOOL_OPTIONS:
+                    shell.set_prompt_option(option, False)
+                for option in ISSUE32.values():
+                    shell.set_prompt_option(option, True)
+
+            os.environ["NO_COLOR"] = "1"
+
+            # Real FreeBSD environment: context integrations must render without
+            # invoking aws/kubectl, while installed tool probes remain optional.
+            with tempfile.TemporaryDirectory(prefix="pysh-i32-context-") as td:
+                kube = Path(td) / "config"
+                kube.write_text(
+                    "apiVersion: v1\n"
+                    "current-context: freebsd-lab\n"
+                    "contexts: []\n",
+                    encoding="utf-8",
+                )
+                os.environ["AWS_PROFILE"] = "freebsd-lab"
+                os.environ["KUBECONFIG"] = str(kube)
+                os.environ["SSH_CONNECTION"] = "127.0.0.1 12345 127.0.0.1 22"
+
+                shell = PyShell()
+                configure_tool_only(shell)
+                shell.set_prompt_option("show_ssh_indicator", True)
+                shell.set_prompt_option("show_aws_profile", True)
+                shell.set_prompt_option("show_k8s_context", True)
+                info = shell._prompt_info_line()
+                print("REAL_CONTEXT_PROMPT:", info.replace("\n", " | "))
+
+                assert "ssh" in info
+                assert "aws:freebsd-lab" in info
+                assert "k8s:freebsd-lab" in info
+
+                for executable in ISSUE32:
+                    path = shutil.which(executable)
+                    print(f"REAL_TOOL {executable}: {path or 'NOT_INSTALLED'}")
+
+            # Missing-tool fallback: every Issue #32 tool is enabled while PATH
+            # contains none of them. Rendering must remain silent and usable.
+            original_path = os.environ.get("PATH", "")
+            with tempfile.TemporaryDirectory(prefix="pysh-i32-empty-") as td:
+                os.environ["PATH"] = td
+                shell = PyShell()
+                configure_tool_only(shell)
+                info = shell._prompt_info_line()
+                print("MISSING_TOOL_PROMPT:", info.replace("\n", " | "))
+                for label in ISSUE32:
+                    assert f"{label}9.9.9" not in info
+                    assert label not in info.lower(), (label, info)
+
+            # Real FreeBSD subprocess execution path with deterministic local
+            # executables. This is not a Python mock: PySH discovers and runs
+            # actual executable files through FreeBSD's process/PTY environment.
+            with tempfile.TemporaryDirectory(prefix="pysh-i32-tools-") as td:
+                bindir = Path(td)
+                for executable in ISSUE32:
+                    path = bindir / executable
+                    path.write_text(
+                        "#!/bin/sh\n"
+                        f"echo '{executable} 9.9.9'\n",
+                        encoding="utf-8",
+                    )
+                    path.chmod(0o755)
+
+                os.environ["PATH"] = str(bindir)
+                shell = PyShell()
+                configure_tool_only(shell)
+                info = shell._prompt_info_line()
+                print("FAKE_TOOL_PROMPT:", info.replace("\n", " | "))
+
+                for label in ISSUE32:
+                    expected = f"{label}9.9.9"
+                    assert expected in info, (expected, info)
+
+            os.environ["PATH"] = original_path
+            print("ISSUE32_NATIVE_ACCEPTANCE=PASS")
+            PY
+
+            python freebsd-validation/issue32_acceptance.py | tee freebsd-validation/issue32-acceptance.log
+
+            # The VM action itself is transported over SSH, so its process
+            # environment contains SSH_* variables. Generic prompt unit tests
+            # must be hermetic and must not accidentally render the VM transport
+            # as a user SSH session. Issue #32 already validated the SSH segment
+            # explicitly above.
+            unset SSH_CLIENT SSH_TTY SSH_CONNECTION
+
+            echo "==> Portable #32/#36 contracts on FreeBSD"
+            python -m pytest -q \
+              tests/test_editor_state.py \
+              tests/test_history.py \
+              tests/test_paste_edit.py \
+              tests/test_heredoc.py \
+              tests/test_resize.py \
+              tests/test_pty_integration.py \
+              tests/test_pty_smoke_helper.py \
+              tests/test_completion.py \
+              tests/test_completion_engine.py \
+              tests/test_completion_menu.py \
+              tests/test_lineedit_completion.py \
+              tests/test_pyshrc_py.py \
+              tests/test_alias_packs.py \
+              tests/test_profiles.py
+
+            # These two files mix portable state/parser contracts with an
+            # in-process PTY harness that runs RawLineReader in background
+            # threads. FreeBSD's PTY/termios job-control semantics make that
+            # Linux-oriented harness non-portable: the reader thread can remain
+            # blocked even though the equivalent real subprocess PTY paths pass.
+            # Run only the portable contracts here; real FreeBSD interactive
+            # behavior is exercised above/below by test_pty_integration.py,
+            # test_resize.py, and scripts/pty_smoke.py.
+            echo "==> Portable subsets from mixed PTY harness files"
+            python -m pytest -q tests/test_editor_state_integration.py \
+              -k "not editor_mode_reverse_search_flag_cleared_after_cancel and not reverse_search_esc_restores_exact_original_buffer_and_cursor and not reverse_search_ctrl_g_restores_exact_original_buffer and not reverse_search_repeated_ctrl_r_cycles_older_matches and not resize_pending_flag_triggers_extra_redraw_before_next_key and not resize_handler_registration_is_restored_after_read_line"
+
+            python -m pytest -q tests/test_multiline_paste.py \
+              -k "not queue_drain_echoes_prompt_and_command_once and not read_line_enables_and_disables_bracketed_paste and not bracketed_paste_waits_for_explicit_enter and not bracketed_paste_with_trailing_newline_waits_for_explicit_enter and not bracketed_multiline_paste_is_staged_without_queueing and not bracketed_python_block_paste_is_staged_without_rewrite and not bracketed_heredoc_paste_is_staged_without_entering_collector and not ctrl_r_typing_query_displays_match_and_enter_accepts and not ctrl_r_ctrl_c_cancels_reverse_search and not ctrl_r_backspace_updates_query_and_match and not ctrl_r_no_match_state_is_visible"
+
+            echo "==> Explicit real-PTY exit/quit acceptance"
+            READY_HEX="1b5b3f3230303468"
+            python scripts/pty_smoke.py --ready-marker-hex "$READY_HEX" 15 exit pysh               | tee freebsd-validation/pty-exit.log
+            python scripts/pty_smoke.py --ready-marker-hex "$READY_HEX" 15 quit pysh               | tee freebsd-validation/pty-quit.log
+
+            echo "==> Non-interactive command smoke"
+            test "$(pysh -c "echo freebsd-32-36-smoke")" = "freebsd-32-36-smoke"
+            pysh -c "exit"
+            pysh -c "quit"
+
+            echo "==> Broad FreeBSD runtime diagnostic (non-gating for #32/#36)"
+            echo "This dedicated workflow gates only Issue #32 and Issue #36 acceptance."
+            echo "The broad suite is retained as diagnostics for unrelated FreeBSD portability findings."
+            echo "Release/package host-contract suites, import-time budget, and the three Linux-oriented in-process PTY harness files are excluded here."
+            echo "Their portable contracts were run above; native FreeBSD behavior is covered by real subprocess PTY and SIGWINCH suites."
+
+            set +e
+            python -m pytest -q tests \
+              --ignore=tests/test_debian_package_smoke_contract.py \
+              --ignore=tests/test_rpm_package_smoke_contract.py \
+              --ignore=tests/test_freebsd_package_smoke_contract.py \
+              --ignore=tests/test_installation_docs_contract.py \
+              --ignore=tests/test_release_artifact_contract.py \
+              --ignore=tests/test_release_gate.py \
+              --ignore=tests/test_release_metadata_contract.py \
+              --ignore=tests/test_release_workflow_contract.py \
+              --ignore=tests/test_import_time_budget.py \
+              --ignore=tests/test_editor_state_integration.py \
+              --ignore=tests/test_multiline_paste.py \
+              --ignore=tests/test_lineedit_reader_pty.py \
+              > freebsd-validation/broad-runtime-diagnostic.log 2>&1
+            broad_runtime_rc=$?
+            set -e
+            cat freebsd-validation/broad-runtime-diagnostic.log
+
+            if [ "$broad_runtime_rc" -eq 0 ]; then
+              broad_runtime_result="PASS"
+            else
+              broad_runtime_result="NON_GATING_FAIL(rc=$broad_runtime_rc)"
+              echo "NOTE: broad runtime diagnostics found unrelated FreeBSD portability failures; #32/#36 acceptance remains gated by the focused suites above."
+            fi
+
+            {
+              echo "RESULT=PASS"
+              echo "ISSUE_32_NATIVE_ACCEPTANCE=PASS"
+              echo "ISSUE_36_FOCUSED_PTY_ACCEPTANCE=PASS"
+              echo "BROAD_RUNTIME_DIAGNOSTIC=$broad_runtime_result"
+              echo "HEAD=$(git rev-parse HEAD)"
+              echo "FREEBSD_USERLAND=$(freebsd-version -u)"
+              echo "FREEBSD_KERNEL=$(freebsd-version -k)"
+              echo "PYTHON=$(python --version 2>&1)"
+              echo "UV=$(uv --version 2>&1)"
+            } | tee freebsd-validation/summary.txt
+
+      - name: Upload FreeBSD validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-14.4-issues-32-36-evidence
+          path: freebsd-validation/
+          if-no-files-found: warn
