@@ -275,9 +275,10 @@ jobs:
               --ignore=tests/test_editor_state_integration.py \
               --ignore=tests/test_multiline_paste.py \
               --ignore=tests/test_lineedit_reader_pty.py \
-              | tee freebsd-validation/broad-runtime-diagnostic.log
+              > freebsd-validation/broad-runtime-diagnostic.log 2>&1
             broad_runtime_rc=$?
             set -e
+            cat freebsd-validation/broad-runtime-diagnostic.log
 
             if [ "$broad_runtime_rc" -eq 0 ]; then
               broad_runtime_result="PASS"
