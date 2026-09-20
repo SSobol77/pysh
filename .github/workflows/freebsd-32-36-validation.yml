@@ -42,6 +42,14 @@ jobs:
           run: |
             set -eu
 
+            # actions/checkout runs on the Linux host and vmactions syncs that
+            # working tree into the FreeBSD VM. The numeric ownership differs
+            # inside the guest, so Git 2.35+ rejects the checkout as
+            # "dubious ownership" unless the synced workspace is explicitly
+            # trusted in this disposable CI VM.
+            git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+            export TERM=xterm-256color
             mkdir -p freebsd-validation
 
             {
@@ -68,7 +76,6 @@ jobs:
 
             export PATH="$PWD/.venv-freebsd/bin:/usr/local/bin:/usr/bin:/bin"
             export PYTHONUNBUFFERED=1
-            export TERM=xterm-256color
 
             python --version
             uv --version
