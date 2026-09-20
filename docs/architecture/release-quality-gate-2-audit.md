@@ -15,7 +15,7 @@ This document is the Phase RQG-A deliverable for Issue #33. It is an audit
 only: it records what already exists, what already enforces what, and where
 the real gaps are, backed by exact file/line evidence gathered from this
 repository. It proposes implementation slices but implements none of them.
-See [`docs/issues/33-release-quality-gate-2.0.md`](../issues/33-release-quality-gate-2.0.md)
+See [Issue #33 — Release Quality Gate 2.0](https://github.com/SSobol77/pysh/issues/33)
 for the original design intent this audit was checked against.
 
 No production or test code was modified to produce this document.
@@ -438,7 +438,7 @@ every failure mode and one real end-to-end dynamic test.
 
 ### 5.6 No single command with a deterministic PASS/FAIL manifest — RESOLVED (RQG-H)
 
-The original Issue #33 design (`docs/issues/33-release-quality-gate-2.0.md`)
+The original [Issue #33 — Release Quality Gate 2.0](https://github.com/SSobol77/pysh/issues/33) design
 calls for "a single command with a deterministic exit code... prints a
 check manifest and a per-check PASS/FAIL summary." `scripts/check_release_quality.sh`
 still uses `set -euo pipefail` and still stops at the first failure
