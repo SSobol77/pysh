@@ -71,11 +71,11 @@ share a single test harness (see `#48`/`#54`).
 | #47 | Performance Budget & CI Regression Gates | contract |
 | #48 | PySH Language Specification & Conformance Suite | correctness |
 | #49 | Parser/Tokenizer Fuzzing & Property-Based Robustness | correctness |
-| #54 | Shell Compatibility & Differential Migration Suite | correctness |
 | #50 | Structured Diagnostics, Audit Log & Redaction Schema | observability |
 | #51 | Supply-Chain Hardening: SBOM, Provenance & Signature Verification | supply chain |
 | #52 | Portability & Platform Tier Contract | platform |
 | #53 | Resource Governor & DoS Containment | platform |
+| #54 | Shell Compatibility & Differential Migration Suite | correctness |
 
 ### PySH v1.1.0 — daily-value features
 
@@ -220,7 +220,7 @@ evidence, and freezes the definition of "1.0.0-ready".
 
 ## #36 Interactive Line Editor Stabilization
 **Labels:** `enhancement` `platform` `testing`
-**Milestone:** v1.0.0 · **Status:** existing (foundation)
+**Milestone:** v0.9.0 (completed prerequisite) · **Status:** closed
 **Depends on:** — · **Supports:** [Advanced Completion Engine](#advanced-completion-engine), #47 (per-keystroke budget), #52 (termios/PTY contract)
 
 **Description**
@@ -265,7 +265,7 @@ budget (`#47`).
 
 ## #43 Threat Model & Security Architecture
 **Labels:** `architecture` `security` `documentation` `release-blocking`
-**Milestone:** v1.0.0 · **Status:** new (keystone)
+**Milestone:** v1.0.0 · **Status:** filed as GitHub #43 (keystone)
 **Depends on:** — · **Blocks:** #44 and the planned Plugin SDK v1, AI Assistant Layer, Remote Operations Framework, and PySH Package Manager
 
 **Description**
@@ -363,7 +363,7 @@ model. This is the architectural decision that unblocks the planned
 
 ## #45 Stable Public API, SemVer & Deprecation Policy
 **Labels:** `architecture` `documentation` `release-blocking`
-**Milestone:** v1.0.0 · **Status:** new
+**Milestone:** v1.0.0 · **Status:** filed as GitHub #45
 **Depends on:** — · **Blocks:** planned Plugin SDK v1 and PySH Package Manager
 
 **Description**
@@ -399,7 +399,7 @@ first release and every minor bump breaks plugins.
 
 ## #46 Internal Architecture Freeze & Dependency Boundary Enforcement
 **Labels:** `architecture` `documentation` `release-blocking`
-**Milestone:** v1.0.0 · **Status:** new
+**Milestone:** v1.0.0 · **Status:** filed as GitHub #46
 **Depends on:** #44 (IPC seam), #45 (public/internal split) · **Blocks:** planned Plugin SDK v1; also stabilizes the parse surface fuzzed by #49
 
 **Description**
@@ -450,7 +450,7 @@ code freeze would block bug fixes and is explicitly **not** the intent.
 
 ## #47 Performance Budget & CI Regression Gates
 **Labels:** `performance` `testing` `platform` `release-blocking`
-**Milestone:** v1.0.0 · **Status:** new
+**Milestone:** v1.0.0 · **Status:** filed as GitHub #47
 **Depends on:** #36 · **Gates:** planned Advanced Completion Engine, Interactive System Dashboard, and Native Git Experience
 
 **Description**
@@ -493,7 +493,7 @@ enforced as CI regression gates.
 
 ## #48 PySH Language Specification & Conformance Suite
 **Labels:** `architecture` `testing` `documentation` `release-blocking`
-**Milestone:** v1.0.0 · **Status:** new
+**Milestone:** v1.0.0 · **Status:** filed as GitHub #48
 **Depends on:** — · **Blocks:** #49 (corpus), #54 (shared harness)
 **Shares harness with:** #54
 
@@ -533,7 +533,7 @@ cluster.
 
 ## #49 Parser/Tokenizer Fuzzing & Property-Based Robustness
 **Labels:** `testing` `security`
-**Milestone:** v1.0.0 · **Status:** new
+**Milestone:** v1.0.0 · **Status:** filed as GitHub #49
 **Depends on:** #48 (semantics) · **Feeds:** #48, #54 (regression corpus)
 
 **Description**
@@ -564,7 +564,7 @@ control that is cheap relative to the payoff.
 
 ## #50 Structured Diagnostics, Audit Log & Redaction Schema
 **Labels:** `architecture` `security` `observability`
-**Milestone:** v1.0.0 · **Status:** new
+**Milestone:** v1.0.0 · **Status:** filed as GitHub #50
 **Depends on:** #43 (redaction policy) · **Audits:** planned AI Assistant Layer, Remote Operations Framework, and PySH Package Manager
 
 **Description**
@@ -597,7 +597,7 @@ defined in `#43`.
 
 ## #51 Supply-Chain Hardening: SBOM, Provenance & Signature Verification
 **Labels:** `packaging` `security` `release-blocking`
-**Milestone:** v1.0.0 · **Status:** new
+**Milestone:** v1.0.0 · **Status:** filed as GitHub #51
 **Depends on:** — · **Blocks:** planned PySH Package Manager
 
 **Description**
@@ -629,7 +629,7 @@ signature verification. This contract unblocks the planned package manager and h
 
 ## #52 Portability & Platform Tier Contract
 **Labels:** `platform` `documentation` `testing`
-**Milestone:** v1.0.0 · **Status:** new
+**Milestone:** v1.0.0 · **Status:** filed as GitHub #52
 **Depends on:** — · **Supports:** #44 (Capsicum), #54 (tier-1 CI), #36/#47 (termios/PTY)
 
 **Description**
@@ -659,7 +659,7 @@ contract: which platforms are tier-1 (gated in CI) vs tier-2
 
 ## #53 Resource Governor & DoS Containment
 **Labels:** `architecture` `security` `platform`
-**Milestone:** v1.0.0 · **Status:** new
+**Milestone:** v1.0.0 · **Status:** filed as GitHub #53
 **Depends on:** #44 (isolated process target) · **Supports:** planned Interactive System Dashboard, Plugin SDK v1, AI Assistant Layer, and Remote Operations Framework
 
 **Description**
@@ -694,7 +694,7 @@ memory / fd / process budgets.
 
 ## #54 Shell Compatibility & Differential Migration Suite
 **Labels:** `testing` `platform` `documentation`
-**Milestone:** v1.0.0 · **Status:** new (correctness cluster)
+**Milestone:** v1.0.0 · **Status:** filed as GitHub #54 (correctness cluster)
 **Depends on:** #48 (shared harness/format), #52 (tier-1 platforms)
 **Shares harness with:** #48
 
