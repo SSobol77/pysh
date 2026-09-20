@@ -193,6 +193,7 @@ class ToolVersionSpec:
     executable: str
     label_prefix: str
     cache_attr: str
+    timeout_seconds: float = 0.2
 
 
 @dataclass(frozen=True)
@@ -212,6 +213,18 @@ TOOL_VERSION_SPECS: tuple[ToolVersionSpec, ...] = (
     ToolVersionSpec("show_rust_version", "rustc", "rust", "_rust_version_cache"),
     ToolVersionSpec("show_node_version", "node", "node", "_node_version_cache"),
     ToolVersionSpec("show_npm_version", "npm", "npm", "_npm_version_cache"),
+    # Issue #32 (Shell Integrations Pack): I32-A added detection/cache, I32-B
+    # wired these into DEFAULT_PROMPT_OPTIONS/PROMPT_OPTION_TYPES (all default
+    # False). pip gets a wider timeout (I32-B.1): a real ``pip --version`` can
+    # cost more than 0.2s (interpreter startup for the Python environment pip
+    # belongs to, which may differ from PySH's own interpreter), so detection
+    # stays executable-based rather than switching to importlib.metadata.
+    ToolVersionSpec("show_pip_version", "pip", "pip", "_pip_version_cache", timeout_seconds=0.5),
+    ToolVersionSpec("show_docker_version", "docker", "docker", "_docker_version_cache"),
+    ToolVersionSpec("show_kubectl_version", "kubectl", "kubectl", "_kubectl_version_cache"),
+    ToolVersionSpec("show_ecli_version", "ecli", "ecli", "_ecli_version_cache"),
+    ToolVersionSpec("show_guardbsd_version", "guardbsd", "guardbsd", "_guardbsd_version_cache"),
+    ToolVersionSpec("show_aeronerve_version", "aeronerve", "aeronerve", "_aeronerve_version_cache"),
 )
 
 _UNSET = object()
@@ -3585,7 +3598,7 @@ class PyShell:
             try:
                 proc = subprocess.run(  # noqa: S603,S607 - explicit argv, bounded timeout.
                     [spec.executable, "--version"],
-                    timeout=0.2,
+                    timeout=spec.timeout_seconds,
                     capture_output=True,
                     text=True,
                     check=False,

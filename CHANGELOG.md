@@ -14,7 +14,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 All notable changes to PySH are documented in this file.
 
-## 0.9.0 - Unreleased
+## 0.9.0 - 2026-09-19
 
 Fixed in 0.9.0 development:
 
@@ -30,6 +30,12 @@ Fixed in 0.9.0 development:
   ignored local-file state.
 - Added deterministic diagnostics for Python-like `-c` input, unsupported shell
   control flow, and process substitution.
+
+### Release engineering
+
+- Added Release Quality Gate 2.0 with deterministic metadata and artifact
+  validation, real Debian/RPM/FreeBSD package install-and-run smoke tests,
+  and gated GitHub Release asset validation.
 
 ## 0.8.2 - 2026-06-08
 

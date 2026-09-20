@@ -24,6 +24,7 @@ from pysh.config.api import (
     DEFAULT_PROMPT_OPTIONS,
     DEFAULT_PYSHRC_PY,
     DEFAULT_SENSITIVE_INPUT,
+    PROMPT_OPTION_TYPES,
     ConfigError,
     ShellConfigAPI,
     ensure_default_config,
@@ -34,7 +35,13 @@ from pysh.config.api import (
     validate_prompt_color_mode,
     validate_prompt_option,
 )
-from pysh.core.shell import PyShell, _format_command_duration, _sanitize_prompt_value
+from pysh.core.shell import (
+    TOOL_VERSION_SPECS,
+    PyShell,
+    ToolVersionSpec,
+    _format_command_duration,
+    _sanitize_prompt_value,
+)
 from pysh.editor.lineedit.highlight import DEFAULT_HIGHLIGHT_COLORS
 
 
@@ -286,6 +293,23 @@ def configure(shell):
     shell.set_prompt_option("show_node_version", True)
     shell.set_prompt_option("show_npm_version", True)
 
+    # Issue #32 (Shell Integrations Pack): optional ecosystem tool versions.
+    # Off by default -- no probe runs, no subprocess is spawned, and the
+    # prompt is unchanged, unless you opt in below. A missing executable, a
+    # failed probe, or a timeout silently omits the segment.
+    shell.set_prompt_option("show_pip_version", False)
+    shell.set_prompt_option("show_docker_version", False)
+    shell.set_prompt_option("show_kubectl_version", False)
+    shell.set_prompt_option("show_ecli_version", False)
+    shell.set_prompt_option("show_guardbsd_version", False)
+    shell.set_prompt_option("show_aeronerve_version", False)
+    # shell.set_prompt_option("show_pip_version", True)
+    # shell.set_prompt_option("show_docker_version", True)
+    # shell.set_prompt_option("show_kubectl_version", True)
+    # shell.set_prompt_option("show_ecli_version", True)
+    # shell.set_prompt_option("show_guardbsd_version", True)
+    # shell.set_prompt_option("show_aeronerve_version", True)
+
     # ----------------------------------------------------------------------
     # Prompt colors
     # ----------------------------------------------------------------------
@@ -312,6 +336,12 @@ def configure(shell):
     shell.set_prompt_color("rust", "#FF6600")
     shell.set_prompt_color("node", "lime")
     shell.set_prompt_color("npm", "red")
+    shell.set_prompt_color("pip", "navy")
+    shell.set_prompt_color("docker", "olive")
+    shell.set_prompt_color("kubectl", "gray")
+    shell.set_prompt_color("ecli", "silver")
+    shell.set_prompt_color("guardbsd", "maroon")
+    shell.set_prompt_color("aeronerve", "teal")
     shell.set_prompt_color("status", "red")
     shell.set_prompt_color("duration", "yellow")
     shell.set_prompt_color("ssh", "fuchsia")
@@ -501,6 +531,25 @@ def configure(shell):
     return None
 """
     assert DEFAULT_PYSHRC_PY == expected
+
+
+def test_default_template_documents_all_issue32_show_options() -> None:
+    """Discoverability: every Issue #32 show_* switch is in the default config.
+
+    A user who never reads the changelog should still discover these
+    switches simply by reading their generated ``~/.pyshrc.py``.
+    """
+    for option in (
+        "show_pip_version",
+        "show_docker_version",
+        "show_kubectl_version",
+        "show_ecli_version",
+        "show_guardbsd_version",
+        "show_aeronerve_version",
+    ):
+        assert f'shell.set_prompt_option("{option}", False)' in DEFAULT_PYSHRC_PY
+        # A commented opt-in example is present for discoverability.
+        assert f'# shell.set_prompt_option("{option}", True)' in DEFAULT_PYSHRC_PY
 
 
 def test_ensure_creates_parent_directory(tmp_path: Path) -> None:
@@ -726,6 +775,12 @@ def test_default_prompt_options_match_contract() -> None:
         "show_rust_version": True,
         "show_node_version": True,
         "show_npm_version": True,
+        "show_pip_version": False,
+        "show_docker_version": False,
+        "show_kubectl_version": False,
+        "show_ecli_version": False,
+        "show_guardbsd_version": False,
+        "show_aeronerve_version": False,
         "show_last_status": True,
         "show_command_duration": True,
         "show_ssh_indicator": True,
@@ -755,6 +810,12 @@ def test_default_prompt_options_match_contract() -> None:
         "show_rust_version",
         "show_node_version",
         "show_npm_version",
+        "show_pip_version",
+        "show_docker_version",
+        "show_kubectl_version",
+        "show_ecli_version",
+        "show_guardbsd_version",
+        "show_aeronerve_version",
         "show_command_duration",
         "show_ssh_indicator",
         "show_aws_profile",
@@ -1033,6 +1094,520 @@ def test_pyshell_prompt_all_tool_versions_are_cached(monkeypatch) -> None:
     ]
 
 
+# --- I32-A/I32-B: external-tool detection specs (pip/docker/kubectl/    --- #
+# --- ecli/guardbsd/aeronerve). I32-A added detection/cache only; I32-B  --- #
+# --- wires the six ``show_<tool>_version`` options into                --- #
+# --- DEFAULT_PROMPT_OPTIONS/PROMPT_OPTION_TYPES so they work through    --- #
+# --- the normal ``set_prompt_option`` config path. No completion       --- #
+# --- wiring yet (I32-C).                                                --- #
+
+_NEW_TOOL_VERSION_CASES = [
+    ("show_pip_version", "pip", "pip 24.0 from /usr/lib/python3/dist-packages/pip\n", "pip24.0"),
+    ("show_docker_version", "docker", "Docker version 24.0.7, build afdd53b\n", "docker24.0.7"),
+    ("show_kubectl_version", "kubectl", "Client Version: v1.29.0\n", "kubectl1.29.0"),
+    ("show_ecli_version", "ecli", "ecli 0.1.0\n", "ecli0.1.0"),
+    ("show_guardbsd_version", "guardbsd", "guardbsd 1.2.3\n", "guardbsd1.2.3"),
+    ("show_aeronerve_version", "aeronerve", "aeronerve 0.9.0\n", "aeronerve0.9.0"),
+]
+
+
+def _spec_for_option(option: str):  # noqa: ANN202 - local test helper.
+    for spec in TOOL_VERSION_SPECS:
+        if spec.option == option:
+            return spec
+    raise AssertionError(f"no ToolVersionSpec registered for option {option!r}")
+
+
+def test_pyshell_new_tool_specs_are_registered_and_wired() -> None:
+    """I32-B wires the I32-A specs into the prompt option schema.
+
+    Covers required-tests 1-6: option exists, defaults False, type is bool,
+    True/False are accepted, and a non-bool value is rejected.
+    """
+    for option, executable, _output, _expected in _NEW_TOOL_VERSION_CASES:
+        spec = _spec_for_option(option)
+        assert spec.executable == executable
+        assert option in DEFAULT_PROMPT_OPTIONS
+        assert DEFAULT_PROMPT_OPTIONS[option] is False
+        assert PROMPT_OPTION_TYPES[option] is bool
+        validate_prompt_option(option, True)
+        validate_prompt_option(option, False)
+        with pytest.raises(ConfigError):
+            validate_prompt_option(option, "true")
+
+
+# --- I32-B.1: per-tool detection timeout (ToolVersionSpec.timeout_seconds). --- #
+# --- pip gets 0.5s because a real ``pip --version`` interpreter startup    --- #
+# --- can exceed the shared 0.2s bound on some hosts; every other spec      --- #
+# --- (existing and I32-A) keeps the 0.2s default.                          --- #
+
+
+def test_tool_version_spec_default_timeout_is_0_2() -> None:
+    spec = ToolVersionSpec("show_x_version", "x", "x", "_x_version_cache")
+    assert spec.timeout_seconds == 0.2
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "show_uv_version",
+        "show_ruff_version",
+        "show_rust_version",
+        "show_node_version",
+        "show_npm_version",
+    ],
+)
+def test_existing_tool_version_specs_keep_default_timeout(option: str) -> None:
+    assert _spec_for_option(option).timeout_seconds == 0.2
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "show_docker_version",
+        "show_kubectl_version",
+        "show_ecli_version",
+        "show_guardbsd_version",
+        "show_aeronerve_version",
+    ],
+)
+def test_i32a_tool_version_specs_other_than_pip_keep_default_timeout(option: str) -> None:
+    assert _spec_for_option(option).timeout_seconds == 0.2
+
+
+def test_pip_tool_version_spec_uses_wider_timeout() -> None:
+    assert _spec_for_option("show_pip_version").timeout_seconds == 0.5
+
+
+def test_detect_tool_version_passes_spec_timeout_to_subprocess_run(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class Result:
+        returncode = 0
+        stdout = "0.0.0\n"
+        stderr = ""
+
+    def fake_run(argv, **kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        captured["timeout"] = kwargs.get("timeout")
+        return Result()
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
+
+    shell = PyShell()
+    shell._detect_tool_version(_spec_for_option("show_pip_version"))
+    assert captured["timeout"] == 0.5
+
+    captured.clear()
+    shell2 = PyShell()
+    shell2._detect_tool_version(_spec_for_option("show_docker_version"))
+    assert captured["timeout"] == 0.2
+
+
+def test_pip_version_detection_succeeds_within_wider_timeout(monkeypatch) -> None:
+    class Result:
+        returncode = 0
+        stdout = "pip 24.0 from /usr/lib/python3/dist-packages/pip\n"
+        stderr = ""
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda *_args, **_kwargs: Result()
+    )
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_pip_version", True)
+    assert " pip24.0$ " in shell._prompt()
+
+
+def test_pip_version_timeout_at_wider_bound_fails_closed(monkeypatch) -> None:
+    import subprocess
+
+    def raise_timeout(argv, **kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        assert kwargs.get("timeout") == 0.5
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", raise_timeout)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_pip_version", True)
+    prompt = shell._prompt()
+    assert "pip" not in prompt
+    assert prompt.endswith("$ ")
+
+
+def test_pip_version_detection_is_cached_across_renders(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "pip 24.0 from somewhere\n"
+        stderr = ""
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        calls.append(argv)
+        return Result()
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_pip_version", True)
+    shell._prompt()
+    shell._prompt()
+    shell._prompt()
+    assert calls == [["pip", "--version"]]
+
+
+@pytest.mark.parametrize(
+    ("option", "executable", "output", "expected"),
+    _NEW_TOOL_VERSION_CASES,
+)
+def test_pyshell_new_tool_version_detection_present(
+    monkeypatch,
+    option: str,
+    executable: str,
+    output: str,
+    expected: str,
+) -> None:
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = output
+        stderr = ""
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        calls.append(argv)
+        return Result()
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
+    shell = PyShell()
+    spec = _spec_for_option(option)
+    assert shell._detect_tool_version(spec) == expected
+    assert calls == [[executable, "--version"]]
+
+
+@pytest.mark.parametrize(
+    ("option", "executable", "_output", "_expected"),
+    _NEW_TOOL_VERSION_CASES,
+)
+def test_pyshell_new_tool_version_detection_absent_from_path(
+    monkeypatch,
+    option: str,
+    executable: str,
+    _output: str,
+    _expected: str,
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda _exe: None)
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda argv, **_kwargs: calls.append(argv)
+    )
+    shell = PyShell()
+    spec = _spec_for_option(option)
+    assert shell._detect_tool_version(spec) == ""
+    assert calls == []
+
+
+def test_pyshell_new_tool_version_detection_subprocess_failure(monkeypatch) -> None:
+    class Result:
+        returncode = 1
+        stdout = ""
+        stderr = "docker: command not found in this context\n"
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda *_args, **_kwargs: Result()
+    )
+    shell = PyShell()
+    spec = _spec_for_option("show_docker_version")
+    assert shell._detect_tool_version(spec) == ""
+
+
+def test_pyshell_new_tool_version_detection_timeout(monkeypatch) -> None:
+    import subprocess
+
+    def raise_timeout(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=0.2)
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", raise_timeout)
+    shell = PyShell()
+    spec = _spec_for_option("show_kubectl_version")
+    assert shell._detect_tool_version(spec) == ""
+
+
+def test_pyshell_new_tool_version_detection_is_cached(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ecli 0.1.0\n"
+        stderr = ""
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        calls.append(argv)
+        return Result()
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
+    shell = PyShell()
+    spec = _spec_for_option("show_ecli_version")
+    assert shell._detect_tool_version(spec) == "ecli0.1.0"
+    assert shell._detect_tool_version(spec) == "ecli0.1.0"
+    assert calls == [["ecli", "--version"]]
+
+
+# --- I32-B: prompt wiring for the I32-A specs. Options now flow through   --- #
+# --- the normal set_prompt_option()/_prompt() path instead of calling    --- #
+# --- _detect_tool_version() directly.                                    --- #
+
+
+def test_pyshell_new_tool_prompt_option_false_causes_no_probe(monkeypatch) -> None:
+    """Lazy detection contract: option False means zero probing, for all six."""
+    which_calls: list[str] = []
+    run_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "pysh.core.shell.shutil.which",
+        lambda exe: (which_calls.append(exe), f"/usr/bin/{exe}")[1],
+    )
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda argv, **_kwargs: run_calls.append(argv)
+    )
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    prompt = shell._prompt()
+    for option, executable, _output, expected in _NEW_TOOL_VERSION_CASES:
+        assert bool(shell.prompt_options.get(option, False)) is False
+        assert executable not in which_calls
+        assert [executable, "--version"] not in run_calls
+        assert expected not in prompt
+
+
+@pytest.mark.parametrize(
+    ("option", "executable", "_output", "expected"),
+    _NEW_TOOL_VERSION_CASES,
+)
+def test_pyshell_new_tool_prompt_enabled_missing_executable(
+    monkeypatch,
+    option: str,
+    executable: str,
+    _output: str,
+    expected: str,
+) -> None:
+    run_calls: list[list[str]] = []
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda _exe: None)
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda argv, **_kwargs: run_calls.append(argv)
+    )
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option(option, True)
+    prompt = shell._prompt()
+    assert expected not in prompt
+    assert [executable, "--version"] not in run_calls
+
+
+@pytest.mark.parametrize(
+    ("option", "executable", "output", "expected"),
+    _NEW_TOOL_VERSION_CASES,
+)
+def test_pyshell_new_tool_prompt_enabled_success_renders_segment(
+    monkeypatch,
+    option: str,
+    executable: str,
+    output: str,
+    expected: str,
+) -> None:
+    class Result:
+        returncode = 0
+        stdout = output
+        stderr = ""
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda *_args, **_kwargs: Result()
+    )
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option(option, True)
+    assert f" {expected}$ " in shell._prompt()
+
+
+@pytest.mark.parametrize(
+    ("option", "executable", "_output", "expected"),
+    _NEW_TOOL_VERSION_CASES,
+)
+def test_pyshell_new_tool_prompt_enabled_failure_omits_segment(
+    monkeypatch,
+    option: str,
+    executable: str,
+    _output: str,
+    expected: str,
+) -> None:
+    class Result:
+        returncode = 1
+        stdout = ""
+        stderr = "not available\n"
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda *_args, **_kwargs: Result()
+    )
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option(option, True)
+    prompt = shell._prompt()
+    assert expected not in prompt
+    assert prompt.endswith("$ ")
+
+
+@pytest.mark.parametrize(
+    ("option", "executable", "_output", "expected"),
+    _NEW_TOOL_VERSION_CASES,
+)
+def test_pyshell_new_tool_prompt_enabled_timeout_omits_segment(
+    monkeypatch,
+    option: str,
+    executable: str,
+    _output: str,
+    expected: str,
+) -> None:
+    import subprocess
+
+    def raise_timeout(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=0.2)
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", raise_timeout)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option(option, True)
+    prompt = shell._prompt()
+    assert expected not in prompt
+    assert prompt.endswith("$ ")
+
+
+def test_pyshell_new_tool_prompt_multiple_enabled_deterministic_no_duplicates(
+    monkeypatch,
+) -> None:
+    outputs = {
+        "pip": "pip 24.0 from somewhere\n",
+        "docker": "Docker version 24.0.7, build afdd53b\n",
+        "kubectl": "Client Version: v1.29.0\n",
+    }
+
+    class Result:
+        def __init__(self, stdout: str) -> None:
+            self.returncode = 0
+            self.stdout = stdout
+            self.stderr = ""
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run",
+        lambda argv, **_kwargs: Result(outputs[argv[0]]),
+    )
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    # Enable out of declaration order to prove rendering order tracks
+    # TOOL_VERSION_SPECS, not enablement order.
+    shell.set_prompt_option("show_kubectl_version", True)
+    shell.set_prompt_option("show_pip_version", True)
+    shell.set_prompt_option("show_docker_version", True)
+    prompt = shell._prompt()
+    pip_i = prompt.index("pip24.0")
+    docker_i = prompt.index("docker24.0.7")
+    kubectl_i = prompt.index("kubectl1.29.0")
+    assert pip_i < docker_i < kubectl_i
+    assert prompt.count("pip24.0") == 1
+    assert prompt.count("docker24.0.7") == 1
+    assert prompt.count("kubectl1.29.0") == 1
+
+
+def test_pyshell_default_prompt_unchanged_by_i32b(monkeypatch) -> None:
+    """Default prompt output must not gain any of the six new segments."""
+    monkeypatch.setenv("USER", "tester")
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+
+    class Result:
+        returncode = 0
+        stdout = "0.0.0\n"
+        stderr = ""
+
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda *_args, **_kwargs: Result()
+    )
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    prompt = shell._prompt()
+    for _option, _executable, _output, expected in _NEW_TOOL_VERSION_CASES:
+        assert expected not in prompt
+
+
+def test_pyshell_default_prompt_causes_zero_new_i32b_subprocesses(monkeypatch) -> None:
+    """Performance/safety regression: defaults spawn only the pre-I32-B tools."""
+    calls: list[list[str]] = []
+    outputs = {
+        "uv": "uv 0.9.16\n",
+        "ruff": "ruff 0.15.15\n",
+        "rustc": "rustc 1.83.0 (90b35a623 2024-11-26)\n",
+        "node": "v22.3.0\n",
+        "npm": "10.8.1\n",
+    }
+
+    class Result:
+        def __init__(self, stdout: str) -> None:
+            self.returncode = 0
+            self.stdout = stdout
+            self.stderr = ""
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        calls.append(argv)
+        return Result(outputs[argv[0]])
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
+    shell = PyShell()
+    shell._prompt_info_line()
+    shell._prompt_info_line()
+    assert calls == [
+        ["uv", "--version"],
+        ["ruff", "--version"],
+        ["rustc", "--version"],
+        ["node", "--version"],
+        ["npm", "--version"],
+    ]
+    new_executables = {"pip", "docker", "kubectl", "ecli", "guardbsd", "aeronerve"}
+    assert not any(argv[0] in new_executables for argv in calls)
+
+
+def test_pyshell_new_tool_prompt_repeated_render_uses_cache(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "Docker version 24.0.7, build afdd53b\n"
+        stderr = ""
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        calls.append(argv)
+        return Result()
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_docker_version", True)
+    shell._prompt()
+    shell._prompt()
+    shell._prompt()
+    assert calls == [["docker", "--version"]]
+
+
 def test_pyshell_set_environment_is_mirrored(monkeypatch) -> None:
     monkeypatch.delenv("PYSH_TEST_VAR", raising=False)
     shell = PyShell()
@@ -1228,6 +1803,83 @@ def test_pyshell_prompt_k8s_multipath_precedence(monkeypatch, tmp_path: Path) ->
 
     first.write_text("apiVersion: v1\n", encoding="utf-8")
     assert " k8s:second$ " in shell._prompt()
+
+
+# --- I32-C: show_kubectl_version (CLI version probe) and show_k8s_context --- #
+# --- (KUBECONFIG current-context) are independent options/segments.       --- #
+
+
+def test_k8s_context_option_never_invokes_kubectl_subprocess(monkeypatch, tmp_path: Path) -> None:
+    """The Kubernetes context segment must be pure file parsing, never kubectl."""
+    calls: list[list[str]] = []
+    config = tmp_path / "kube.yaml"
+    config.write_text("current-context: dev-cluster\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KUBECONFIG", str(config))
+    monkeypatch.setattr(
+        "pysh.core.shell.subprocess.run", lambda argv, **_kwargs: calls.append(argv)
+    )
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_k8s_context", True)
+    assert " k8s:dev-cluster$ " in shell._prompt()
+    assert calls == []
+
+
+def test_kubectl_version_and_k8s_context_options_are_independent(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Enabling one of show_kubectl_version/show_k8s_context must not affect the other."""
+    config = tmp_path / "kube.yaml"
+    config.write_text("current-context: dev-cluster\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KUBECONFIG", str(config))
+
+    class Result:
+        returncode = 0
+        stdout = "Client Version: v1.29.0\n"
+        stderr = ""
+
+    run_calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):  # noqa: ANN001,ANN202 - subprocess test double.
+        run_calls.append(argv)
+        return Result()
+
+    monkeypatch.setattr("pysh.core.shell.shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr("pysh.core.shell.subprocess.run", fake_run)
+
+    # Only show_kubectl_version enabled: no k8s: context segment, even though
+    # a valid KUBECONFIG is present.
+    shell = PyShell()
+    _use_legacy_single_line_prompt(shell)
+    shell.set_prompt_option("show_kubectl_version", True)
+    prompt = shell._prompt()
+    assert "kubectl1.29.0" in prompt
+    assert "k8s:" not in prompt
+    assert run_calls == [["kubectl", "--version"]]
+
+    # Only show_k8s_context enabled: context segment appears, but no kubectl
+    # subprocess call is made for it.
+    run_calls.clear()
+    shell2 = PyShell()
+    _use_legacy_single_line_prompt(shell2)
+    shell2.set_prompt_option("show_k8s_context", True)
+    prompt2 = shell2._prompt()
+    assert "k8s:dev-cluster" in prompt2
+    assert "kubectl1.29.0" not in prompt2
+    assert run_calls == []
+
+    # Both enabled together: both segments render independently.
+    run_calls.clear()
+    shell3 = PyShell()
+    _use_legacy_single_line_prompt(shell3)
+    shell3.set_prompt_option("show_kubectl_version", True)
+    shell3.set_prompt_option("show_k8s_context", True)
+    prompt3 = shell3._prompt()
+    assert "kubectl1.29.0" in prompt3
+    assert "k8s:dev-cluster" in prompt3
+    assert run_calls == [["kubectl", "--version"]]
 
 
 def test_pyshell_prompt_cwd_basename(monkeypatch, tmp_path: Path) -> None:

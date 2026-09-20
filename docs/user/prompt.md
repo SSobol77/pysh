@@ -46,6 +46,12 @@ All prompt paths use repository-defined options from `~/.pyshrc.py`.
 | `show_ssh_indicator` | `True` | Show `ssh` when SSH environment variables are present. |
 | `show_aws_profile` | `False` | Opt-in `AWS_PROFILE` / `AWS_DEFAULT_PROFILE` display. |
 | `show_k8s_context` | `False` | Opt-in Kubernetes current-context display. |
+| `show_pip_version` | `False` | Opt-in cached bounded `pip --version`. |
+| `show_docker_version` | `False` | Opt-in cached bounded `docker --version` (client only, no daemon contact). |
+| `show_kubectl_version` | `False` | Opt-in cached bounded `kubectl --version` (client only, no cluster contact). |
+| `show_ecli_version` | `False` | Opt-in cached bounded `ecli --version`. |
+| `show_guardbsd_version` | `False` | Opt-in cached bounded `guardbsd --version`. |
+| `show_aeronerve_version` | `False` | Opt-in cached bounded `aeronerve --version`. |
 
 Example:
 
@@ -75,6 +81,45 @@ multiple files, the first file defining `current-context` wins.
 AWS and Kubernetes values are sanitized before rendering so control characters
 and terminal escape sequences cannot be injected into the prompt.
 
+## Tool-Version Segments (Issue #32)
+
+`show_pip_version`, `show_docker_version`, `show_kubectl_version`,
+`show_ecli_version`, `show_guardbsd_version`, and `show_aeronerve_version`
+reuse the same `ToolVersionSpec` / `_detect_tool_version()` machinery as
+`show_uv_version`, `show_ruff_version`, `show_rust_version`,
+`show_node_version`, and `show_npm_version`. All six default to `False`:
+Issue #32 integrations are optional, and enabling one is an explicit,
+per-option opt-in.
+
+Lazy detection contract, identical to the pre-existing tool-version segments:
+
+- While the option is `False`, the tool is never probed: no `shutil.which`
+  lookup, no `subprocess.run`, no cache entry populated.
+- When the option is `True`, the executable is looked up with `shutil.which`
+  first; a missing executable never spawns a subprocess.
+- A found executable is probed once per shell session with a bounded
+  timeout and an explicit argv list (`[executable, "--version"]`); the
+  result (or the absence of one) is cached, so later prompt renders in the
+  same session never re-probe.
+- The probe timeout is 0.2s for every tool except `pip`, which uses 0.5s: a
+  real `pip --version` pays Python interpreter startup for the environment
+  `pip` belongs to (which may differ from PySH's own interpreter), and that
+  can exceed 0.2s on some hosts. Every other tool -- including the
+  pre-existing uv/ruff/rustc/node/npm segments and the other Issue #32
+  segments (docker/kubectl/ecli/guardbsd/aeronerve) -- keeps the 0.2s bound.
+- A missing executable, a non-zero exit, unparsable output, or a timeout all
+  omit the segment silently -- no stderr, no diagnostic, no crash.
+
+`show_kubectl_version` is unrelated to `show_k8s_context`: the former is a
+cached, bounded `kubectl --version` client-version probe; the latter (from
+Issue #27) reads `KUBECONFIG` / `~/.kube/config` directly and never invokes
+`kubectl`. Enabling one has no effect on the other.
+
+GuardBSD and AeroNerve are ecosystem tool names for the `show_guardbsd_version`
+and `show_aeronerve_version` segments; PySH does not assume either binary is
+installed, and neither segment renders anything unless the corresponding
+executable is found on `PATH`.
+
 ## Colors
 
 Prompt colors are segment-keyed and validated by `set_prompt_color()`. The new
@@ -85,6 +130,12 @@ shell.set_prompt_color("duration", "yellow")
 shell.set_prompt_color("ssh", "fuchsia")
 shell.set_prompt_color("aws", "orange")
 shell.set_prompt_color("k8s", "aqua")
+shell.set_prompt_color("pip", "navy")
+shell.set_prompt_color("docker", "olive")
+shell.set_prompt_color("kubectl", "gray")
+shell.set_prompt_color("ecli", "silver")
+shell.set_prompt_color("guardbsd", "maroon")
+shell.set_prompt_color("aeronerve", "teal")
 ```
 
 Use `fuchsia` instead of `magenta`, and `aqua` instead of `cyan`; `magenta` and
@@ -113,3 +164,19 @@ python3.13 -m pysh -c "echo ok"
 Expected behavior: prompt rendering must not call network tools, `aws`,
 `kubectl`, or `git`; missing tools or malformed config must omit only the
 affected segment.
+
+Issue #32 integrations, enabled temporarily via `set_prompt_option`:
+
+```sh
+uv run python -c "
+from pysh.core.shell import PyShell
+shell = PyShell()
+shell.set_prompt_option('show_pip_version', True)
+shell.set_prompt_option('show_docker_version', True)
+print(shell._prompt_info_line())
+"
+```
+
+Only installed binaries render a segment; report exactly which binaries were
+present on the machine used for manual validation (do not claim GuardBSD or
+AeroNerve are installed unless they actually are).

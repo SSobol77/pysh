@@ -73,3 +73,19 @@ Completion never executes candidate commands, never reads Bash/Zsh/Fish
 completion scripts, never performs network calls, and never imports arbitrary
 user modules. Python dotted completion avoids property and `__getattr__`
 side effects.
+
+## Issue #32 Integrations (pip, docker, kubectl, ecli, guardbsd, aeronerve)
+
+The tools added for Issue #32 (Shell Integrations Pack) receive no
+integration-specific completion code. They participate in command-position
+completion exactly like any other program on `PATH`: if `pip`, `docker`,
+`kubectl`, `ecli`, `guardbsd`, or `aeronerve` is an executable file somewhere
+on `PATH`, typing a matching prefix (e.g. `doc` for `docker`) offers it as an
+ordinary command candidate, subject to the same prefix-only, deduplicated,
+deterministic rules as every other command; a name that is absent from
+`PATH` never appears.
+
+PySH intentionally does not implement subcommand, flag, or resource
+completion for these tools (no `docker ps`/`kubectl get pods`/`pip install`
+argument tables). Each external CLI remains authoritative for its own
+argument grammar; PySH does not duplicate or shadow it.

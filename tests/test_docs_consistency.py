@@ -149,7 +149,11 @@ def test_release_artifact_script_stages_flat_github_release_assets() -> None:
     script = REPO_ROOT / "scripts" / "check_release_artifacts.sh"
     text = script.read_text(encoding="utf-8")
 
-    assert 'RELEASE_ASSETS_DIR="${REPO_ROOT}/dist/release-assets"' in text
+    assert 'RELEASE_ASSETS_DIR="${DIST_DIR}/release-assets"' in text
+    assert 'DIST_DIR="${1:-${REPO_ROOT}/dist}"' in text, (
+        "the default (no-args) invocation must still resolve to the real dist/, "
+        "even though DIST_DIR is now parameterized for --contract-only"
+    )
     assert 'rm -rf "${RELEASE_ASSETS_DIR}"' in text
     assert 'cp "${DEB_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_DEB}"' in text
     assert 'cp "${RPM_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_RPM}"' in text
@@ -176,37 +180,38 @@ def test_release_workflow_uploads_flat_staged_assets() -> None:
     assert "dist/os/rpm/pysh-shell-*-1.noarch.rpm" not in text
     assert "dist/SHA256SUMS" not in text
 
-    freebsd_workflow = REPO_ROOT / ".github" / "workflows" / "freebsd-pkg.yml"
-    freebsd_text = freebsd_workflow.read_text(encoding="utf-8")
-
-    for name, workflow_text in (
-        ("freebsd-pkg.yml", freebsd_text),
-        ("release-artifacts.yml", text),
-    ):
-        assert "runs-on: [self-hosted, freebsd, x64]" not in workflow_text
-        assert "vmactions/freebsd-vm" in workflow_text or "cross-platform-actions/action" in workflow_text
-        assert "release: \"14.3\"" in workflow_text
-        assert "pkg install -y python313" in workflow_text
-        assert "python3.13 --version" in workflow_text
-        assert "pkg --version" in workflow_text
-        assert "pyproject.toml" in workflow_text
-        assert 'PKG_PATH="dist/os/freebsd/pysh-shell-${VERSION}.pkg"' in workflow_text
-        assert "pysh-shell-0.8.0.pkg" not in workflow_text
-        assert "sh scripts/build_freebsd_pkg.sh" in workflow_text
-        assert 'pkg info -F "${PKG_PATH}"' in workflow_text
-        assert 'pkg query -F "${PKG_PATH}" "%Fp"' in workflow_text
-        assert "/usr/local/bin/pysh" in workflow_text
-        assert "/usr/local/lib/pysh-shell/pysh" in workflow_text
-        assert "actions/upload-artifact" in workflow_text, name
-
-    assert "workflow_dispatch:" in freebsd_text
-    assert "push:" in freebsd_text
-    assert '"release/v*"' in freebsd_text or "- release/v*" in freebsd_text
-    assert "runs-on: ubuntu-latest" in freebsd_text
-    assert "dist/os/freebsd/pysh-shell-*.pkg" in freebsd_text
-    assert "needs: freebsd-pkg" in text
+    assert "runs-on: [self-hosted, freebsd, x64]" not in text
+    assert "vmactions/freebsd-vm" in text or "cross-platform-actions/action" in text
+    assert 'release: "14.4"' in text
+    assert "pkg install -y python313" in text
+    assert "python3.13 --version" in text
+    assert "pkg --version" in text
+    assert 'PKG_PATH="dist/os/freebsd/pysh-shell-${VERSION}.pkg"' in text
+    assert "pysh-shell-0.8.0.pkg" not in text
+    assert "sh scripts/build_freebsd_pkg.sh" in text
+    assert 'pkg info -F "${PKG_PATH}"' in text
+    assert 'pkg query -F "${PKG_PATH}" "%Fp"' in text
+    assert "/usr/local/bin/pysh" in text
+    assert "/usr/local/lib/pysh-shell/pysh" in text
+    assert "actions/upload-artifact" in text
     assert "actions/download-artifact" in text
     assert "path: dist/os/freebsd" in text
+
+    # Issue #33 RQG-G: freebsd-pkg.yml was a byte-for-byte duplicate of the
+    # freebsd-pkg job below, with a push trigger (branches: release/v*)
+    # that never matched this project's real develop/vX.Y.Z branch model.
+    # It added no unique release guarantee and was retired; the real
+    # FreeBSD VM build lives solely here now.
+    assert not (REPO_ROOT / ".github" / "workflows" / "freebsd-pkg.yml").exists()
+
+    # Explicit three-job pipeline: build -> validate -> upload. Upload must
+    # depend on the validate job succeeding and must never run unless the
+    # trigger was a real release (workflow_dispatch dry runs build and
+    # validate but never publish).
+    assert "needs: freebsd-pkg" in text
+    assert "needs: build-and-validate" in text
+    assert "if: github.event_name == 'release'" in text
+    assert "continue-on-error" not in text
 
 
 def test_release_docs_define_flat_assets_and_nested_local_layout() -> None:
@@ -390,10 +395,21 @@ def test_no_affirmative_broad_compatibility_claims_in_public_docs() -> None:
 # Version gate tests — prevent stale release metadata from surviving a bump
 # ---------------------------------------------------------------------------
 
-CURRENT_VERSION = "0.8.2"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 INIT_PY = REPO_ROOT / "src" / "pysh" / "__init__.py"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+
+# The canonical release version has exactly one authoritative source:
+# pyproject.toml. Earlier revisions of this test module additionally
+# maintained a hardcoded ``CURRENT_VERSION = "0.8.2"`` literal that every
+# version bump had to remember to update in lockstep -- a second copy that
+# could itself drift. CURRENT_VERSION is now derived, not duplicated: every
+# test below that references it is really asserting "agrees with
+# pyproject.toml" (see docs/architecture/release-quality-gate-2-audit.md,
+# RQG-B). Runtime __version__ vs. pyproject.toml agreement is still
+# independently enforced by test_init_py_version_is_current below, and by
+# scripts/check_release_metadata.sh for CI/release use.
+CURRENT_VERSION = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
 CURRENT_FACING_DOCS: tuple[Path, ...] = (
     README,
     REPO_ROOT / "roadmap.md",
@@ -418,25 +434,35 @@ def _read_pyproject() -> dict[str, object]:
     return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
 
 
-def test_pyproject_toml_version_is_current() -> None:
-    """pyproject.toml must declare the current release version."""
+def test_pyproject_toml_version_is_well_formed() -> None:
+    """pyproject.toml's version must be a well-formed X.Y.Z release string.
+
+    This does not compare against a second hardcoded literal (there isn't
+    one any more -- CURRENT_VERSION *is* this value); it guards against a
+    malformed or accidentally-emptied version field, which the equality
+    checks below would not otherwise catch on their own.
+    """
     data = _read_pyproject()
     actual = data["project"]["version"]
-    assert actual == CURRENT_VERSION, (
-        f"pyproject.toml version must be {CURRENT_VERSION!r}, got {actual!r}"
+    assert re.match(r"^\d+\.\d+\.\d+$", actual), (
+        f"pyproject.toml version must be X.Y.Z, got {actual!r}"
     )
 
 
 def test_init_py_version_is_current() -> None:
-    """src/pysh/__init__.py __version__ must match the current release."""
-    text = INIT_PY.read_text(encoding="utf-8")
-    import re
+    """src/pysh/__init__.py __version__ must match pyproject.toml's version.
 
+    This is the real cross-check: runtime-packaged metadata
+    (``pysh.__version__``, which feeds both ``pysh --version`` and
+    ``python -m pysh --version`` via ``src/pysh/cli.py``) must never drift
+    from the single authoritative build version in pyproject.toml.
+    """
+    text = INIT_PY.read_text(encoding="utf-8")
     match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
     assert match, "__version__ not found in src/pysh/__init__.py"
     actual = match.group(1)
     assert actual == CURRENT_VERSION, (
-        f"__version__ must be {CURRENT_VERSION!r}, got {actual!r}"
+        f"__version__ must match pyproject.toml ({CURRENT_VERSION!r}), got {actual!r}"
     )
 
 
@@ -682,11 +708,20 @@ def test_changelog_081_section_covers_hotfix_scope() -> None:
     assert not missing, "CHANGELOG 0.8.1 section missing: " + ", ".join(missing)
 
 
-def test_changelog_current_release_covers_metadata_hotfix_scope() -> None:
-    """The current-release section must document the v0.8.2 metadata hotfix scope."""
+def test_changelog_v082_release_covers_metadata_hotfix_scope() -> None:
+    """The historical 0.8.2 section must document its metadata hotfix scope.
+
+    This is a fixed historical contract, deliberately anchored to the
+    literal ``## 0.8.2`` heading rather than ``CURRENT_VERSION``: 0.8.2 was
+    a metadata-only hotfix release, and that scope does not move forward
+    when the current release advances (Issue #33 RQG-E version
+    finalization). Anchoring this to ``CURRENT_VERSION`` would silently
+    start asserting 0.8.2-specific phrases against a later release's
+    section once the version bumps, which is not what this test is for.
+    """
     text = CHANGELOG.read_text(encoding="utf-8")
-    start = text.find(f"## {CURRENT_VERSION}")
-    assert start != -1, f"CHANGELOG.md missing ## {CURRENT_VERSION} section"
+    start = text.find("## 0.8.2")
+    assert start != -1, "CHANGELOG.md missing ## 0.8.2 section"
     rest = text[start:]
     nxt = rest.find("\n## ", 1)
     section = rest[:nxt] if nxt != -1 else rest
@@ -699,9 +734,7 @@ def test_changelog_current_release_covers_metadata_hotfix_scope() -> None:
         "No dependency changes",
     )
     missing = [p for p in required_phrases if p.lower() not in section.lower()]
-    assert not missing, (
-        f"CHANGELOG {CURRENT_VERSION} section missing: " + ", ".join(missing)
-    )
+    assert not missing, "CHANGELOG 0.8.2 section missing: " + ", ".join(missing)
 
 
 def test_docs_system_shell_policy_present() -> None:

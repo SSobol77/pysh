@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Packaging
 
-PySH publishes four artifact families per v0.8.2 release:
+PySH publishes four artifact families per v0.9.0 release:
 
 1. **PyPI** — wheel and sdist (primary distribution channel for Python users).
 2. **Debian `.deb`** — attached to the matching GitHub Release.
@@ -119,9 +119,9 @@ sudo pkg install ./pysh-shell-X.Y.Z.pkg
 pysh --version
 ```
 
-## FreeBSD validation and package build for v0.8.2
+## FreeBSD validation and package build for v0.9.0
 
-FreeBSD 14+ validation is mandatory for v0.8.2 release completion. PySH
+FreeBSD 14+ validation is mandatory for v0.9.0 release completion. PySH
 requires Python 3.13 or newer. The FreeBSD `.pkg` must be built by
 FreeBSD-native package tooling; Docker on Debian is not a native FreeBSD
 package builder and must not be used to fake `.pkg` bytes.
@@ -182,7 +182,7 @@ Known OS-specific areas to watch on FreeBSD:
 
 ## FreeBSD `.pkg` package contract
 
-FreeBSD `.pkg` packaging is current mandatory v0.8.2 release work. The package
+FreeBSD `.pkg` packaging is current mandatory v0.9.0 release work. The package
 filename is `pysh-shell-X.Y.Z.pkg`; the local artifact path is
 `dist/os/freebsd/pysh-shell-X.Y.Z.pkg`; and the flat GitHub Release asset path
 is `dist/release-assets/pysh-shell-X.Y.Z.pkg`.
@@ -241,11 +241,26 @@ The gate runs linting, tests, header checks, whitespace checks, mandatory
 release artifact builds, `twine check`, package metadata inspection,
 wheel/sdist hygiene checks, `.deb` / `.rpm` / `.pkg` filename checks,
 checksum checks, OS package content checks for `/usr/bin/pysh` and
-`/opt/pysh-shell/lib/pysh/`, documentation link checks, and a clean temporary
-virtualenv install smoke test. It does not publish artifacts, upload files,
-create tags, create GitHub releases or require credentials. On non-FreeBSD
-hosts the gate requires a prebuilt `dist/os/freebsd/pysh-shell-X.Y.Z.pkg`
-from the FreeBSD 14+ builder.
+`/opt/pysh-shell/lib/pysh/`, documentation link checks, a real Debian
+install-and-run smoke (`scripts/smoke_debian_package.sh`), a real RPM
+install-and-run smoke (`scripts/smoke_rpm_package.sh`), and a clean
+temporary virtualenv install smoke test. It does not publish artifacts,
+upload files, create tags, create GitHub releases or require credentials.
+On non-FreeBSD hosts the gate requires a prebuilt
+`dist/os/freebsd/pysh-shell-X.Y.Z.pkg` from the FreeBSD 14+ builder (its
+own real install-and-run smoke, `scripts/smoke_freebsd_package.sh`, can
+only execute on real FreeBSD and runs unconditionally in
+`.github/workflows/release-artifacts.yml`'s FreeBSD VM job).
+
+The package-quality model for each OS artifact family is now the same
+three tiers: **build** (produces the canonical filename), **static
+inspection** (`rpm -qip`/`rpm -qlp`, `dpkg-deb --contents`, `pkg info -F`/
+`pkg query -F`), and **real install-and-run** (an actual package-manager
+install into a disposable environment, followed by CLI and PTY smoke
+against the installed entrypoint). Debian and RPM run their real smoke on
+every CI push/PR via Docker; FreeBSD's real smoke can only run on native
+FreeBSD 14+, so it runs unconditionally in the release workflow's FreeBSD
+VM job instead of ordinary CI.
 
 Build every artifact locally and verify naming + sha256 sums:
 
@@ -270,10 +285,9 @@ If it is missing, the script fails fast with a deterministic message.
 
 | Workflow                                  | Purpose                                       |
 | ----------------------------------------- | --------------------------------------------- |
-| `.github/workflows/ci.yml`                | Tests, lint, build, twine, packaging scripts  |
+| `.github/workflows/ci.yml`                | Tests, lint, build, twine, packaging scripts, real Debian/RPM install-and-run smoke |
 | `.github/workflows/publish.yml`           | **Only** path that publishes to PyPI (Trusted Publishing) |
-| `.github/workflows/freebsd-pkg.yml`       | Builds FreeBSD `.pkg` on a FreeBSD 14+ self-hosted runner and uploads it as a workflow artifact |
-| `.github/workflows/release-artifacts.yml` | Builds/stages wheel, sdist, `.deb`, `.rpm`, `.pkg`, and flat `SHA256SUMS`, then attaches `dist/release-assets/*` to the GitHub Release |
+| `.github/workflows/release-artifacts.yml` | Builds a real FreeBSD `.pkg` in a FreeBSD 14+ VM (with its own real install-and-run smoke), then builds/stages wheel, sdist, `.deb` (with real install-and-run smoke), `.rpm` (with real install-and-run smoke), `.pkg`, and flat `SHA256SUMS`, then attaches `dist/release-assets/*` to the GitHub Release |
 
 There is exactly one PyPI publish path; the OS-packages workflow does
 not publish to PyPI.

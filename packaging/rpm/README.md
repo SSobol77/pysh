@@ -14,7 +14,7 @@ GitHub Releases.
 
 For PySH version `X.Y.Z` and package release `1`, the resulting file is:
 
-```
+```sh
 dist/os/rpm/pysh-shell-X.Y.Z-1.noarch.rpm
 ```
 
@@ -38,7 +38,7 @@ automation.
 The `.rpm` installs PySH under an application prefix matching the
 Debian package:
 
-```
+```sh
 /opt/pysh-shell/lib/pysh/    # Python package source tree
 /usr/bin/pysh                # POSIX wrapper invoking python3 -m pysh
 ```
@@ -70,6 +70,34 @@ fails fast with a deterministic message when `rpmbuild` is missing.
 ```bash
 sudo dnf install ./pysh-shell-X.Y.Z-1.noarch.rpm
 ```
+
+## Real install-and-run smoke
+
+Beyond `rpm -qip`/`rpm -qlp` static inspection, the produced `.rpm` is
+also validated by actually installing and running it:
+
+```bash
+bash scripts/smoke_rpm_package.sh \
+  dist/os/rpm/pysh-shell-X.Y.Z-1.noarch.rpm
+```
+
+This performs, inside a disposable Fedora container (never on the host,
+never touching the host's own RPM database):
+
+- a real `dnf install ./<pkg>.rpm`,
+- `rpm -q pysh-shell` database verification,
+- installed-command and installed-module provenance checks
+  (`command -v pysh`, `pysh.__file__` resolving under
+  `/opt/pysh-shell/lib/pysh/`, never a repository checkout or a
+  virtualenv),
+- a CLI smoke (`pysh --version`, `python3 -m pysh --version`,
+  `pysh -c "echo ..."`, `exit`, `quit`),
+- a genuine PTY-driven interactive smoke for `exit`/`quit`.
+
+It requires Docker and is the same script reused by
+`scripts/check_release_quality.sh`, `.github/workflows/ci.yml`, and
+`.github/workflows/release-artifacts.yml` — there is exactly one RPM
+install-and-run smoke implementation.
 
 ## Notes for packagers
 

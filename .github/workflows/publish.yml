@@ -25,6 +25,23 @@ jobs:
         with:
           python-version: "3.13"
 
+      # PyPI publication must never proceed for a version whose release
+      # metadata contract fails (version drift, unfinalized/malformed
+      # changelog, or -- on a real release event -- a tag that does not
+      # match pyproject.toml). This mirrors the same gate
+      # release-artifacts.yml runs before attaching GitHub Release assets,
+      # so the two publication paths (PyPI, GitHub Release) cannot diverge
+      # on what counts as a valid release.
+      - name: Verify release metadata contract (release mode)
+        if: github.event_name != 'release'
+        run: bash scripts/check_release_metadata.sh --release-mode
+
+      - name: Verify release metadata contract (release mode, with tag)
+        if: github.event_name == 'release'
+        run: |
+          bash scripts/check_release_metadata.sh --release-mode \
+            --tag "${{ github.event.release.tag_name }}"
+
       - name: Install build
         run: python -m pip install --upgrade build
 

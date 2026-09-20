@@ -31,7 +31,7 @@ enforcement.
 
 `plan` writes five lines:
 
-```
+```sh
 original=<the command line that was planned>
 kind=<builtin|external|pipeline|chain|python|zsh-delegation|script|unknown>
 execution=<native|subprocess|python-runtime|zsh|bash|sh|none>

@@ -53,7 +53,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current release: **PySH 0.8.2**. PySH targets **Python 3.13+** and is
+Current release: **PySH 0.9.0**. PySH targets **Python 3.13+** and is
 validated primarily on **Debian 13** and Unix-like systems.
 
 ---
@@ -147,9 +147,11 @@ validated primarily on **Debian 13** and Unix-like systems.
 
 ### From PyPI
 
+<!-- pysh-install:pypi -->
 ```bash
 pip install pysh-shell
 ```
+<!-- /pysh-install:pypi -->
 
 Then start the shell with:
 
@@ -178,6 +180,7 @@ py import platform; print(platform.platform())
 
 ### Development install
 
+<!-- pysh-install:dev -->
 ```bash
 # Recommended: uv-based dev workflow
 uv sync
@@ -191,6 +194,7 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
+<!-- /pysh-install:dev -->
 
 ### Running
 

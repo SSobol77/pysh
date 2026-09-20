@@ -6,7 +6,7 @@
 """PySH - Python-first interactive shell."""
 from __future__ import annotations
 
-__version__ = "0.8.2"
+__version__ = "0.9.0"
 __author__ = "Siergej Sobolewski"
 LICENSE_NAME = "GPL-2.0-only"
 
