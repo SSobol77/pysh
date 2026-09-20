@@ -14,6 +14,18 @@ Copyright (C) 2026 Siergej Sobolewski
 
 All notable changes to PySH are documented in this file.
 
+## Unreleased
+
+### Public API
+
+- Added the canonical `pysh.api` facade with the stable `ShellSession`
+  embedding lifecycle and stable contract-protocol re-exports.
+- Published the package/Python API/Plugin API/isolated manifest/IPC version
+  matrix, SemVer rules, and minimum two-minor deprecation lifecycle.
+- Deprecated `pysh.shell.PyShell` for the 1.0.0 contract in favor of
+  `pysh.api.ShellSession`. Symbol access emits `DeprecationWarning`; removal is
+  not permitted before PySH 1.2.0.
+
 ## 0.9.0 - 2026-09-19
 
 Fixed in 0.9.0 development:

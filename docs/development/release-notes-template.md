@@ -45,6 +45,7 @@ Release date: <YYYY-MM-DD>
 ## Compatibility and migration
 
 - <Compatibility boundary or migration-helper change>
+- Active deprecations and removal-not-before releases: <list or "None">
 - PySH remains a Python-first shell and does not claim Bash, Zsh, Fish, or
   POSIX /bin/sh compatibility beyond the documented feature matrix.
 

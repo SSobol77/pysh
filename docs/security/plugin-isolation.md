@@ -77,6 +77,10 @@ Three versions are independent:
 - isolated manifest version `1` identifies the TOML schema;
 - isolated IPC protocol version `1` identifies the wire contract.
 
+The complete package/Python API/Plugin API/manifest/IPC relationship is in the
+[normative version matrix](../development/api-stability.md#independent-version-domains).
+Package SemVer never substitutes for manifest validation or IPC negotiation.
+
 An isolated manifest is bounded to 256 KiB, parsed with `tomllib`, and never
 executed. Unknown or missing fields fail closed. Version 1 has this schema:
 

@@ -3,28 +3,32 @@
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
-"""Public API snapshot test (Issue #3).
+"""Public API symbol and signature snapshot tests (Issues #3 and #45).
 
 Verifies that the supported Python import surface of the pysh package
 matches the expected snapshot.  Any change to pysh.__all__ (additions or
 removals) will fail this test, making accidental API drift visible in review.
 
 Policy:
-- The pysh public API is intentionally small (metadata only in 0.7.x).
-- Internal packages (pysh.core, pysh.editor, …) are not blessed as public API.
-- pysh.contracts is the extension-point surface for config/plugin authors.
-  It is imported separately and has its own __all__; this test covers the
-  root pysh package only.
+- The root ``pysh`` API remains metadata-only.
+- ``pysh.api`` is the canonical stable operational and contract facade.
+- ``pysh.contracts`` and ``pysh.plugins`` are compatibility-public surfaces.
+- Internal packages (pysh.core, pysh.editor, …) are not public API.
 
 To intentionally change the public API:
-1. Update src/pysh/__init__.py __all__.
-2. Update EXPECTED_PUBLIC_API below with the same change.
-3. Document the change in docs/architecture/architecture.md.
+1. Update the owning module's explicit ``__all__``.
+2. Update the literal snapshot below with the same change.
+3. Document the compatibility impact and SemVer decision.
 """
 from __future__ import annotations
 
+import inspect
+
 import pysh
+import pysh.api
 import pysh.contracts
+import pysh.plugins
+import pysh.shell
 
 # Snapshot of the expected root pysh public API (pysh.__all__).
 # This is intentionally small: metadata symbols only.
@@ -47,6 +51,73 @@ EXPECTED_CONTRACTS_API: frozenset[str] = frozenset({
     "PluginRegistrar",
     "ShellStateView",
 })
+
+EXPECTED_CANONICAL_API: frozenset[str] = frozenset({
+    "AliasRegistryView",
+    "CommandResolverView",
+    "CompatibilityBridge",
+    "ConfigView",
+    "EnvironmentView",
+    "PLUGIN_API_VERSION",
+    "PluginHooks",
+    "PluginMeta",
+    "PluginRegistrar",
+    "ShellSession",
+    "ShellStateView",
+})
+
+EXPECTED_PLUGINS_API: frozenset[str] = frozenset({
+    "PLUGIN_API_VERSION",
+    "check_api_compatibility",
+})
+
+EXPECTED_DEPRECATED_SHELL_API: frozenset[str] = frozenset({"PyShell"})
+
+# Literal signature snapshot. Expected values are deliberately not generated
+# from the implementation under test: any parameter/default/kind drift must be
+# reviewed and explicitly accepted here.
+EXPECTED_API_SIGNATURES: dict[str, str] = {
+    "AliasRegistryView.list_aliases": "(self) -> 'dict[str, str]'",
+    "AliasRegistryView.lookup_alias": "(self, name: 'str') -> 'str | None'",
+    "CommandResolverView.builtin_names": "(self) -> 'frozenset[str]'",
+    "CommandResolverView.is_builtin": "(self, name: 'str') -> 'bool'",
+    "CommandResolverView.resolve_alias": "(self, name: 'str') -> 'str | None'",
+    "CompatibilityBridge.execute": "(self, command: 'str') -> 'int'",
+    "CompatibilityBridge.execute_lines": "(self, commands: 'Iterator[str]') -> 'int'",
+    "CompatibilityBridge.is_available": "(self) -> 'bool'",
+    "ConfigView.get_bool": "(self, key: 'str', *, default: 'bool' = False) -> 'bool'",
+    "ConfigView.get_str": "(self, key: 'str', *, default: 'str' = '') -> 'str'",
+    "EnvironmentView.get_env": "(self, name: 'str', default: 'str' = '') -> 'str'",
+    "EnvironmentView.get_local": "(self, name: 'str', default: 'str' = '') -> 'str'",
+    "PluginHooks.register": "(self, api: 'object') -> 'None'",
+    "PluginRegistrar.register_alias": "(self, name: 'str', value: 'str') -> 'None'",
+    "PluginRegistrar.register_env": "(self, name: 'str', value: 'str') -> 'None'",
+    "PluginRegistrar.register_local": "(self, name: 'str', value: 'str') -> 'None'",
+    "ShellSession": "() -> 'None'",
+    "ShellSession.__enter__": "(self) -> 'ShellSession'",
+    "ShellSession.__exit__": (
+        "(self, exc_type: 'type[BaseException] | None', "
+        "exc_value: 'BaseException | None', traceback: 'TracebackType | None') -> 'None'"
+    ),
+    "ShellSession.close": "(self) -> 'None'",
+    "ShellSession.closed": "(self) -> 'bool'",
+    "ShellSession.execute": "(self, command: 'str') -> 'int'",
+    "ShellSession.run_script": (
+        "(self, path: 'str | PathLike[str]', args: 'Sequence[str]' = ()) -> 'int'"
+    ),
+    "ShellStateView.cwd": "(self) -> 'str'",
+    "ShellStateView.last_status": "(self) -> 'int'",
+}
+
+EXPECTED_PLUGIN_SIGNATURES: dict[str, str] = {
+    "check_api_compatibility": "(plugin_api_version: 'object') -> 'tuple[int, int]'",
+}
+
+EXPECTED_PLUGIN_META_ANNOTATIONS: dict[str, str] = {
+    "api_version": "tuple[int, int]",
+    "name": "str",
+    "version": "str",
+}
 
 
 def test_public_api_surface_is_stable() -> None:
@@ -86,6 +157,65 @@ def test_contracts_api_surface_is_stable() -> None:
         "Update EXPECTED_CONTRACTS_API in this test and document the change.\n\n"
         + "\n".join(messages)
     )
+
+
+def test_canonical_api_surface_is_stable() -> None:
+    """pysh.api.__all__ must exactly match the reviewed stable facade."""
+    assert frozenset(pysh.api.__all__) == EXPECTED_CANONICAL_API
+
+
+def test_plugins_compatibility_surface_is_stable() -> None:
+    """The documented trusted-plugin import surface must not drift."""
+    assert frozenset(pysh.plugins.__all__) == EXPECTED_PLUGINS_API
+    assert pysh.plugins.PLUGIN_API_VERSION == (1, 0)
+
+
+def test_deprecated_shell_compatibility_surface_is_retained() -> None:
+    """The legacy symbol remains present for its documented warning window."""
+    assert frozenset(pysh.shell.__all__) == EXPECTED_DEPRECATED_SHELL_API
+    assert pysh.shell._DEPRECATED_SINCE == "1.0.0"
+    assert pysh.shell._REMOVAL_NOT_BEFORE == "1.2.0"
+
+
+def _resolve_api_member(qualified_name: str) -> object:
+    owner_name, separator, member_name = qualified_name.partition(".")
+    owner = getattr(pysh.api, owner_name)
+    if not separator:
+        return owner
+    member = inspect.getattr_static(owner, member_name)
+    if isinstance(member, property):
+        assert member.fget is not None
+        return member.fget
+    return member
+
+
+def test_canonical_api_signatures_match_literal_snapshot() -> None:
+    """Stable constructors, methods, properties, defaults and kinds are frozen."""
+    actual = {
+        name: str(inspect.signature(_resolve_api_member(name)))
+        for name in EXPECTED_API_SIGNATURES
+    }
+    assert actual == EXPECTED_API_SIGNATURES
+
+
+def test_trusted_plugin_api_signatures_match_literal_snapshot() -> None:
+    """Compatibility-public plugin helpers retain reviewed signatures."""
+    actual = {
+        name: str(inspect.signature(getattr(pysh.plugins, name)))
+        for name in EXPECTED_PLUGIN_SIGNATURES
+    }
+    assert actual == EXPECTED_PLUGIN_SIGNATURES
+
+
+def test_plugin_metadata_annotations_match_literal_snapshot() -> None:
+    """Plugin API 1.0 metadata fields remain stable."""
+    assert pysh.api.PluginMeta.__annotations__ == EXPECTED_PLUGIN_META_ANNOTATIONS
+
+
+def test_canonical_contract_reexports_preserve_identity() -> None:
+    """pysh.contracts remains a supported compatibility path to the same types."""
+    for name in EXPECTED_CONTRACTS_API:
+        assert getattr(pysh.api, name) is getattr(pysh.contracts, name)
 
 
 def test_pysh_version_is_accessible() -> None:

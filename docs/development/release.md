@@ -37,6 +37,9 @@ the `pypi` GitHub environment.
 Prepare curated GitHub Release notes from
 [release-notes-template.md](release-notes-template.md). Public user-path
 acceptance follows [manual-validation.md](../user/manual-validation.md).
+Public Python, CLI, configuration, and deprecation compatibility must be
+reviewed against the normative
+[API stability policy](api-stability.md) before assigning the release version.
 
 ## Pre-release checklist
 
@@ -49,6 +52,9 @@ acceptance follows [manual-validation.md](../user/manual-validation.md).
    - [`pyproject.toml`](../../pyproject.toml) → `version = "X.Y.Z"`
    - [`src/pysh/__init__.py`](../../src/pysh/__init__.py) → `__version__ = "X.Y.Z"`
    - Any user-facing version strings in [`README.md`](../../README.md).
+   - Confirm the selected MAJOR/MINOR/PATCH transition matches
+     [`api-stability.md`](api-stability.md), and record every active
+     deprecation's removal-not-before release in the release notes.
 3. Ask "is this release candidate ready?" with the single Release Quality
    Gate 2.0 entrypoint (Issue #33 RQG-H):
    ```bash
