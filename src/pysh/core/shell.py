@@ -76,6 +76,7 @@ from pysh.config.runtime import (
     load_declarative_config,
     load_plugin_configs,
 )
+from pysh.config.startup import DEFAULT_STARTUP_POLICY, StartupPolicy
 from pysh.config.themes import resolve_themes, theme_names
 from pysh.contracts.builtins import BUILTIN_NAMES
 from pysh.core.errors import ExitCode
@@ -438,11 +439,13 @@ class PyShell:
         zsh_bridge: ZshBridge | None = None,
         script_runner: ScriptRunner | None = None,
         trace: DiagnosticTrace | None = None,
+        startup_policy: StartupPolicy = DEFAULT_STARTUP_POLICY,
     ) -> None:
         self.local_vars: dict[str, str] = {}
         self.aliases: dict[str, str] = dict(self.DEFAULT_ALIASES)
         self.last_status: int = 0
         self.trace = trace if trace is not None else DiagnosticTrace()
+        self.startup_policy = startup_policy
         self.script_name: str = ""
         self.script_args: list[str] = []
         self._script_context: tuple[Path, int] | None = None
@@ -527,24 +530,8 @@ class PyShell:
         self._print_banner()
         self._setup_readline()
         self._export_interactive_shell_vars()
-        load_default_rc(self.execute)
-        load_plugins(self.execute, directory=PLUGIN_DIR)
-        if ensure_default_toml_config():
-            print("pysh: created declarative config")
-        declarative_config = apply_declarative_config(self)
-        self.config_profiles = declarative_config.profiles
-        self.config_themes = declarative_config.themes
-        self.config_diagnostics = list(declarative_config.diagnostics)
-        self.config_loaded_paths = list(declarative_config.loaded_paths)
-        # Python-native configuration runs last so that ~/.pyshrc.py has the
-        # final word over the legacy shell-syntax layers. Created on first
-        # launch so the file is discoverable; the generated body is inert.
-        if ensure_default_config():
-            print(f"pysh: created {PYSHRC_PY_PATH}")
-        load_python_config(self)
-        self.plugin_manager.discover_and_load()
-        self._run_user_startup_hooks()
-        self.plugin_manager.run_startup_hooks()
+        if self.startup_policy.load_user_configuration:
+            self._load_user_startup_configuration()
         self._apply_cursor_color()
         # Job control: open /dev/tty and set SIGTSTP to SIG_IGN so the shell
         # itself is never suspended by Ctrl+Z; the foreground child resets it.
@@ -666,6 +653,27 @@ class PyShell:
                     signal.signal(signal.SIGTSTP, signal.SIG_DFL)
                 except OSError:
                     pass
+
+    def _load_user_startup_configuration(self) -> None:
+        """Load all user-controlled interactive startup layers in order."""
+        load_default_rc(self.execute)
+        load_plugins(self.execute, directory=PLUGIN_DIR)
+        if ensure_default_toml_config():
+            print("pysh: created declarative config")
+        declarative_config = apply_declarative_config(self)
+        self.config_profiles = declarative_config.profiles
+        self.config_themes = declarative_config.themes
+        self.config_diagnostics = list(declarative_config.diagnostics)
+        self.config_loaded_paths = list(declarative_config.loaded_paths)
+        # Python-native configuration runs last so that ~/.pyshrc.py has the
+        # final word over the legacy shell-syntax layers. Created on first
+        # launch so the file is discoverable; the generated body is inert.
+        if ensure_default_config():
+            print(f"pysh: created {PYSHRC_PY_PATH}")
+        load_python_config(self)
+        self.plugin_manager.discover_and_load()
+        self._run_user_startup_hooks()
+        self.plugin_manager.run_startup_hooks()
 
     def run_batch(self, lines: IO[str]) -> int:
         """Execute logical lines from non-interactive stdin without presentation.

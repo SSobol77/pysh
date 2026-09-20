@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from pysh import __version__
+from pysh.config.startup import StartupPolicy
 from pysh.core.errors import exception_to_diagnostic
 from pysh.core.shell import PyShell, _ExitShell
 from pysh.diagnostics.trace import DiagnosticTrace, TraceOptions
@@ -50,6 +51,11 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="debug",
         action="store_true",
         help="emit deterministic PySH diagnostic trace lines to stderr",
+    )
+    parser.add_argument(
+        "--no-rc",
+        action="store_true",
+        help="start without reading or creating user configuration",
     )
     parser.add_argument(
         "script",
@@ -100,7 +106,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     args = _build_parser().parse_args(argv if argv is not None else sys.argv[1:])
-    shell = PyShell(trace=DiagnosticTrace(TraceOptions(enabled=bool(args.debug))))
+    startup_policy = StartupPolicy(load_user_configuration=not args.no_rc)
+    shell = PyShell(
+        trace=DiagnosticTrace(TraceOptions(enabled=bool(args.debug))),
+        startup_policy=startup_policy,
+    )
     try:
         if args.command is not None:
             if args.script is not None:

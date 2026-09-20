@@ -327,6 +327,9 @@ shell feature area in the current PySH release. Category definitions are in
 | Security | `plan` does not execute target command | Supported | Native | `tests/test_security_trust_model.py` | #7 |
 | Security | Python runtime sandboxing | Unsupported | Unsupported | `tests/test_security_trust_model.py` | #7 |
 | Security | Privilege separation / capability confinement | Unsupported | Unsupported | `docs/architecture/security-trust-model.md` | #7 |
+| Security | Strict safe startup (`--no-rc`) | Supported | Native | `tests/test_safe_startup.py`, `docs/security/threat-model.md` | #43 |
+| Security | Untrusted plugin capability isolation | Planned | Planned | `docs/security/threat-model.md` | #44 |
+| Security | Centralized redaction across all egress seams | Partial | Native | `tests/test_observability_diagnostics.py`, `docs/security/threat-model.md` | #50 |
 
 ## Signal handling
 

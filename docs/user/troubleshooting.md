@@ -58,9 +58,17 @@ inside the intended environment.
 ## Configuration problems
 
 PySH loads declarative TOML configuration and user startup files as described
-in [configuration.md](configuration.md). If behavior changes after editing
-configuration, first validate with a minimal configuration and temporarily
-move custom startup files out of the load path.
+in [configuration.md](configuration.md). If normal interactive startup fails or
+configuration may be malicious, start a deterministic recovery session first:
+
+```sh
+pysh --no-rc
+```
+
+This bypasses every user startup layer and does not create or rewrite the
+default TOML or `~/.pyshrc.py`. If recovery startup succeeds, validate the
+normal load order and inspect the startup files before enabling normal startup
+again. `--no-rc` does not sandbox commands entered in the recovery session.
 
 Important rules:
 
