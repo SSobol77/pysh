@@ -51,8 +51,10 @@ if not hasattr(pty, "openpty"):
 _PYSH_CMD: list[str] = [sys.executable, "-m", "pysh"]
 
 # Environment that forces the rich raw editor active inside the PTY.
-# TERM must be set (not empty, not "dumb") for colors_enabled() to return True.
-# NO_COLOR must be absent.
+# TERM must be set (not empty, not "dumb") for
+# PyShell._raw_editor_terminal_capable() -- and therefore
+# _should_use_raw_editor() -- to select RawLineReader instead of falling
+# back to input(). NO_COLOR must be absent.
 _PTY_ENV: dict[str, str] = {k: v for k, v in os.environ.items() if k != "NO_COLOR"}
 _PTY_ENV["TERM"] = "xterm-256color"
 

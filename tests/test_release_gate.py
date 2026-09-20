@@ -19,6 +19,7 @@ the wiring is genuine, and one CLI-level test runs real ``--mode fast``
 end to end. Nothing here builds artifacts, runs pytest recursively,
 touches Docker, publishes, tags, or pushes.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -91,9 +92,13 @@ def test_one_independent_failure_yields_overall_fail(tmp_path: Path) -> None:
 
 def test_multiple_failures_all_appear_in_manifest(tmp_path: Path) -> None:
     checks = [
-        _fake_check("a", "cat", ALL_MODES, GATE.STATUS_FAIL, diagnostic="first failure"),
+        _fake_check(
+            "a", "cat", ALL_MODES, GATE.STATUS_FAIL, diagnostic="first failure"
+        ),
         _fake_check("b", "cat", ALL_MODES, GATE.STATUS_PASS),
-        _fake_check("c", "cat", ALL_MODES, GATE.STATUS_FAIL, diagnostic="second failure"),
+        _fake_check(
+            "c", "cat", ALL_MODES, GATE.STATUS_FAIL, diagnostic="second failure"
+        ),
     ]
     manifest = GATE.run_gate("fast", checks, tmp_path)
     assert manifest["overall"] == GATE.OVERALL_FAIL
@@ -102,16 +107,26 @@ def test_multiple_failures_all_appear_in_manifest(tmp_path: Path) -> None:
     assert {e["diagnostic"] for e in failing} == {"first failure", "second failure"}
     # 'b' must still have executed (independent later checks are not
     # skipped merely because an earlier one failed).
-    assert any(e["name"] == "b" and e["status"] == GATE.STATUS_PASS for e in manifest["checks"])
+    assert any(
+        e["name"] == "b" and e["status"] == GATE.STATUS_PASS for e in manifest["checks"]
+    )
 
 
 # ------------------------------------------- 4. one PLATFORM_BLOCKED + rest PASS
 
 
-def test_platform_blocked_with_rest_passing_is_ready_except_platform(tmp_path: Path) -> None:
+def test_platform_blocked_with_rest_passing_is_ready_except_platform(
+    tmp_path: Path,
+) -> None:
     checks = [
         _fake_check("a", "cat", ALL_MODES, GATE.STATUS_PASS),
-        _fake_check("b", "platform", ALL_MODES, GATE.STATUS_PLATFORM_BLOCKED, diagnostic="no FreeBSD"),
+        _fake_check(
+            "b",
+            "platform",
+            ALL_MODES,
+            GATE.STATUS_PLATFORM_BLOCKED,
+            diagnostic="no FreeBSD",
+        ),
     ]
     manifest = GATE.run_gate("full", checks, tmp_path)
     assert manifest["overall"] == GATE.OVERALL_READY_EXCEPT_PLATFORM
@@ -135,7 +150,9 @@ def test_fail_takes_priority_over_platform_blocked(tmp_path: Path) -> None:
 def test_not_run_in_unselected_mode_does_not_affect_overall(tmp_path: Path) -> None:
     checks = [
         _fake_check("fast-check", "cat", ALL_MODES, GATE.STATUS_PASS),
-        _fake_check("heavy-check", "tests", frozenset({"ci", "full"}), GATE.STATUS_PASS),
+        _fake_check(
+            "heavy-check", "tests", frozenset({"ci", "full"}), GATE.STATUS_PASS
+        ),
     ]
     manifest = GATE.run_gate("fast", checks, tmp_path)
     heavy_entry = next(e for e in manifest["checks"] if e["name"] == "heavy-check")
@@ -192,7 +209,8 @@ def test_ci_mode_includes_expected_heavy_checks(expected_name: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "expected_name", ["Debian install smoke", "RPM install smoke", "FreeBSD install smoke"]
+    "expected_name",
+    ["Debian install smoke", "RPM install smoke", "FreeBSD install smoke"],
 )
 def test_full_mode_includes_platform_checks_only_in_full(expected_name: str) -> None:
     checks = GATE.build_checks()
@@ -232,7 +250,14 @@ def test_json_manifest_is_schema_stable(tmp_path: Path) -> None:
     manifest = GATE.run_gate("fast", checks, tmp_path)
     text = json.dumps(manifest)
     parsed = json.loads(text)
-    assert set(parsed.keys()) == {"mode", "overall", "exit_code", "host", "log_dir", "checks"}
+    assert set(parsed.keys()) == {
+        "mode",
+        "overall",
+        "exit_code",
+        "host",
+        "log_dir",
+        "checks",
+    }
     entry = parsed["checks"][0]
     assert set(entry.keys()) == {
         "name",
@@ -257,7 +282,9 @@ def test_human_manifest_is_deterministic_given_same_results(tmp_path: Path) -> N
     ]
     manifest1 = GATE.run_gate("fast", checks, tmp_path)
     manifest2 = GATE.run_gate("fast", checks, tmp_path)
-    assert GATE.render_human_manifest(manifest1) == GATE.render_human_manifest(manifest2)
+    assert GATE.render_human_manifest(manifest1) == GATE.render_human_manifest(
+        manifest2
+    )
 
 
 def test_human_manifest_shows_platform_blocked_label_distinctly(tmp_path: Path) -> None:
@@ -303,9 +330,13 @@ def test_subprocess_timeout_is_captured_as_fail_not_a_traceback(tmp_path: Path) 
     assert "timed out" in result.diagnostic
 
 
-def test_subprocess_start_failure_is_captured_as_fail_not_a_traceback(tmp_path: Path) -> None:
+def test_subprocess_start_failure_is_captured_as_fail_not_a_traceback(
+    tmp_path: Path,
+) -> None:
     result = GATE.run_subprocess_check(
-        ["/no/such/executable-pysh-release-gate-test"], log_dir=tmp_path, log_name="missing"
+        ["/no/such/executable-pysh-release-gate-test"],
+        log_dir=tmp_path,
+        log_name="missing",
     )
     assert result.status == GATE.STATUS_FAIL
     assert "failed to start" in result.diagnostic
@@ -319,7 +350,9 @@ def test_successful_subprocess_writes_a_readable_log(tmp_path: Path) -> None:
     )
     assert result.status == GATE.STATUS_PASS
     assert result.log_path is not None
-    assert "hello-from-release-gate-test" in Path(result.log_path).read_text(encoding="utf-8")
+    assert "hello-from-release-gate-test" in Path(result.log_path).read_text(
+        encoding="utf-8"
+    )
 
 
 # ------------------------------------------------------- 11. Docker unavailable
@@ -360,7 +393,7 @@ def test_rpm_smoke_never_reports_pass_from_build_success_alone() -> None:
     body = source[start:end]
     assert "status=STATUS_PASS" not in body
     assert body.strip().endswith(
-        'log_name="rpm-smoke",\n        timeout=600.0,\n    )'
+        'log_name="rpm-smoke",\n        timeout=1800.0,\n    )'
     )
 
 
@@ -461,7 +494,11 @@ def test_orchestrator_never_writes_pyproject_or_changelog() -> None:
         assert f"open({forbidden!r}" not in text
     # The three legitimate write sites, named explicitly so a new, unreviewed
     # write call anywhere else in the file fails this test.
-    allowed_write_sites = ("log_path.write_text", "args.json.write_text", "fixture_pkg.write_text")
+    allowed_write_sites = (
+        "log_path.write_text",
+        "args.json.write_text",
+        "fixture_pkg.write_text",
+    )
     remaining = text
     for site in allowed_write_sites:
         remaining = remaining.replace(site, "")

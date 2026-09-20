@@ -12,22 +12,37 @@ session against an installed ``pysh`` binary and prove it exits
 deterministically for ``exit``/``quit`` -- on Linux (Debian, Fedora/RPM) and
 on FreeBSD alike.
 
-The one property every caller depends on: this never blocks indefinitely.
-Every read of the PTY master is gated by ``select.select()`` on a shrinking
-remaining-time budget, so a child that produces no output and never exits
-cannot hang this process -- it is killed, reaped, and a deterministic
-timeout result is returned instead. (Issue #33: a bare
-``while time.monotonic() < deadline: os.read(master_fd, ...)`` loop -- the
-pattern this module replaces -- checks the deadline only *between* calls;
-the blocking ``os.read()`` call itself has no timeout, and once entered
-cannot be interrupted by that check. That gap did not matter on the
-platforms where the child reliably closed the PTY promptly, but a real
-FreeBSD `workflow_dispatch` run hung for over an hour at exactly this call
-when it did not.)
+Two properties every caller depends on:
 
-No third-party dependencies (no pexpect); no threads used to implement the
-timeout -- select() on the file descriptor is the only synchronization
-primitive.
+1. This never blocks indefinitely. Every read of the PTY master is gated by
+   ``select.select()`` on a shrinking remaining-time budget, so a child that
+   produces no output and never exits cannot hang this process -- it is
+   killed, reaped, and a deterministic timeout result is returned instead.
+   (Issue #33: a bare ``while time.monotonic() < deadline: os.read(...)``
+   loop -- the pattern this module replaces -- checks the deadline only
+   *between* calls; the blocking ``os.read()`` call itself has no timeout.
+   That gap did not matter on platforms where the child reliably closed the
+   PTY promptly, but a real FreeBSD `workflow_dispatch` run hung for over an
+   hour at exactly this call when it did not.)
+
+2. Input is not written until the child has *proven* it is ready to read it
+   (``ready_marker``), when the caller supplies one. PySH's raw line editor
+   calls ``tty.setraw(in_fd)`` -- whose default ``termios.TCSAFLUSH`` action
+   discards any input already queued on the terminal -- before it emits the
+   bracketed-paste-enable sequence (``\\x1b[?2004h``). Writing the command
+   line immediately after ``Popen()`` (the old behavior) races that
+   ``setraw()`` call: on a sufficiently slow or differently-scheduled
+   startup, the queued command is silently discarded by TCSAFLUSH, and the
+   child then waits forever at an empty prompt for input that already came
+   and went. Waiting to observe the bracketed-paste-enable marker -- which
+   PySH only emits *after* ``setraw()`` has already run -- proves the raw
+   terminal transition is over and input written after it cannot be
+   flushed away by it.
+
+No third-party dependencies (no pexpect); no threads and no ``time.sleep()``
+used for synchronization -- ``select()`` on the file descriptor, gated by one
+absolute deadline covering the whole interaction (readiness wait *and*
+command execution), is the only synchronization primitive.
 """
 from __future__ import annotations
 
@@ -41,29 +56,84 @@ import time
 
 DEFAULT_TIMEOUT = 10.0
 
+# PySH's raw line editor (src/pysh/editor/lineedit/reader.py) emits this
+# immediately after tty.setraw(in_fd) succeeds, so observing it on the PTY
+# proves the raw-mode transition (and its TCSAFLUSH input flush) has already
+# happened -- input written after this point cannot be discarded by it.
+BRACKETED_PASTE_READY_MARKER = b"\x1b[?2004h"
+
+# A capable TERM is required to exercise PySH's default raw-editor path.
+# With TERM unset or "dumb", PyShell._should_use_raw_editor() falls back
+# to input() instead of RawLineReader. Because the bracketed-paste ready
+# marker is emitted by RawLineReader, that fallback would make the marker
+# unavailable even though stdin/stdout are attached to a genuine PTY.
+#
+# Disposable Docker environments may leave TERM unset, unlike a normal
+# interactive terminal session, so provide a conservative terminal type
+# only when the caller did not already define TERM.
+DEFAULT_TERM = "xterm-256color"
+
 
 @dataclasses.dataclass
 class PtyResult:
-    """The deterministic outcome of one bounded PTY session."""
+    """The deterministic outcome of one bounded, optionally readiness-gated
+    PTY session."""
 
     returncode: int | None
     output: str
     timed_out: bool
+    ready: bool
+    input_sent: bool
 
     @property
     def ok(self) -> bool:
         return (
-            not self.timed_out
+            self.ready
+            and self.input_sent
+            and not self.timed_out
             and self.returncode == 0
             and "Traceback" not in self.output
         )
 
 
 def run_pty_command(
-    argv: list[str], input_line: str, timeout: float = DEFAULT_TIMEOUT
+    argv: list[str],
+    input_line: str,
+    timeout: float = DEFAULT_TIMEOUT,
+    ready_marker: bytes | None = None,
+    env: dict[str, str] | None = None,
 ) -> PtyResult:
-    """Run *argv* under a real PTY, send *input_line*, and return within
-    *timeout* seconds no matter what the child does.
+    """Run *argv* under a real PTY and return within *timeout* seconds no
+    matter what the child does.
+
+    *env* defaults to the current process environment with ``TERM`` forced
+    to :data:`DEFAULT_TERM` when not already set by the caller -- a real
+    terminal session always has some real ``TERM`` value, and with it
+    missing or ``"dumb"`` PySH's editor selection falls back to
+    ``input()`` instead of entering its raw line editor at all, so the
+    bracketed-paste ready marker (which only the raw editor emits) would
+    never appear even though stdin/stdout are attached to a genuine PTY.
+    Pass an explicit *env* to override this, e.g. for a test that
+    deliberately exercises PySH's ``input()`` fallback path.
+
+    If *ready_marker* is ``None`` (the default), *input_line* is written
+    immediately after the child is spawned, matching the simple
+    fire-and-forget behavior earlier versions of this helper always used --
+    suitable for a plain child that does not itself renegotiate terminal
+    modes.
+
+    If *ready_marker* is given, *input_line* is withheld until those exact
+    bytes have appeared somewhere in the PTY output accumulated so far (the
+    check runs against the full accumulated buffer, so a marker split
+    across two separate reads is still detected once both arrive). All
+    output preceding the marker is still captured in ``PtyResult.output``.
+    If the marker never appears before the deadline, the command is never
+    sent (``input_sent`` stays ``False``), the child is killed/reaped, and
+    the result reports ``timed_out=True, ready=False``.
+
+    Exactly one absolute deadline covers both the readiness wait and the
+    post-input execution -- there is no separate budget reset after the
+    marker is observed or after input is sent.
 
     On a normal exit, the child closes its end of the PTY, ``os.read()``
     eventually returns ``b""`` (EOF), and the loop ends promptly. On a
@@ -72,21 +142,33 @@ def run_pty_command(
     function itself never raises `subprocess.TimeoutExpired` and never
     blocks past *timeout* plus a bounded child-teardown grace period.
     """
+    child_env = dict(os.environ) if env is None else dict(env)
+    child_env.setdefault("TERM", DEFAULT_TERM)
+
     deadline = time.monotonic() + timeout
     master_fd, slave_fd = pty.openpty()
     proc: subprocess.Popen[bytes] | None = None
     output = b""
     timed_out = False
     drained_after_exit = False
+    ready = ready_marker is None
+    input_sent = False
 
     try:
         proc = subprocess.Popen(
-            argv, stdin=slave_fd, stdout=slave_fd, stderr=slave_fd, close_fds=True
+            argv,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            close_fds=True,
+            env=child_env,
         )
         os.close(slave_fd)
         slave_fd = -1
 
-        os.write(master_fd, (input_line + "\n").encode())
+        if ready_marker is None:
+            os.write(master_fd, (input_line + "\n").encode())
+            input_sent = True
 
         while True:
             remaining = deadline - time.monotonic()
@@ -109,6 +191,14 @@ def run_pty_command(
                 if not chunk:
                     break
                 output += chunk
+
+                if not ready and ready_marker is not None and ready_marker in output:
+                    ready = True
+
+                if ready and not input_sent:
+                    os.write(master_fd, (input_line + "\n").encode())
+                    input_sent = True
+
                 continue
 
             if exited:
@@ -144,13 +234,28 @@ def run_pty_command(
         returncode=returncode,
         output=output.decode(errors="replace"),
         timed_out=timed_out,
+        ready=ready,
+        input_sent=input_sent,
     )
 
 
 def main(argv: list[str]) -> int:
+    ready_marker: bytes | None = None
+    if argv[:1] == ["--ready-marker-hex"]:
+        if len(argv) < 2:
+            print("pty_smoke.py: --ready-marker-hex requires a value", file=sys.stderr)
+            return 2
+        try:
+            ready_marker = bytes.fromhex(argv[1])
+        except ValueError:
+            print(f"pty_smoke.py: invalid --ready-marker-hex value: {argv[1]!r}", file=sys.stderr)
+            return 2
+        argv = argv[2:]
+
     if len(argv) < 3:
         print(
-            "usage: pty_smoke.py TIMEOUT_SECONDS INPUT_LINE PROGRAM [ARGS...]",
+            "usage: pty_smoke.py [--ready-marker-hex HEX] "
+            "TIMEOUT_SECONDS INPUT_LINE PROGRAM [ARGS...]",
             file=sys.stderr,
         )
         return 2
@@ -164,16 +269,24 @@ def main(argv: list[str]) -> int:
     input_line = argv[1]
     program_argv = argv[2:]
 
-    result = run_pty_command(program_argv, input_line, timeout=timeout)
+    result = run_pty_command(program_argv, input_line, timeout=timeout, ready_marker=ready_marker)
     print(
         f"PTY interactive {input_line!r}: rc={result.returncode} "
+        f"ready={result.ready} input_sent={result.input_sent} "
         f"timed_out={result.timed_out}"
     )
 
+    if not result.ready:
+        print(
+            f"PTY FAIL: editor readiness marker not observed within {timeout:.0f}s "
+            f"(command never sent, process killed); output={result.output!r}",
+            file=sys.stderr,
+        )
+        return 1
     if result.timed_out:
         print(
-            f"PTY FAIL: {input_line!r} did not exit within {timeout:.0f}s "
-            f"(process killed); output={result.output!r}",
+            f"PTY FAIL: command sent after readiness but shell did not exit "
+            f"within {timeout:.0f}s (process killed); output={result.output!r}",
             file=sys.stderr,
         )
         return 1

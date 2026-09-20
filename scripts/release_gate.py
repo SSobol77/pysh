@@ -29,6 +29,7 @@ Exit codes:
     1  overall FAIL
     2  orchestrator misuse (bad arguments)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -164,7 +165,9 @@ def docker_usable() -> bool:
 
 
 def canonical_version() -> str:
-    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    pyproject = tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
     return pyproject["project"]["version"]
 
 
@@ -222,7 +225,12 @@ def check_installation_docs(log_dir: Path) -> CheckResult:
 
 def check_release_workflow(log_dir: Path) -> CheckResult:
     return run_subprocess_check(
-        ["uv", "run", "python", str(REPO_ROOT / "scripts" / "check_release_workflow.py")],
+        [
+            "uv",
+            "run",
+            "python",
+            str(REPO_ROOT / "scripts" / "check_release_workflow.py"),
+        ],
         log_dir=log_dir,
         log_name="release-workflow",
     )
@@ -278,7 +286,12 @@ def check_artifact_contract(log_dir: Path) -> CheckResult:
         ]
         for step in steps:
             result = subprocess.run(
-                step, cwd=REPO_ROOT, check=False, capture_output=True, text=True, timeout=180
+                step,
+                cwd=REPO_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=180,
             )
             output_parts.append(f"$ {' '.join(step)}\n{result.stdout}{result.stderr}")
             if result.returncode != 0:
@@ -451,11 +464,17 @@ def check_rpm_smoke(log_dir: Path) -> CheckResult:
             diagnostic="build_rpm.sh did not produce a .rpm",
         )
 
+    # 1800s, not 600s: measured directly (see tests/test_rpm_package_smoke_
+    # contract.py), real end-to-end durations for this same script ranged
+    # from ~5 to ~19.5 minutes across repeated runs, purely from Fedora
+    # mirror/dnf and Docker image-pull variability. 600s was observed to
+    # both time out outright and pass with under 10% margin on separate
+    # occasions -- genuinely too tight, not merely flaky.
     return run_subprocess_check(
         ["bash", str(REPO_ROOT / "scripts" / "smoke_rpm_package.sh"), str(rpms[-1])],
         log_dir=log_dir,
         log_name="rpm-smoke",
-        timeout=600.0,
+        timeout=1800.0,
     )
 
 
@@ -533,8 +552,15 @@ def build_checks() -> list[Check]:
         Check("Ruff", "static", fast_ci_full, check_ruff),
         Check("headers", "static", fast_ci_full, check_headers),
         Check("git diff", "static", fast_ci_full, check_git_diff),
-        Check("installation-doc contract", "docs", fast_ci_full, check_installation_docs),
-        Check("release workflow contract", "workflow", fast_ci_full, check_release_workflow),
+        Check(
+            "installation-doc contract", "docs", fast_ci_full, check_installation_docs
+        ),
+        Check(
+            "release workflow contract",
+            "workflow",
+            fast_ci_full,
+            check_release_workflow,
+        ),
         Check("unit/integration tests", "tests", ci_full, check_pytest),
         Check("PTY TERM=dumb", "tests", ci_full, check_pty_dumb),
         Check("PTY TERM=xterm-256color", "tests", ci_full, check_pty_xterm),
@@ -649,7 +675,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=MODES, default="fast")
     parser.add_argument(
-        "--json", type=Path, default=None, metavar="PATH", help="also write a JSON manifest"
+        "--json",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="also write a JSON manifest",
     )
     parser.add_argument(
         "--keep-logs",

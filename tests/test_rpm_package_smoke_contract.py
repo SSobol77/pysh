@@ -23,6 +23,7 @@ test, skipped automatically when Docker is not usable on the current host
 -- this suite never mocks that outcome, it only marks it skipped so the
 rest of ``pytest -q`` remains fast and portable.
 """
+
 from __future__ import annotations
 
 import os
@@ -252,7 +253,7 @@ def test_script_verifies_rpm_query_installed_state() -> None:
 
 def test_script_verifies_exact_installed_version() -> None:
     body = _container_script_body(SCRIPT.read_text(encoding="utf-8"))
-    assert 'pysh-shell-${PYSH_EXPECTED_VERSION}-1' in body
+    assert "pysh-shell-${PYSH_EXPECTED_VERSION}-1" in body
 
 
 def test_script_checks_command_v_pysh() -> None:
@@ -291,14 +292,21 @@ def test_script_includes_non_tty_batch_checks() -> None:
 
 
 def test_script_includes_real_pty_driven_interactive_smoke() -> None:
-    """The genuine PTY smoke is delegated to the shared, strictly-bounded
-    scripts/pty_smoke.py helper (Issue #33), never a copied driver here."""
+    """The genuine PTY smoke is delegated to the shared, strictly-bounded,
+    readiness-gated scripts/pty_smoke.py helper (Issue #33), never a
+    copied driver here."""
     text = SCRIPT.read_text(encoding="utf-8")
     assert "def run_pty_command" not in text
     assert "import pty" not in text
     assert "pty_smoke.py:/pysh-pty-smoke.py:ro" in text
-    assert "python3 /pysh-pty-smoke.py 10 exit /usr/bin/pysh" in text
-    assert "python3 /pysh-pty-smoke.py 10 quit /usr/bin/pysh" in text
+    assert (
+        "/pysh-pty-smoke.py --ready-marker-hex 1b5b3f3230303468 10 exit /usr/bin/pysh"
+        in text
+    )
+    assert (
+        "/pysh-pty-smoke.py --ready-marker-hex 1b5b3f3230303468 10 quit /usr/bin/pysh"
+        in text
+    )
     assert "PTY interactive smoke PASSED" in text
 
 
@@ -362,7 +370,9 @@ def test_release_artifacts_workflow_runs_rpm_smoke_before_artifact_gate() -> Non
 
 
 def test_release_quality_gate_reuses_the_same_smoke_script() -> None:
-    text = (REPO_ROOT / "scripts" / "check_release_quality.sh").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "scripts" / "check_release_quality.sh").read_text(
+        encoding="utf-8"
+    )
     assert "scripts/smoke_rpm_package.sh" in text
     # The existing static rpm -qip/-qlp content-listing check must remain.
     assert "rpm -qpl" in text or "rpm --dbpath" in text
@@ -385,6 +395,24 @@ def test_real_rpm_install_and_run_smoke_passes(tmp_path: Path) -> None:
     it performs an actual dnf install inside a disposable Fedora
     container. Everything else in this file is fast and Docker-independent
     by design.
+
+    The .rpm build itself is bounded separately (60s, generous for a pure
+    local rpmbuild run with no network access) and is NOT part of the
+    smoke-script timeout below -- only `scripts/smoke_rpm_package.sh`
+    itself (Docker image pull/cache, `dnf install python3`, `dnf install
+    <pkg>`, and the CLI/PTY checks) is.
+
+    That smoke-script timeout is 1800s (20 minutes), not the more typical
+    600s: measured directly, real end-to-end durations for this exact
+    operation ranged from ~5 minutes to ~19.5 minutes across repeated runs
+    on this project's own development host, entirely due to Fedora
+    mirror/dnf and Docker image-pull variability, not anything under this
+    test's control. A 600s budget was observed to both fail outright
+    (subprocess.TimeoutExpired at exactly 600s on an otherwise-successful
+    run) and to pass with dangerously little margin (546s) on separate
+    occasions -- i.e. it was genuinely too tight for this operation's real
+    variance, not merely flaky. 1800s comfortably covers the slowest
+    observed real run (~1165s) with margin, without being unbounded.
     """
     build_result = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts" / "build_rpm.sh")],
@@ -400,7 +428,7 @@ def test_real_rpm_install_and_run_smoke_passes(tmp_path: Path) -> None:
     assert rpms, "build_rpm.sh did not produce a .rpm"
     rpm_path = rpms[-1]
 
-    result = _run(str(rpm_path), timeout=600.0)
+    result = _run(str(rpm_path), timeout=1800.0)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "ALL RPM INSTALL-AND-RUN SMOKE CHECKS PASSED" in result.stdout
     assert "/opt/pysh-shell/lib/pysh/__init__.py" in result.stdout

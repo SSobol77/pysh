@@ -189,18 +189,29 @@ printf 'quit\n' | pysh
 echo "batch-mode quit status: $?"
 
 echo "--- real interactive PTY smoke (genuine pseudo-terminal) ---"
-# Shared, strictly-bounded PTY driver (Issue #33): every read is gated by
-# select() on a shrinking deadline, so a stuck/non-exiting child cannot
-# hang this step -- it is killed and reported as a deterministic FAIL
-# instead, rather than hanging the whole VM job as the old bare
-# blocking-os.read() loop did. Referenced directly from the repository
-# checkout (unlike the Debian/RPM containers, this VM already has the
-# full workspace synced) -- never copied or duplicated.
-if ! python3.13 "${REPO_ROOT}/scripts/pty_smoke.py" 10 exit /usr/local/bin/pysh; then
+# Shared, strictly-bounded, readiness-gated PTY driver (Issue #33): every
+# read is gated by select() on a single shrinking deadline, so a stuck or
+# non-exiting child cannot hang this step -- it is killed and reported as
+# a deterministic FAIL instead, rather than hanging the whole VM job as
+# the old bare blocking-os.read() loop did. Referenced directly from the
+# repository checkout (unlike the Debian/RPM containers, this VM already
+# has the full workspace synced) -- never copied or duplicated.
+#
+# --ready-marker-hex is PySH's bracketed-paste-enable sequence
+# (ESC [ ? 2 0 0 4 h), which the raw line editor only emits *after*
+# tty.setraw() (whose default TCSAFLUSH action discards already-queued
+# input) has already run. The helper withholds "exit"/"quit" until it
+# observes this exact byte sequence on the PTY, so the command can never
+# race that raw-mode transition and be silently discarded by it -- this
+# is the same readiness contract used by the Debian and RPM smokes, no
+# FreeBSD-specific handling.
+if ! python3.13 "${REPO_ROOT}/scripts/pty_smoke.py" --ready-marker-hex 1b5b3f3230303468 \
+    10 exit /usr/local/bin/pysh; then
     echo "SMOKE FAIL: PTY interactive exit failed" >&2
     exit 1
 fi
-if ! python3.13 "${REPO_ROOT}/scripts/pty_smoke.py" 10 quit /usr/local/bin/pysh; then
+if ! python3.13 "${REPO_ROOT}/scripts/pty_smoke.py" --ready-marker-hex 1b5b3f3230303468 \
+    10 quit /usr/local/bin/pysh; then
     echo "SMOKE FAIL: PTY interactive quit failed" >&2
     exit 1
 fi

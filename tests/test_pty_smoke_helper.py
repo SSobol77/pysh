@@ -3,22 +3,50 @@
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
-"""Regression tests for the shared, strictly-bounded PTY smoke helper
-(Issue #33 PTY portability fix).
+"""Regression tests for the shared, strictly-bounded, readiness-gated PTY
+smoke helper (Issue #33 PTY portability + ready-handshake fix).
 
 ``scripts/pty_smoke.py`` replaces three copy-pasted, per-package
-``run_pty_command()`` implementations (Debian, RPM, FreeBSD) that shared a
-latent bug: their read loop checked a ``time.monotonic()`` deadline only
-*between* calls to a blocking ``os.read()`` -- a single call that never
-returns (because the child produces no output and never exits) could hang
-the whole function indefinitely. A real FreeBSD ``workflow_dispatch`` run
-hit exactly this and hung for over an hour before being manually canceled.
+``run_pty_command()`` implementations (Debian, RPM, FreeBSD) that shared two
+latent bugs:
+
+1. Their read loop checked a ``time.monotonic()`` deadline only *between*
+   calls to a blocking ``os.read()`` -- a single call that never returns
+   (because the child produces no output and never exits) could hang the
+   whole function indefinitely. A real FreeBSD ``workflow_dispatch`` run hit
+   exactly this and hung for over an hour before being manually canceled.
+
+2. They wrote the command line to the PTY immediately after ``Popen()``,
+   racing PySH's raw line editor's ``tty.setraw(in_fd)`` call -- whose
+   default ``TCSAFLUSH`` action discards already-queued input. A real
+   FreeBSD run (after fix 1) exposed this: the full interactive banner and
+   an empty prompt were captured, but the queued "exit" was never acted on.
+   The fix withholds input until PySH's bracketed-paste-enable sequence
+   (``\\x1b[?2004h``, emitted only *after* ``setraw()`` has already run) is
+   observed on the PTY.
+
+Implementing fix 2 surfaced a third, real discovery while validating it
+against a real Debian container: ``docker run -i`` (no ``-t``) leaves
+``$TERM`` unset in the child's environment. With ``$TERM`` unset or
+``"dumb"``, ``PyShell._should_use_raw_editor()`` (via
+``_raw_editor_terminal_capable()``) selects PySH's plain ``input()``
+fallback instead of ``RawLineReader`` -- an entirely different code path
+that never enters ``read_line()`` and therefore never calls
+``_enable_bracketed_paste()`` at all, regardless of any color setting. A
+real terminal session always has a real, non-``"dumb"`` ``$TERM``; an
+unset one is an artifact of the container invocation, not something a
+real user would ever present. The fix sets ``TERM=xterm-256color`` by
+default (overridable via the new ``env`` parameter) so the raw editor
+path -- and with it, the marker this fix depends on -- is actually
+exercised, rather than inheriting whatever the parent shell happens to
+have.
 
 These tests exercise the shared helper directly (never via string/grep
-inspection for the timeout behavior itself) using genuinely non-exiting
-child processes, and separately confirm each of the three package smoke
-scripts was rewired to call the one shared implementation rather than
-carrying its own copy.
+inspection for the timeout or ordering behavior itself) using genuinely
+non-exiting or deliberately-delayed child processes, and separately confirm
+each of the three package smoke scripts was rewired to call the one shared,
+readiness-gated implementation rather than carrying its own copy or sending
+input unconditionally.
 """
 from __future__ import annotations
 
@@ -51,6 +79,9 @@ def _load_module():
 
 
 PTY_SMOKE = _load_module()
+
+MARKER = PTY_SMOKE.BRACKETED_PASTE_READY_MARKER
+MARKER_HEX = MARKER.hex()
 
 
 # ------------------------------------------------------- 1. normal exit
@@ -158,6 +189,190 @@ def test_traceback_in_output_is_detected_as_not_ok() -> None:
     assert not result.ok, "a Traceback in output must never be reported ok=True"
 
 
+# ------------------------------------------ ready-handshake: 1/2/3. ordering
+
+
+def test_input_is_withheld_until_marker_observed_not_sent_immediately() -> None:
+    """Input must never reach the child before the readiness marker.
+
+    Deterministic by construction, not by timing: the child performs a
+    single non-blocking readability check (``select.select(..., timeout=0)``,
+    which returns immediately regardless of system load) on its own stdin
+    *before it has written the marker at all*. Since ``run_pty_command``
+    only ever writes input after observing the marker in its own
+    accumulated output, and the child has not yet emitted that marker at
+    the moment of this check, no input can possibly be queued yet if the
+    ready-gating contract holds -- there is no wall-clock window, no
+    ``sleep``, and no scheduler-dependent race: the check either sees
+    bytes that were written before this point in the child's own
+    execution, or it doesn't, full stop.
+    """
+    child_script = (
+        "import select, sys\n"
+        "readable, _, _ = select.select([sys.stdin], [], [], 0)\n"
+        "print('PREMARKER_INPUT=' + ('YES' if readable else 'NO'))\n"
+        "sys.stdout.write('\\x1b[?2004h')\n"
+        "sys.stdout.flush()\n"
+        "line = sys.stdin.readline().rstrip('\\n')\n"
+        "print('GOT:' + line)\n"
+    )
+    result = PTY_SMOKE.run_pty_command(
+        [sys.executable, "-c", child_script], "hello", timeout=5.0, ready_marker=MARKER
+    )
+    assert result.ready
+    assert result.input_sent
+    assert result.ok
+    assert "PREMARKER_INPUT=NO" in result.output, (
+        "input reached the child before it could emit the marker -- "
+        f"ready-gating did not withhold it: {result.output!r}"
+    )
+    assert "PREMARKER_INPUT=YES" not in result.output
+    assert "GOT:hello" in result.output
+
+
+# ----------------------------------------- ready-handshake: 3. output preserved
+
+
+def test_output_before_marker_is_still_captured() -> None:
+    script = "printf 'preamble-line\\n'; printf '\\x1b[?2004h'; read x; exit 0"
+    result = PTY_SMOKE.run_pty_command(
+        ["bash", "-c", script], "hello", timeout=5.0, ready_marker=MARKER
+    )
+    assert result.ready
+    assert "preamble-line" in result.output
+
+
+# ------------------------------------- ready-handshake: 4. marker split across reads
+
+
+def test_marker_split_across_multiple_reads_is_still_detected() -> None:
+    """The marker bytes may arrive in separate os.read() chunks; detection
+    must check the full accumulated buffer, not just the latest chunk."""
+    script = "printf '\\x1b[?'; sleep 0.15; printf '2004h'; read x; printf 'GOT:%s\\n' \"$x\"; exit 0"
+    result = PTY_SMOKE.run_pty_command(
+        ["bash", "-c", script], "world", timeout=5.0, ready_marker=MARKER
+    )
+    assert result.ready
+    assert result.input_sent
+    assert "GOT:world" in result.output
+
+
+# --------------------------------- ready-handshake: 5. marker never arrives
+
+
+def test_marker_never_arriving_times_out_without_ever_sending_input() -> None:
+    start = time.monotonic()
+    result = PTY_SMOKE.run_pty_command(
+        ["sleep", "60"], "ignored", timeout=1.0, ready_marker=MARKER
+    )
+    elapsed = time.monotonic() - start
+    assert result.timed_out
+    assert not result.ready
+    assert not result.input_sent
+    assert not result.ok
+    assert elapsed < 5.0, f"marker-never-arrives case took {elapsed}s (not bounded)"
+
+
+# ------------------------- ready-handshake: 6. marker arrives, child ignores command
+
+
+def test_marker_arrives_but_child_ignores_command_times_out_after_sending() -> None:
+    script = "printf '\\x1b[?2004h'; sleep 60"
+    start = time.monotonic()
+    result = PTY_SMOKE.run_pty_command(
+        ["bash", "-c", script], "ignored", timeout=1.0, ready_marker=MARKER
+    )
+    elapsed = time.monotonic() - start
+    assert result.timed_out
+    assert result.ready
+    assert result.input_sent
+    assert not result.ok
+    assert elapsed < 5.0, f"post-readiness hang case took {elapsed}s (not bounded)"
+
+
+# ------------------------------ ready-handshake: 7. normal ready->command->exit
+
+
+def test_normal_ready_then_command_then_exit_is_ok() -> None:
+    script = "printf '\\x1b[?2004h'; read x; exit 0"
+    result = PTY_SMOKE.run_pty_command(
+        ["bash", "-c", script], "exit", timeout=5.0, ready_marker=MARKER
+    )
+    assert result.ready
+    assert result.input_sent
+    assert result.ok
+
+
+# --------------------------- ready-handshake: single absolute deadline
+
+
+def test_single_absolute_deadline_covers_readiness_wait_and_execution() -> None:
+    """A slow-to-become-ready child must not get a second, separate budget
+    after the marker finally appears -- one deadline covers everything."""
+    script = "sleep 0.8; printf '\\x1b[?2004h'; sleep 60"
+    start = time.monotonic()
+    result = PTY_SMOKE.run_pty_command(
+        ["bash", "-c", script], "ignored", timeout=1.0, ready_marker=MARKER
+    )
+    elapsed = time.monotonic() - start
+    assert result.ready
+    assert result.timed_out
+    assert elapsed < 1.5, (
+        f"took {elapsed}s -- readiness must not reset the deadline "
+        "(0.8s readiness delay + a fresh 1.0s budget would be ~1.8s+)"
+    )
+
+
+# ------------------------------ TERM defaulting (real pysh, no Docker needed)
+
+
+def _local_pysh_binary() -> Path | None:
+    candidate = Path(sys.executable).parent / "pysh"
+    return candidate if candidate.is_file() else None
+
+
+requires_local_pysh = pytest.mark.skipif(
+    _local_pysh_binary() is None,
+    reason="the project's own venv pysh binary is not available",
+)
+
+
+@requires_local_pysh
+def test_default_term_makes_the_ready_marker_appear_for_real_pysh() -> None:
+    """A missing TERM would select PySH's input() fallback instead of the
+    raw editor, so the bracketed-paste readiness marker would never be
+    emitted. The PTY helper supplies a capable TERM when the environment
+    does not.
+
+    Uses the project's own installed dev-venv ``pysh`` directly (no
+    Docker) as a real, non-mocked interactive target -- the same binary
+    exercised by the Debian/RPM/FreeBSD package smokes, just reached a
+    different way.
+    """
+    pysh_bin = _local_pysh_binary()
+    assert pysh_bin is not None
+
+    # With TERM forced empty, PySH selects its input() fallback instead of
+    # the raw editor, so the marker never appears -- this is the exact gap
+    # the default closes. TERM is set to "" (not merely omitted) so
+    # run_pty_command's own setdefault("TERM", ...) does not silently
+    # refill it for this deliberately-bare-environment case.
+    bare_env = {**os.environ, "TERM": ""}
+    result_no_term = PTY_SMOKE.run_pty_command(
+        [str(pysh_bin)], "exit", timeout=3.0, ready_marker=MARKER, env=bare_env
+    )
+    assert not result_no_term.ready
+
+    # The helper's own default (TERM not specified at all) must make the
+    # marker appear and let a real interactive session complete cleanly.
+    result_default = PTY_SMOKE.run_pty_command(
+        [str(pysh_bin)], "exit", timeout=5.0, ready_marker=MARKER
+    )
+    assert result_default.ready
+    assert result_default.input_sent
+    assert result_default.ok
+
+
 # ------------------------------------------------------- CLI entrypoint
 
 
@@ -194,6 +409,50 @@ def test_cli_rejects_missing_arguments() -> None:
     assert "usage:" in result.stderr
 
 
+def test_cli_ready_marker_gates_input_and_reports_distinct_diagnostics() -> None:
+    """The CLI must distinguish 'marker never observed' from 'command sent
+    but shell did not exit' -- these are different failure classes."""
+    never_ready = _run_cli(
+        "--ready-marker-hex", MARKER_HEX, "1", "ignored", "sleep", "60", timeout=10.0
+    )
+    assert never_ready.returncode == 1
+    assert "ready=False" in never_ready.stdout
+    assert "input_sent=False" in never_ready.stdout
+    assert "readiness marker not observed" in never_ready.stderr
+    assert "command sent after readiness" not in never_ready.stderr
+
+    ready_but_hangs = _run_cli(
+        "--ready-marker-hex",
+        MARKER_HEX,
+        "1",
+        "ignored",
+        "bash",
+        "-c",
+        "printf '\\x1b[?2004h'; sleep 60",
+        timeout=10.0,
+    )
+    assert ready_but_hangs.returncode == 1
+    assert "ready=True" in ready_but_hangs.stdout
+    assert "input_sent=True" in ready_but_hangs.stdout
+    assert "command sent after readiness but shell did not exit" in ready_but_hangs.stderr
+    assert "readiness marker not observed" not in ready_but_hangs.stderr
+
+
+def test_cli_ready_marker_normal_success() -> None:
+    result = _run_cli(
+        "--ready-marker-hex",
+        MARKER_HEX,
+        "10",
+        "hello",
+        "bash",
+        "-c",
+        "printf '\\x1b[?2004h'; read x; exit 0",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "ready=True" in result.stdout
+    assert "input_sent=True" in result.stdout
+
+
 # ------------------------------------- 7/8/9. package smoke scripts rewired
 
 
@@ -201,22 +460,24 @@ def test_debian_smoke_uses_the_shared_pty_helper() -> None:
     text = DEBIAN_SCRIPT.read_text(encoding="utf-8")
     assert "/pysh-pty-smoke.py" in text
     assert "pty_smoke.py:/pysh-pty-smoke.py:ro" in text
-    assert "python3 /pysh-pty-smoke.py 10 exit /usr/bin/pysh" in text
-    assert "python3 /pysh-pty-smoke.py 10 quit /usr/bin/pysh" in text
+    assert f"--ready-marker-hex {MARKER_HEX} 10 exit /usr/bin/pysh" in text
+    assert f"--ready-marker-hex {MARKER_HEX} 10 quit /usr/bin/pysh" in text
 
 
 def test_rpm_smoke_uses_the_shared_pty_helper() -> None:
     text = RPM_SCRIPT.read_text(encoding="utf-8")
     assert "/pysh-pty-smoke.py" in text
     assert "pty_smoke.py:/pysh-pty-smoke.py:ro" in text
-    assert "python3 /pysh-pty-smoke.py 10 exit /usr/bin/pysh" in text
-    assert "python3 /pysh-pty-smoke.py 10 quit /usr/bin/pysh" in text
+    assert f"--ready-marker-hex {MARKER_HEX} 10 exit /usr/bin/pysh" in text
+    assert f"--ready-marker-hex {MARKER_HEX} 10 quit /usr/bin/pysh" in text
 
 
 def test_freebsd_smoke_uses_the_shared_pty_helper() -> None:
     text = FREEBSD_SCRIPT.read_text(encoding="utf-8")
-    assert 'python3.13 "${REPO_ROOT}/scripts/pty_smoke.py" 10 exit /usr/local/bin/pysh' in text
-    assert 'python3.13 "${REPO_ROOT}/scripts/pty_smoke.py" 10 quit /usr/local/bin/pysh' in text
+    assert '"${REPO_ROOT}/scripts/pty_smoke.py" --ready-marker-hex' in text
+    assert f"--ready-marker-hex {MARKER_HEX}" in text
+    assert "10 exit /usr/local/bin/pysh" in text
+    assert "10 quit /usr/local/bin/pysh" in text
 
 
 # --------------------------------- 10. no copied blocking read loop remains
@@ -241,3 +502,64 @@ def test_freebsd_smoke_contract_still_requires_genuine_pty() -> None:
     # The non-TTY batch check must remain explicitly distinguished from
     # the genuine PTY check, as before.
     assert "NOT a PTY test" in text
+
+
+# ---------------------------- 12/13. readiness contract, all three scripts
+
+
+def _pty_smoke_section(text: str) -> str:
+    start = text.index("--- real interactive PTY smoke (genuine pseudo-terminal) ---")
+    end = text.index("PTY interactive smoke PASSED")
+    return text[start:end]
+
+
+def test_all_three_package_smokes_use_the_ready_marker_contract() -> None:
+    """Debian, RPM, and FreeBSD must all use the identical readiness
+    contract -- no FreeBSD-specific handling, no script left ungated."""
+    for script in (DEBIAN_SCRIPT, RPM_SCRIPT, FREEBSD_SCRIPT):
+        section = _pty_smoke_section(script.read_text(encoding="utf-8"))
+        assert f"--ready-marker-hex {MARKER_HEX}" in section, (
+            f"{script.name}'s PTY smoke section is missing the shared "
+            "readiness marker contract"
+        )
+        # Both exit and quit calls must be gated, not just one of them.
+        assert section.count(f"--ready-marker-hex {MARKER_HEX}") == 2, (
+            f"{script.name} must gate both the exit and quit PTY calls"
+        )
+
+
+def test_no_package_smoke_sends_input_before_the_ready_flag_is_present() -> None:
+    """Every '... 10 exit ...' / '... 10 quit ...' invocation in the PTY
+    smoke section must be preceded by --ready-marker-hex on the same call
+    -- there must be no bare, ungated invocation anywhere."""
+    for script in (DEBIAN_SCRIPT, RPM_SCRIPT, FREEBSD_SCRIPT):
+        section = _pty_smoke_section(script.read_text(encoding="utf-8"))
+        for target in ("exit /usr/bin/pysh", "quit /usr/bin/pysh",
+                       "exit /usr/local/bin/pysh", "quit /usr/local/bin/pysh"):
+            if target not in section:
+                continue
+            call_start = section.rindex("python3", 0, section.index(target))
+            call_text = section[call_start : section.index(target) + len(target)]
+            assert "--ready-marker-hex" in call_text, (
+                f"{script.name}: found an ungated PTY call: {call_text!r}"
+            )
+
+
+# ------------------------------------- 14. no sleep-based synchronization
+
+
+def test_no_package_smoke_uses_sleep_for_pty_synchronization() -> None:
+    """The whole point of the ready-marker protocol is to avoid guessing
+    a fixed delay -- no script may reach for sleep as a substitute."""
+    for script in (DEBIAN_SCRIPT, RPM_SCRIPT, FREEBSD_SCRIPT):
+        section = _pty_smoke_section(script.read_text(encoding="utf-8"))
+        assert "sleep" not in section, f"{script.name} uses sleep-based PTY synchronization"
+
+
+def test_pty_smoke_helper_itself_uses_no_time_sleep() -> None:
+    """The module docstring legitimately *names* time.sleep() while
+    explaining why it is not used; scope the check to the actual code."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    code_start = text.index('from __future__ import annotations')
+    code = text[code_start:]
+    assert "time.sleep(" not in code

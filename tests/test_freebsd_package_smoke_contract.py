@@ -175,13 +175,16 @@ def test_script_uses_neutral_working_directory() -> None:
 
 
 def test_script_includes_real_pty_driven_interactive_smoke() -> None:
-    """The genuine PTY smoke is delegated to the shared, strictly-bounded
-    scripts/pty_smoke.py helper (Issue #33), never a copied driver here."""
+    """The genuine PTY smoke is delegated to the shared, strictly-bounded,
+    readiness-gated scripts/pty_smoke.py helper (Issue #33), never a
+    copied driver here."""
     text = SCRIPT.read_text(encoding="utf-8")
     assert "def run_pty_command" not in text
     assert "import pty" not in text
-    assert 'python3.13 "${REPO_ROOT}/scripts/pty_smoke.py" 10 exit /usr/local/bin/pysh' in text
-    assert 'python3.13 "${REPO_ROOT}/scripts/pty_smoke.py" 10 quit /usr/local/bin/pysh' in text
+    assert '"${REPO_ROOT}/scripts/pty_smoke.py" --ready-marker-hex' in text
+    assert "1b5b3f3230303468" in text
+    assert "10 exit /usr/local/bin/pysh" in text
+    assert "10 quit /usr/local/bin/pysh" in text
     assert "PTY interactive smoke PASSED" in text
 
 

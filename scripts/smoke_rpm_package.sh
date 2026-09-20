@@ -226,16 +226,23 @@ printf 'quit\n' | pysh
 echo "batch-mode quit status: $?"
 
 echo "--- real interactive PTY smoke (genuine pseudo-terminal) ---"
-# Shared, strictly-bounded PTY driver (Issue #33): every read is gated by
-# select() on a shrinking deadline, so a stuck/non-exiting child cannot
-# hang this step -- it is killed and reported as a deterministic FAIL
-# instead. Mounted read-only as a standalone harness file, not part of
-# the PySH package under test.
-if ! python3 /pysh-pty-smoke.py 10 exit /usr/bin/pysh; then
+# Shared, strictly-bounded, readiness-gated PTY driver (Issue #33): every
+# read is gated by select() on a single shrinking deadline, so a stuck or
+# non-exiting child cannot hang this step -- it is killed and reported as
+# a deterministic FAIL instead. Mounted read-only as a standalone harness
+# file, not part of the PySH package under test.
+#
+# --ready-marker-hex is PySH's bracketed-paste-enable sequence
+# (ESC [ ? 2 0 0 4 h), which the raw line editor only emits *after*
+# tty.setraw() (whose default TCSAFLUSH action discards already-queued
+# input) has already run. The helper withholds "exit"/"quit" until it
+# observes this exact byte sequence on the PTY, so the command can never
+# race that raw-mode transition and be silently discarded by it.
+if ! python3 /pysh-pty-smoke.py --ready-marker-hex 1b5b3f3230303468 10 exit /usr/bin/pysh; then
     echo "SMOKE FAIL: PTY interactive exit failed" >&2
     exit 1
 fi
-if ! python3 /pysh-pty-smoke.py 10 quit /usr/bin/pysh; then
+if ! python3 /pysh-pty-smoke.py --ready-marker-hex 1b5b3f3230303468 10 quit /usr/bin/pysh; then
     echo "SMOKE FAIL: PTY interactive quit failed" >&2
     exit 1
 fi
