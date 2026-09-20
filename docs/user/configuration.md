@@ -24,7 +24,7 @@ configuration strategy. Status labels are intentional:
 
 ### Current behavior
 
-PySH currently supports four startup layers:
+PySH currently supports five startup layers:
 
 1. `${XDG_CONFIG_HOME}/pysh/config.toml` or `~/.config/pysh/config.toml` -
    declarative TOML data loaded without command execution.
@@ -76,6 +76,33 @@ possible. A broken Python config is reported on stderr and does not terminate
 the shell.
 
 Runtime session changes do not rewrite user files automatically.
+
+## Safe startup and recovery
+
+Use the explicit safe-startup mode when user configuration is broken,
+untrusted, or irrelevant to a CI/conformance run:
+
+```sh
+pysh --no-rc
+python -m pysh --no-rc
+pysh --no-rc -c "echo recovery-ok"
+```
+
+`--no-rc` is a strict no-user-configuration policy. It skips executable
+`~/.pyshrc`, `~/.pyshrc.d/*.pysh`, and `~/.pyshrc.py`; declarative user and
+plugin TOML; plugin discovery/import; and user/plugin startup hooks. It uses
+built-in configuration defaults and does not create default TOML or
+`~/.pyshrc.py` files. It does not sanitize the inherited process environment.
+
+The TOML layers are skipped even though parsing TOML does not execute code,
+because current declarative configuration can opt into project-plugin policy.
+This prevents recovery startup from changing a trust boundary indirectly.
+Normal startup remains unchanged when `--no-rc` is absent. Commands explicitly
+issued after startup, including `source FILE`, are still allowed; this option is
+not a command sandbox.
+
+The normative assurance contract is in
+[the v1.0 threat model](../security/threat-model.md#safe-startup---no-rc).
 
 ## TOML Declarative Configuration
 

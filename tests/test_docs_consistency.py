@@ -368,6 +368,118 @@ def test_no_forbidden_security_claims() -> None:
     )
 
 
+def test_v1_threat_model_preserves_security_assurance_contract() -> None:
+    """Issue #43 must remain explicit about implemented and deferred controls."""
+    threat_model = DOCS / "security" / "threat-model.md"
+    assert threat_model.is_file()
+    text = threat_model.read_text(encoding="utf-8")
+
+    required_contracts = (
+        "CPython in-process execution is\n**not a security boundary**",
+        "## Data classification",
+        "## Safe startup: `--no-rc`",
+        "`pysh.diagnostics.trace.RedactionPolicy` is the canonical policy",
+        "## Threat register",
+        "TM-PARSER-001",
+        "TM-RUNTIME-001",
+        "TM-RC-001",
+        "TM-PLUGIN-001",
+        "TM-HISTORY-001",
+        "TM-DIAG-001",
+        "TM-PTY-001",
+        "TM-AI-001",
+        "TM-REMOTE-001",
+        "TM-PKG-001",
+        "## Capability principles for Issue #44",
+    )
+    for contract in required_contracts:
+        assert contract in text, f"v1 threat model is missing contract: {contract}"
+
+
+def test_v1_threat_model_does_not_claim_current_plugin_sandboxing() -> None:
+    text = (DOCS / "security" / "threat-model.md").read_text(encoding="utf-8")
+    normalized = " ".join(text.split())
+
+    assert "Current plugins remain executable trusted-local code" in normalized
+    assert "do not retrofit isolation onto today's trusted in-process" in normalized
+    assert "no ambient PySH parent-mediated capability" in normalized
+    assert "satisfies the Issue #44 portable parent-authority boundary" in normalized
+    assert "Direct same-UID syscalls remain governed by the host platform" in normalized
+
+
+def test_isolated_plugin_contract_preserves_enforced_scope_and_limitations() -> None:
+    """Issue #44 docs must distinguish broker controls from OS confinement."""
+    contract = DOCS / "security" / "plugin-isolation.md"
+    assert contract.is_file()
+    text = contract.read_text(encoding="utf-8")
+    normalized = " ".join(text.split())
+
+    required = (
+        "manifest version `1`",
+        "isolated IPC protocol version `1`",
+        "Requested capabilities are not grants",
+        "no ambient PySH parent-mediated capability",
+        "Capability grants govern only parent-mediated operations",
+        "PYTHONNOUSERSITE=1",
+        "PYTHONUTF8=1",
+        "close_fds=True",
+        "Issue #50",
+        "Issue #52",
+        "Issue #53",
+        "FreeBSD validation is pending rather than PASS",
+    )
+    for statement in required:
+        assert statement in normalized, f"isolated-plugin contract is missing: {statement}"
+
+    assert "subprocess isolation is not a filesystem sandbox" in normalized
+    assert "subprocess isolation is not a network sandbox" in normalized
+    assert "subprocess isolation is not a process sandbox" in normalized
+    assert "direct child syscalls" in normalized
+    assert "FreeBSD Capsicum integration" in normalized
+    assert "process-count" in normalized
+
+
+def test_api_stability_contract_defines_external_boundary_and_version_domains() -> None:
+    """Issue #45 must retain its normative API, SemVer, and deprecation rules."""
+    contract = DOCS / "development" / "api-stability.md"
+    assert contract.is_file()
+    normalized = " ".join(contract.read_text(encoding="utf-8").split())
+
+    required = (
+        "This is the normative external-compatibility contract established by Issue #45",
+        "`pysh.api` | `STABLE_PUBLIC`",
+        "`pysh.contracts` | `COMPATIBILITY_PUBLIC`",
+        "`pysh.shell.PyShell` | `COMPATIBILITY_PUBLIC`",
+        "`pysh.plugins.isolated.*` Python objects | `INTERNAL`",
+        "`ShellSession` is the supported non-interactive embedding boundary",
+        "remains available through at least `1.(N+1)`",
+        "earliest normal removal is `1.(N+2)`",
+        "`DeprecationWarning`, never `FutureWarning`",
+        "It will not be removed before PySH 1.2.0",
+        "Changing one domain does not automatically change another",
+        "Issue #46 owns structural enforcement",
+    )
+    for statement in required:
+        assert statement in normalized, f"API stability contract is missing: {statement}"
+
+    assert "pysh.core.shell.PyShell` is deliberately absent" in normalized
+    assert "Issue #50 must name and version" in normalized
+
+
+def test_api_stability_contract_is_linked_from_required_docs() -> None:
+    """Architecture, plugin, release, roadmap, and index docs must link the policy."""
+    expected_links = {
+        DOCS / "README.md": "development/api-stability.md",
+        DOCS / "architecture" / "architecture.md": "../development/api-stability.md",
+        DOCS / "plugins" / "plugin-api.md": "../development/api-stability.md",
+        DOCS / "security" / "plugin-isolation.md": "../development/api-stability.md",
+        DOCS / "development" / "release.md": "api-stability.md",
+        DOCS / "roadmap" / "ROADMAP-v1-2.md": "../development/api-stability.md",
+    }
+    for path, link in expected_links.items():
+        assert link in path.read_text(encoding="utf-8"), f"{path} does not link {link}"
+
+
 def test_no_affirmative_broad_compatibility_claims_in_public_docs() -> None:
     """Broad shell-compatibility claims must be negated or avoided."""
     forbidden = (

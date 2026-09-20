@@ -97,3 +97,30 @@ def test_pysh_contracts_cold_import_within_budget() -> None:
         f"Cold import of pysh.contracts took {elapsed:.3f}s, "
         f"exceeding budget {HARD_BUDGET_S}s."
     )
+
+
+def test_pysh_api_cold_import_within_budget_and_without_core() -> None:
+    """The canonical public facade must stay fast and avoid eager runtime load."""
+    code = (
+        "import sys, time; "
+        "_t = time.perf_counter(); "
+        "import pysh.api; "
+        "_elapsed = time.perf_counter() - _t; "
+        "_core = sorted(name for name in sys.modules if name.startswith('pysh.core')); "
+        "print(f'{_elapsed:.6f}'); "
+        "print(','.join(_core))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, f"pysh.api import subprocess failed:\n{result.stderr}"
+    elapsed_text, core_modules = result.stdout.splitlines()
+    elapsed = float(elapsed_text)
+    assert elapsed < HARD_BUDGET_S, (
+        f"Cold import of pysh.api took {elapsed:.3f}s, "
+        f"exceeding budget {HARD_BUDGET_S}s."
+    )
+    assert core_modules == "", f"pysh.api imported runtime modules: {core_modules}"

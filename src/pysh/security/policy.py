@@ -40,14 +40,19 @@ class TrustLevel(StrEnum):
                        shell code is executed.  Examples: source_zsh,
                        source_zsh_profile, source_sh_aliases, compat_check.
 
-    UNTRUSTED          Not a supported execution mode in current PySH.
-                       Automatic execution of foreign profiles or untrusted
-                       code is not supported and not documented as supported.
+    ISOLATED_BROKERED  Separate Issue #44 subprocess with bounded IPC and
+                       parent-owned grants. Direct same-UID OS syscalls are
+                       not confined by the portable broker.
+
+    UNTRUSTED          Arbitrary hostile code without OS enforcement is not a
+                       supported execution mode. Automatic foreign-profile
+                       execution remains unsupported.
     """
 
     TRUSTED_LOCAL = "trusted_local"
     TRUSTED_DELEGATED = "trusted_delegated"
     STATIC_IMPORT = "static_import"
+    ISOLATED_BROKERED = "isolated_brokered"
     UNTRUSTED = "untrusted"
 
 
@@ -62,6 +67,7 @@ class ExecutionMode(StrEnum):
     IN_PROCESS = "in_process"      # Python code runs inside PySH process
     SUBPROCESS = "subprocess"      # child inherits terminal via Popen
     PTY_BRIDGE = "pty_bridge"      # explicit PTY (secure <cmd> only)
+    ISOLATED_SUBPROCESS = "isolated_subprocess"  # Issue #44 bounded IPC child
     STATIC_READ = "static_read"    # text parse only — no subprocess
     NONE = "none"                  # advisory only — nothing runs
 
@@ -77,6 +83,7 @@ class SecurityBoundary(StrEnum):
     TERMINAL_INHERITED = "terminal_inherited"  # normal external command
     PTY_BRIDGED = "pty_bridged"               # secure <cmd> explicit PTY
     IN_PROCESS_EXEC = "in_process_exec"       # py / ~/.pyshrc.py
+    BOUNDED_IPC = "bounded_ipc"                # Issue #44 parent broker
     STATIC_PARSE = "static_parse"             # source_zsh / compat_check
     NONE = "none"                             # plan / env_audit (advisory)
 

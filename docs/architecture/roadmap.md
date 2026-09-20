@@ -180,8 +180,8 @@ Definition of done:
 - Existing tests pass before and after relocation.
 - Public CLI behavior is unchanged.
 - Any retained top-level module is a narrow import shim only.
-- Shim removal milestone references ISSUE #19 or the packaging and release
-  quality gate issue.
+- Any retained shim has an explicit compatibility/deprecation lifecycle under
+  the normative Issue #45 API stability policy.
 
 Validation:
 

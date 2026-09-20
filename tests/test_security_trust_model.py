@@ -65,11 +65,18 @@ class TestTrustModel:
     def test_static_import_value(self) -> None:
         assert TrustLevel.STATIC_IMPORT == "static_import"
 
+    def test_isolated_brokered_trust_value(self) -> None:
+        assert TrustLevel.ISOLATED_BROKERED == "isolated_brokered"
+
     def test_in_process_execution_mode(self) -> None:
         assert ExecutionMode.IN_PROCESS == "in_process"
 
     def test_pty_bridge_mode(self) -> None:
         assert ExecutionMode.PTY_BRIDGE == "pty_bridge"
+
+    def test_isolated_plugin_execution_and_boundary_values(self) -> None:
+        assert ExecutionMode.ISOLATED_SUBPROCESS == "isolated_subprocess"
+        assert SecurityBoundary.BOUNDED_IPC == "bounded_ipc"
 
 
 # ---------------------------------------------------------------------------

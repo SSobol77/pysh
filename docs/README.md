@@ -58,6 +58,9 @@ docs/
 │   ├── multiline-paste.md
 │   ├── security-sensitive-input.md
 │   └── system-profile.md
+├── security/                          ← v1.0 assurance and isolation contracts
+│   ├── threat-model.md
+│   └── plugin-isolation.md
 ├── python/                            ← Python execution layer
 │   ├── python-runtime.md
 │   └── python-command-execution-layer.md
@@ -95,6 +98,7 @@ docs/
 │   ├── ISSUE-3-architecture-contracts.md
 │   └── release-quality-gate-2-audit.md
 ├── development/                       ← contributor and release guides
+│   ├── api-stability.md
 │   ├── development.md
 │   ├── history-engine.md
 │   ├── prompt-engine.md
@@ -147,6 +151,15 @@ Internal shell feature documentation.
 
 ---
 
+## Security assurance
+
+| Document | Description |
+| -------- | ----------- |
+| [threat-model.md](security/threat-model.md) | PySH v1.0 threat model: STRIDE register, data classification, trust boundaries, `--no-rc`, redaction policy, and deferred capability requirements |
+| [plugin-isolation.md](security/plugin-isolation.md) | Issue #44 isolated-plugin manifest, bounded JSON IPC, parent capability broker, lifecycle, and OS-level limitations |
+
+---
+
 ## Python layer
 
 Documentation for PySH's Python execution and runtime bridge.
@@ -160,7 +173,8 @@ Documentation for PySH's Python execution and runtime bridge.
 
 ## Plugins
 
-Trusted Python Plugin API documentation.
+Trusted Python Plugin API documentation. The separate isolated-plugin security
+contract is indexed under Security assurance above.
 
 | Document | Description |
 | -------- | ----------- |
@@ -230,6 +244,7 @@ Documentation for contributors, maintainers, and the release process.
 
 | Document | Description |
 | -------- | ----------- |
+| [api-stability.md](development/api-stability.md) | Normative Issue #45 public/internal inventory, embedding API, SemVer, version-domain, and deprecation contract |
 | [development.md](development/development.md) | Test suite, linting, build commands, repository layout |
 | [prompt-engine.md](development/prompt-engine.md) | Prompt Engine 2.0 implementation invariants and validation |
 | [completion-engine.md](development/completion-engine.md) | Completion Engine 2.0 architecture, cache contract, manual validation |

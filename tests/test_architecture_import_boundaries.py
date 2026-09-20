@@ -49,6 +49,7 @@ DOMAIN_PACKAGES: frozenset[str] = frozenset({
     "pysh.diagnostics",
     "pysh.plugins",
     "pysh.contracts",
+    "pysh.api",
     "pysh.cli",
     "pysh.shell",
     "pysh.script_runner",
@@ -362,6 +363,11 @@ _PERMITTED_EDGES: frozenset[tuple[str, str]] = frozenset({
     # on the other's domain for this one shared piece of syntax.
     (_PARSING_SHARED_LEAF, "pysh.contracts"),
     ("pysh.python_layer", "pysh.contracts"),
+    # The stable embedding facade re-exports contracts and lazily constructs
+    # the internal runtime with the strict no-rc startup policy.
+    ("pysh.api", "pysh.contracts"),
+    ("pysh.api", "pysh.config"),
+    ("pysh.api", "pysh.core"),
 })
 
 

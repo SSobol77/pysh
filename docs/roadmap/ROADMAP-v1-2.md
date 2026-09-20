@@ -209,7 +209,8 @@ evidence, and freezes the definition of "1.0.0-ready".
 - Performance budgets (`#47`) green on tier-1 platforms (`#52`).
 - No open `regression`-class divergence in `#54`; no open security issue
   from the `#43` threat model.
-- API surface frozen and documented (`#45`); SemVer policy published.
+- API surface frozen and documented (`#45`); the normative
+  [SemVer and deprecation policy](../development/api-stability.md) is published.
 - Release artifacts carry SBOM + provenance + signatures (`#51`).
 
 **Watch out for**
@@ -389,7 +390,8 @@ first release and every minor bump breaks plugins.
   types become part of the contract).
 
 **Acceptance Criteria**
-- `docs/development/api-stability.md` with the 1.0 guarantee.
+- [`docs/development/api-stability.md`](../development/api-stability.md) with
+  the 1.0 guarantee.
 - Test asserting public symbols do not disappear without a deprecation
   cycle.
 - The planned Plugin SDK v1 consumes only `pysh.api`.

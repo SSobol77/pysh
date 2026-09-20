@@ -33,6 +33,7 @@ Current startup configuration is owned by:
 - `src/pysh/config/themes.py` for theme definitions and inheritance;
 - `src/pysh/config/alias_packs.py` for built-in alias packs;
 - `src/pysh/config/diagnostics.py` for config diagnostics;
+- `src/pysh/config/startup.py` for the immutable default/`--no-rc` startup policy;
 - `src/pysh/core/shell.py` for applying shell state;
 - plugin loading after user configuration.
 
