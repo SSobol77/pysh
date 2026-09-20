@@ -1,0 +1,8 @@
+inheritance: true
+
+reviews:
+  auto_review:
+    enabled: true
+    base_branches:
+      - "release/.*"
+      - "develop/.*"
