@@ -34,6 +34,10 @@ the `pypi` GitHub environment.
 > All publishes happen through GitHub Actions; the maintainer's only
 > manual step is creating the git tag after local checks pass.
 
+Prepare curated GitHub Release notes from
+[release-notes-template.md](release-notes-template.md). Public user-path
+acceptance follows [manual-validation.md](../user/manual-validation.md).
+
 ## Pre-release checklist
 
 1. Make sure `main` is green and clean:
@@ -144,7 +148,13 @@ the `pypi` GitHub environment.
 
 - README updated for the current version and user-visible behavior.
 - Dedicated docs updated, including builtins, operators, configuration,
-  migration, zsh compatibility, Python runtime and limitations.
+  migration (including Fish guidance), troubleshooting, project philosophy,
+  Python runtime and limitations.
+- Release notes prepared from
+  [release-notes-template.md](release-notes-template.md).
+- Final user-path checklist in
+  [manual-validation.md](../user/manual-validation.md) reviewed and its
+  release evidence recorded.
 - Every builtin is documented in `docs/user/builtins.md`.
 - Tests updated for every new builtin or behavior change.
 - CI is green.

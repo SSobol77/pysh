@@ -1114,3 +1114,60 @@ def test_check_release_quality_logs_freebsd_pkg_preserve_and_restore() -> None:
     assert "Restored prebuilt FreeBSD .pkg" in script, (
         "check_release_quality.sh must log when it restores the prebuilt FreeBSD .pkg"
     )
+
+
+# ---------------------------------------------------------------------------
+# Issue #34 — public user manual completeness
+# ---------------------------------------------------------------------------
+
+
+def test_issue_34_user_manual_required_documents_are_present_and_indexed() -> None:
+    """Issue #34 public-manual deliverables must remain present and discoverable."""
+    required = (
+        DOCS / "user" / "troubleshooting.md",
+        DOCS / "user" / "project-philosophy.md",
+        DOCS / "user" / "manual-validation.md",
+        DOCS / "development" / "release-notes-template.md",
+    )
+    for path in required:
+        assert path.is_file(), f"missing Issue #34 documentation: {path}"
+
+    index = (DOCS / "README.md").read_text(encoding="utf-8")
+    for name in (
+        "troubleshooting.md",
+        "project-philosophy.md",
+        "manual-validation.md",
+        "release-notes-template.md",
+    ):
+        assert name in index, f"docs/README.md must index {name}"
+
+
+def test_issue_34_fish_migration_and_manual_evidence_contract() -> None:
+    """Issue #34 must retain Fish migration guidance and the final evidence checklist."""
+    migration = (DOCS / "migration" / "migration.md").read_text(encoding="utf-8")
+    assert "## Migrating from Fish" in migration
+    assert "does not currently provide a `source_fish` importer" in migration
+    assert "fish ./legacy-script.fish" in migration
+
+    philosophy = (DOCS / "user" / "project-philosophy.md").read_text(encoding="utf-8")
+    assert "# Project Philosophy" in philosophy
+    assert "Python-first" in philosophy
+    assert "Explicit compatibility boundaries" in philosophy
+
+    checklist = (DOCS / "user" / "manual-validation.md").read_text(encoding="utf-8")
+    for required in (
+        "## Fresh virtual environment",
+        "## Package install",
+        "## First interactive run",
+        "## Configuration generation and preservation",
+        "## Basic command session",
+        "## PySH 0.9.0 evidence record",
+    ):
+        assert required in checklist
+
+    release_template = (
+        DOCS / "development" / "release-notes-template.md"
+    ).read_text(encoding="utf-8")
+    assert "# Release Notes Template" in release_template
+    assert "## Validation evidence" in release_template
+    assert "## Known limitations" in release_template

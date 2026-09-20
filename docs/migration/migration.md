@@ -17,7 +17,7 @@ Copyright (C) 2026 Siergej Sobolewski
 > [compatibility documentation](../compatibility/README.md).
 
 PySH includes the migration layer for users moving from
-zsh/bash/sh profiles and scripts. The layer is intentionally conservative:
+zsh/bash/sh profiles and scripts, with explicit guidance for Fish users. The layer is intentionally conservative:
 PySH remains Python-first and does not claim full zsh or POSIX shell
 compatibility.
 
@@ -80,6 +80,45 @@ The import summary is:
 ```text
 aliases=N exports=N vars=N skipped=M file=<path>
 ```
+
+
+## Migrating from Fish
+
+PySH does not currently provide a `source_fish` importer and does not parse
+Fish startup syntax. Fish configuration must be migrated deliberately rather
+than executed or sourced as PySH input.
+
+Translate simple environment variables and aliases manually. For example, this
+Fish configuration:
+
+```fish
+set -gx EDITOR nano
+alias ll 'ls -lah'
+```
+
+can be represented in PySH startup configuration with the documented PySH
+forms:
+
+```sh
+export EDITOR=nano
+alias ll='ls -lah'
+```
+
+Fish functions, universal variables, abbreviations, event handlers, command
+substitutions, and completion definitions are not imported automatically.
+Rewrite simple command wrappers as PySH aliases where semantics are equivalent;
+move non-trivial logic to explicit Python code or a trusted local plugin.
+
+A legacy Fish script can still be run explicitly through the real Fish
+interpreter when Fish is installed:
+
+```sh
+fish ./legacy-script.fish
+```
+
+This is external-command execution, not Fish compatibility inside PySH. The
+`run_script` shebang transition runner currently documents sh, bash, and zsh
+delegation only.
 
 ## Compatibility report
 

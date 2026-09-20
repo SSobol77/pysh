@@ -49,6 +49,9 @@ docs/
 │   ├── configuration.md
 │   ├── history.md
 │   ├── limitations.md
+│   ├── troubleshooting.md
+│   ├── project-philosophy.md
+│   ├── manual-validation.md
 │   └── midnight-commander.md
 ├── shell/                             ← shell behavior documentation
 │   ├── command-planning.md
@@ -100,6 +103,7 @@ docs/
 │   ├── syntax-highlighting.md
 │   ├── repository-structure.md
 │   ├── release.md
+│   ├── release-notes-template.md
 │   └── packaging.md
 └── img/                               ← project images and icons
 ```
@@ -123,6 +127,9 @@ Documentation for people who install and use PySH day to day.
 | [configuration.md](user/configuration.md) | Current config behavior and Issue #31 TOML configuration |
 | [history.md](user/history.md) | Persistent JSONL history, dedup modes, sensitive filtering, Ctrl+R backends |
 | [limitations.md](user/limitations.md) | Explicit non-goals and compatibility boundaries |
+| [troubleshooting.md](user/troubleshooting.md) | General installation, terminal, history, completion, config and plugin troubleshooting |
+| [project-philosophy.md](user/project-philosophy.md) | Python-first philosophy, compatibility boundaries, determinism, safety and user control |
+| [manual-validation.md](user/manual-validation.md) | Final public user-path validation checklist and release evidence record |
 | [midnight-commander.md](user/midnight-commander.md) | MC integration policy and the `mc` builtin |
 
 ---
@@ -164,7 +171,7 @@ Trusted Python Plugin API documentation.
 
 ## Migration
 
-Guides for users transitioning from zsh, bash, or sh.
+Guides for users transitioning from zsh, bash, sh, or Fish.
 
 | Document | Description |
 | -------- | ----------- |
@@ -230,6 +237,7 @@ Documentation for contributors, maintainers, and the release process.
 | [syntax-highlighting.md](development/syntax-highlighting.md) | Live highlighter architecture, invariants, config API, validation |
 | [repository-structure.md](development/repository-structure.md) | Repository-relative path map and guidance for similarly named files |
 | [release.md](development/release.md) | Release checklist, tagging, PyPI Trusted Publishing via GitHub Actions |
+| [release-notes-template.md](development/release-notes-template.md) | Canonical GitHub Release notes template with platform and validation evidence sections |
 | [packaging.md](development/packaging.md) | Canonical naming contract; PyPI / `.deb` / `.rpm` / `.pkg` artifact filenames and build scripts |
 
 ---
