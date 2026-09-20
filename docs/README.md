@@ -58,8 +58,9 @@ docs/
 │   ├── multiline-paste.md
 │   ├── security-sensitive-input.md
 │   └── system-profile.md
-├── security/                          ← v1.0 assurance and threat analysis
-│   └── threat-model.md
+├── security/                          ← v1.0 assurance and isolation contracts
+│   ├── threat-model.md
+│   └── plugin-isolation.md
 ├── python/                            ← Python execution layer
 │   ├── python-runtime.md
 │   └── python-command-execution-layer.md
@@ -154,6 +155,7 @@ Internal shell feature documentation.
 | Document | Description |
 | -------- | ----------- |
 | [threat-model.md](security/threat-model.md) | PySH v1.0 threat model: STRIDE register, data classification, trust boundaries, `--no-rc`, redaction policy, and deferred capability requirements |
+| [plugin-isolation.md](security/plugin-isolation.md) | Issue #44 isolated-plugin manifest, bounded JSON IPC, parent capability broker, lifecycle, and OS-level limitations |
 
 ---
 
@@ -170,7 +172,8 @@ Documentation for PySH's Python execution and runtime bridge.
 
 ## Plugins
 
-Trusted Python Plugin API documentation.
+Trusted Python Plugin API documentation. The separate isolated-plugin security
+contract is indexed under Security assurance above.
 
 | Document | Description |
 | -------- | ----------- |

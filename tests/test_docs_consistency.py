@@ -402,7 +402,41 @@ def test_v1_threat_model_does_not_claim_current_plugin_sandboxing() -> None:
 
     assert "Current plugins remain executable trusted-local code" in normalized
     assert "do not retrofit isolation onto today's trusted in-process" in normalized
-    assert "until a separate isolated runtime exists and is tested" in normalized
+    assert "no ambient PySH parent-mediated capability" in normalized
+    assert "satisfies the Issue #44 portable parent-authority boundary" in normalized
+    assert "Direct same-UID syscalls remain governed by the host platform" in normalized
+
+
+def test_isolated_plugin_contract_preserves_enforced_scope_and_limitations() -> None:
+    """Issue #44 docs must distinguish broker controls from OS confinement."""
+    contract = DOCS / "security" / "plugin-isolation.md"
+    assert contract.is_file()
+    text = contract.read_text(encoding="utf-8")
+    normalized = " ".join(text.split())
+
+    required = (
+        "manifest version `1`",
+        "isolated IPC protocol version `1`",
+        "Requested capabilities are not grants",
+        "no ambient PySH parent-mediated capability",
+        "Capability grants govern only parent-mediated operations",
+        "PYTHONNOUSERSITE=1",
+        "PYTHONUTF8=1",
+        "close_fds=True",
+        "Issue #50",
+        "Issue #52",
+        "Issue #53",
+        "FreeBSD validation is pending rather than PASS",
+    )
+    for statement in required:
+        assert statement in normalized, f"isolated-plugin contract is missing: {statement}"
+
+    assert "subprocess isolation is not a filesystem sandbox" in normalized
+    assert "subprocess isolation is not a network sandbox" in normalized
+    assert "subprocess isolation is not a process sandbox" in normalized
+    assert "direct child syscalls" in normalized
+    assert "FreeBSD Capsicum integration" in normalized
+    assert "process-count" in normalized
 
 
 def test_no_affirmative_broad_compatibility_claims_in_public_docs() -> None:
