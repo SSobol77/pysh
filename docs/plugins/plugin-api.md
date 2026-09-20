@@ -36,8 +36,16 @@ runtime and its documented OS-level limitations.
 
 ## Versioning
 
-PySH exports `pysh.contracts.PLUGIN_API_VERSION == (1, 0)`. A plugin class must
-declare:
+New external tooling should import the stable version contract from the
+canonical facade:
+
+```python
+from pysh.api import PLUGIN_API_VERSION, PluginHooks, PluginMeta
+```
+
+The existing `pysh.contracts` path remains supported compatibility public API,
+so `pysh.contracts.PLUGIN_API_VERSION == (1, 0)` continues to work and refers
+to the same object. A plugin class must declare:
 
 ```python
 name: str
@@ -49,6 +57,10 @@ Compatibility for API 1.0 requires the same major version and a plugin minor
 version less than or equal to PySH's minor version. Malformed versions, bool
 values, future minor versions, newer major versions, and older major versions
 are rejected.
+
+Trusted Plugin API versioning is independent of PySH package SemVer and of the
+isolated-plugin manifest and IPC versions. See the normative
+[API stability and version matrix](../development/api-stability.md).
 
 ## Plugin Class
 

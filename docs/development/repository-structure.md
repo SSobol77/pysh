@@ -71,7 +71,7 @@ canonical repository-relative path for the file.
 | `docs/user/` | End-user guides for installation, usage, completion, builtins, operators, configuration, limitations, and Midnight Commander behavior. |
 | `scripts/` | Shell-script orchestration for release quality, package builds, artifact validation, and header checks. Packaging orchestration belongs here. |
 | `src/` | Python source tree for the installable package. |
-| `src/pysh/` | Import package root and top-level CLI/module entry points. |
+| `src/pysh/` | Import package root, canonical `pysh.api` facade, and top-level CLI/module entry points. |
 | `src/pysh/core/` | Shell runtime core: main shell state, jobs, signal normalization, and runtime errors. |
 | `src/pysh/editor/` | Interactive editor adapters, history, highlighting, and completion integration. |
 | `src/pysh/editor/lineedit/` | Raw-mode line editor implementation, pure completion engine, key handling, buffer logic, highlighting, and autosuggestion. |

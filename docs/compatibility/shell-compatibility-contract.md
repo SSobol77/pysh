@@ -211,4 +211,4 @@ Allowed forms (negated or qualified):
 | zsh transition hardening | Issue #16 |
 | System shell integration | Issue #17 |
 | FreeBSD validation | Issue #18 |
-| Shim removal and packaging quality gate | Issue #19 |
+| Deprecated Python compatibility import lifecycle | Issue #45 |

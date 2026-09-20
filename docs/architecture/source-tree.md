@@ -36,9 +36,10 @@ run in CI, and the full contract layer is documented in
 ```text
 src/pysh/
 ├── __init__.py              ← package metadata: __version__, LICENSE_NAME
+├── api.py                   ← canonical stable embedding/contract facade
 ├── __main__.py              ← python -m pysh entry point
 ├── cli.py                   ← console script entry point; argument parsing
-├── shell.py                 ← compatibility shim → pysh.core.shell (Issue #19)
+├── shell.py                 ← deprecated PyShell compatibility import (not before 1.2.0)
 ├── script_runner.py         ← script mode / transition runner
 │
 ├── core/
@@ -138,6 +139,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | Package | Responsibility | Owns | Must not own |
 | ------- | -------------- | ---- | ------------ |
 | `pysh` | Package identity and version metadata | `__version__`, `__author__`, `LICENSE_NAME` | Runtime logic, imports |
+| `pysh.api` | Canonical stable Python API | `ShellSession` and stable contract re-exports | Interactive CLI, internal runtime objects, isolated-plugin internals |
 | `pysh.__main__` | `python -m pysh` execution shim | Module-level `main()` call | Argument parsing, shell logic |
 | `pysh.cli` | Console script entry point | Argument parsing, `--version`, `-c` flag, interactive REPL start | Shell execution, builtin dispatch |
 | `pysh.core` | Main shell runtime | `PyShell` class, canonical exit/error contract, signal status helpers, builtin dispatch, pipeline execution | Parser primitives, editor rendering, config loading |
@@ -152,7 +154,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.services` | Service management | `svc` builtin client, PID-file-based service control, PyInit metadata parser | Shell REPL, command dispatch |
 | `pysh.security` | Security-sensitive command execution | Trust constants/predicates, `SecureRunner` PTY bridge, fixed-size ring indicator, `indicator_config_from_mapping` | General command dispatch, shell state |
 | `pysh.diagnostics` | Advisory diagnostics | `plan` builtin command classifier, opt-in trace event model, diagnostic redaction | Policy enforcement, runtime execution |
-| `pysh.shell` | Compatibility shim (scheduled removal) | Re-export of `PyShell` from `pysh.core.shell` | Any new logic — shim only |
+| `pysh.shell` | Deprecated compatibility path | Warning-bearing lazy access to internal `PyShell` | New API or removal before 1.2.0 |
 | `pysh.script_runner` | Script mode runner | `ScriptRunner`, shebang detection, interpreter delegation, native PySH logical-line execution | Interactive REPL state |
 
 ---
@@ -269,6 +271,7 @@ pysh.core.shell
 | ---------- | ------ | --------- |
 | `pysh` CLI command | `pysh.cli:main` | `pyproject.toml` `[project.scripts]` |
 | `python -m pysh` | `pysh.__main__` | Module `__main__.py` calls `pysh.cli:main` |
+| Python embedding | `pysh.api:ShellSession` | Explicit lifecycle; lazy internal runtime construction |
 
 Both paths converge on `pysh.cli.main`, which constructs `pysh.core.shell.PyShell`
 and enters the REPL or executes a `-c` command string.
@@ -293,16 +296,17 @@ The current enforcement split is:
 
 ## Compatibility shim policy
 
-`pysh.shell` is a single-line compatibility shim created by Issue #2:
+`pysh.shell` is a compatibility shim created by Issue #2. Issue #45 now
+classifies its `PyShell` symbol as deprecated compatibility public API.
 
 ```python
-from pysh.core.shell import PyShell
-__all__ = ["PyShell"]
+from pysh.shell import PyShell  # emits DeprecationWarning
 ```
 
-It exists to avoid breaking any external code that imports from `pysh.shell`
-directly. It carries no logic. Scheduled for removal as part of GitHub Issue
-#19. No new code should import from `pysh.shell`.
+It remains available for legacy callers but emits `DeprecationWarning` on
+symbol access. New embedding code must use `pysh.api.ShellSession`. Removal is
+not permitted before PySH 1.2.0; the normative lifecycle is in
+[api-stability.md](../development/api-stability.md).
 
 ---
 
@@ -358,7 +362,7 @@ All gates must show PASS before a release tag is applied.
 | Issue #7 | Security and trust model: execution surfaces, static import policy, sensitive input boundary, trust predicates | Completed |
 | Issue #8 | Parser/expansion/multiline foundation; classifies `pysh.parsing` as a shared leaf for editor, diagnostics and script runner consumers | Implemented pending commit |
 | Issue #14 | Script/config mode cleanup: resolves `pysh.config → pysh.python_layer` and finalizes script semantics | Open |
-| Issue #19 | Remove the `pysh.shell` compatibility shim after all callers are updated | Open |
+| Issue #45 | Canonical `pysh.api`, public/internal contract, SemVer and deprecated `pysh.shell.PyShell` lifecycle | Implemented pending commit |
 
 The import-boundary ratchet and cycle tests run in CI as of Issue #3.
 New cross-package violations fail automatically.

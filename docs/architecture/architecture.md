@@ -26,11 +26,11 @@ shim lifecycle policy.
 - [security-trust-model.md](security-trust-model.md) — Issue #7: security and trust model, execution surfaces table, static import policy, sensitive input boundary.
 - [../security/threat-model.md](../security/threat-model.md) — Issue #43: v1.0 STRIDE analysis, data classification, safe startup, redaction and future-boundary requirements.
 - [../security/plugin-isolation.md](../security/plugin-isolation.md) — Issue #44: isolated-plugin manifest, IPC, capability broker, lifecycle, and portable-boundary limitations.
+- [../development/api-stability.md](../development/api-stability.md) — Issue #45: canonical public API, embedding, SemVer, deprecation, and independent version domains.
 - [job-control-contract.md](job-control-contract.md) — Issue #11: job-control model, process-group ownership, `jobs`/`fg`/`bg` builtins, SIGTSTP handling, background job reaping.
 - [path-expansion-contract.md](path-expansion-contract.md) — Issue #9: native glob and path expansion, tilde expansion, dotfile policy, quoting contract.
 - [ISSUE-2-refactor-source-tree.md](ISSUE-2-refactor-source-tree.md) — Issue #2 scope (relocation only).
 - [ISSUE-3-architecture-contracts.md](ISSUE-3-architecture-contracts.md) — Issue #3 spec (this implementation).
-- GitHub Issue #19 — shim lifecycle and removal.
 
 ---
 
@@ -56,6 +56,7 @@ It is not a full layer-boundary enforcement; that belongs to Issue #3's successo
 | Package | Responsibility | Owns | Must not own |
 | ------- | -------------- | ---- | ------------ |
 | `pysh` | Package identity and version metadata | `__version__`, `__author__`, `LICENSE_NAME` | Runtime logic |
+| `pysh.api` | Canonical stable Python facade | `ShellSession`; stable contract protocol re-exports | CLI parsing, interactive UI, internal runtime objects |
 | `pysh.__main__` | `python -m pysh` execution shim | Module-level `main()` dispatch | Argument parsing, shell logic |
 | `pysh.cli` | Console script entry point | Argument parsing, `--version`, `-c`, interactive start | Shell execution, builtin dispatch |
 | `pysh.core` | Main shell runtime (fan-in hub) | `PyShell`: REPL loop, all builtin implementations, pipeline and redirection execution; `errors.py`: canonical exit codes; `signals.py`: signal helpers; `jobs.py`: job table, POSIX job-control helpers, process-group model | Parser primitives, editor rendering, config loading (delegates to leaves) |
@@ -71,7 +72,7 @@ It is not a full layer-boundary enforcement; that belongs to Issue #3's successo
 | `pysh.security` | Security-sensitive execution | `SecureRunner` PTY bridge, ring indicator | General command dispatch |
 | `pysh.diagnostics` | Advisory diagnostics | `plan` classifier, opt-in trace model, redaction policy | Policy enforcement, runtime execution |
 | `pysh.contracts` | Architecture protocol layer | Protocol definitions for boundary surfaces | Any runtime logic; implementation package imports |
-| `pysh.shell` | Compatibility shim (scheduled removal) | Re-export of `PyShell` from `pysh.core.shell` | Any new logic |
+| `pysh.shell` | Deprecated compatibility import | Lazy warning-bearing access to internal `PyShell`; removal not before 1.2.0 | New API, runtime implementation, or removal before the documented window |
 | `pysh.script_runner` | Script mode runner | `ScriptRunner`, shebang detection, interpreter delegation, native logical-line execution | Interactive REPL state |
 
 ---
@@ -98,10 +99,16 @@ pysh.core.shell   ← fan-in hub: imports from all leaf packages
     └── pysh.script_runner
 
 pysh.contracts   ← no runtime imports; stdlib only
+
+pysh.api
+    ├── pysh.contracts            ← eager, side-effect-light re-exports
+    └── pysh.core / pysh.config   ← lazy, only on ShellSession execution
 ```
 
-`pysh.core` is the intended single fan-in point. All other packages are
-imported by core rather than importing core. No circular dependencies exist.
+`pysh.core` is the runtime fan-in point. `pysh.api` is the deliberate external
+facade exception: it imports core/config only inside first-use methods so a
+plain API import stays light. Leaf implementation packages do not import core.
+No circular dependencies exist.
 
 ---
 
@@ -111,6 +118,7 @@ imported by core rather than importing core. No circular dependencies exist.
 | ---------- | ----- | --------- |
 | `pysh` command | `pysh.cli:main` | `[project.scripts]` in `pyproject.toml` |
 | `python -m pysh` | `pysh.__main__` → `pysh.cli:main` | `__main__.py` calls `cli.main()` |
+| Python embedding | `pysh.api:ShellSession` | Explicit non-interactive lifecycle; no CLI parsing |
 
 Both paths converge on `pysh.cli.main`, which constructs `pysh.core.shell.PyShell`.
 
@@ -126,11 +134,28 @@ pysh.__author__    # str — package author
 pysh.LICENSE_NAME  # str — SPDX licence identifier
 ```
 
-These are the only symbols in `pysh.__all__`. Internal packages
-(`pysh.core`, `pysh.editor`, …) are not part of the public API.
+These remain the only symbols in `pysh.__all__`. The canonical operational and
+contract API for new external Python code is `pysh.api`:
 
-The extension-point surface for config authors and plugin authors is
-`pysh.contracts`:
+```python
+from pysh.api import ShellSession
+
+with ShellSession() as session:
+    status = session.execute("echo embedded")
+```
+
+`ShellSession` is a non-interactive facade with explicit lifecycle and no
+implicit user startup loading. It does not expose the internal `PyShell`
+implementation. The complete symbol/signature inventory and compatibility
+policy are normative in
+[api-stability.md](../development/api-stability.md).
+
+Internal packages (`pysh.core`, `pysh.editor`, …) are not part of the public
+API merely because they can be imported.
+
+The existing extension-point path `pysh.contracts` remains compatibility
+public and is not deprecated. `pysh.api` re-exports the same objects for new
+external code:
 
 ```python
 pysh.contracts.ShellStateView
@@ -145,8 +170,9 @@ pysh.contracts.PLUGIN_API_VERSION
 pysh.contracts.CompatibilityBridge
 ```
 
-Any change to `pysh.__all__` or `pysh.contracts.__all__` must be reflected
-in `tests/test_public_api_snapshot.py` and documented here.
+Any change to `pysh.__all__`, `pysh.api.__all__`, `pysh.contracts.__all__`, or
+their stable signatures must be reflected in
+`tests/test_public_api_snapshot.py` and reviewed under the SemVer policy.
 
 ---
 
@@ -276,22 +302,15 @@ and update this table.
 
 ---
 
-## Shim lifecycle and removal policy
+## Deprecated compatibility shim
 
-Issue #2 created the following compatibility shims:
-
-| Shim module | Re-exports | Removal milestone | Notes |
-| ----------- | ---------- | ----------------- | ----- |
-| `pysh.shell` | `PyShell` from `pysh.core.shell` | Issue #19 | Created to avoid breaking any pre-Issue-#2 import of `pysh.shell.PyShell` |
-
-**Policy (Issue #3):**
-- Every shim has a single owner (the issue that created it).
-- Every shim has a documented removal milestone.
-- Default removal milestone is Issue #19.
-- No shim may contain logic — re-exports only.
-- No permanent broad compatibility layer is permitted.
-- When a shim's removal milestone is reached, the shim file is deleted
-  and any remaining callers of the old import path are updated.
+Issue #2 created `pysh.shell` as a compatibility shim. Issue #45 retains
+`pysh.shell.PyShell` as a deprecated compatibility import for
+pre-relocation callers. Symbol access emits `DeprecationWarning` with
+`pysh.api.ShellSession` as the supported embedding replacement. The symbol is
+deprecated for 1.0.0, remains through at least 1.1.x, and will not be removed
+before 1.2.0. Importing the module alone does not warn. The exact lifecycle is
+defined in [api-stability.md](../development/api-stability.md).
 
 ---
 
@@ -321,6 +340,7 @@ subprocess calls) that should be deferred to first use.
 | Issue #7 | Security and trust model: execution surfaces, static import policy, sensitive input boundary, trust levels, diagnostics non-mutation. See [security-trust-model.md](security-trust-model.md). |
 | Issue #43 | v1.0 threat model and security architecture: `--no-rc` startup policy, data classification, trust-boundary diagram, threat register, centralized redaction requirements, and capability principles for #44. See [threat-model.md](../security/threat-model.md). |
 | Issue #44 | Separate isolated-plugin subprocess, bounded protocol, manifest and parent-owned capability grants; current in-process Plugin API remains trusted. See [plugin-isolation.md](../security/plugin-isolation.md). |
+| Issue #45 | Stable external API contract: `pysh.api`, embedding lifecycle, public/internal inventory, SemVer, deprecation policy, and signature snapshot. See [api-stability.md](../development/api-stability.md). |
 | Issue #8 | Parser/expansion/multiline foundation: decomposes parser modules, defines unsupported syntax ownership, and classifies `pysh.parsing` as a shared leaf consumed by editor, diagnostics and script runner. |
 | Issue #9 | Native path and glob expansion: `tokenize_and_glob_expand`, tilde expansion, dotfile policy, no-match policy. See [path-expansion-contract.md](path-expansion-contract.md). |
 | Issue #13 | Observability and diagnostics: opt-in `--debug`/`--trace`, stderr-only trace output, redaction policy, and formalized diagnostic builtins. See [observability-diagnostics-contract.md](observability-diagnostics-contract.md). |
@@ -328,4 +348,3 @@ subprocess calls) that should be deferred to first use.
 | Issue #10 | Here-documents and here-strings: stdin inline-data parser model, body collection, delimiter expansion policy, and redirection precedence. See [heredoc-contract.md](heredoc-contract.md). |
 | Issue #12 | Completion Engine v1. See [completion-engine-contract.md](completion-engine-contract.md). |
 | Issue #14 | Script/config mode cleanup: resolves `pysh.config → pysh.python_layer` and finalizes native script-mode contracts. |
-| Issue #19 | Shim removal: removes `pysh.shell` compatibility shim after all callers are updated. |

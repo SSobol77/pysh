@@ -103,9 +103,10 @@ pysh/
 ├── src/
 │   └── pysh/
 │       ├── __init__.py         # Package metadata: __version__, LICENSE_NAME
+│       ├── api.py              # Stable embedding and contract facade
 │       ├── __main__.py         # python -m pysh entry point
 │       ├── cli.py              # Console script entry point (argparse + --version)
-│       ├── shell.py            # Compatibility shim → pysh.core.shell (Issue #19)
+│       ├── shell.py            # Deprecated PyShell import; removal not before 1.2.0
 │       ├── script_runner.py    # Script mode and transition runner
 │       ├── core/               # PyShell: REPL loop, command dispatch, builtins
 │       ├── parsing/            # Quote-aware parser, redirection
