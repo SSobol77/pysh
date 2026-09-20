@@ -29,9 +29,10 @@ The two documents are intentionally not duplicate security models.
 
 ## Scope
 
-Issue #7 defines and enforces the security and trust model.  It does not provide:
+Issue #7 defines and enforces the original security and trust model. It does
+not provide:
 
-- OS-level sandboxing, seccomp, or capability restriction.
+- OS-level sandboxing, seccomp, or kernel capability restriction.
 - Privilege separation.
 - Package isolation or import filtering for Python code.
 - Automatic execution of foreign shell profiles.
@@ -52,7 +53,7 @@ Issue #7 defines and enforces the security and trust model.  It does not provide
 | 7 | **Plugins and rc files are trusted local PySH code.** Not sandboxed; not foreign shell code. |
 | 8 | **Python runtime is trusted in-process execution.** Not sandboxed; runs with full OS access. |
 | 9 | **Diagnostics are non-mutating.** `plan`, `env_audit`, `path_audit`, `which_all`, `apt_check`, `apt_search` and opt-in trace output do not mutate system state. |
-| 10 | **No security theater.** PySH does not claim sandboxing, privilege separation, capability enforcement, or safe containment of untrusted code. |
+| 10 | **No security theater.** PySH does not claim OS sandboxing, privilege separation, or safe containment of arbitrary hostile code. The Issue #44 isolated runtime claims only its tested process and parent-broker controls. |
 
 ---
 
@@ -63,7 +64,27 @@ Issue #7 defines and enforces the security and trust model.  It does not provide
 | `TRUSTED_LOCAL` | Local user-owned PySH config and code, runs in-process, not sandboxed | `~/.pyshrc`, `~/.pyshrc.py`, `~/.pyshrc.d/*.pysh`, `py` builtin |
 | `TRUSTED_DELEGATED` | Explicit user delegation to an external interpreter | `zsh <cmd>`, `run_script`, `zsh_fallback on` |
 | `STATIC_IMPORT` | Read-only text parse — no shell code executed | `source_zsh`, `source_zsh_profile`, `source_sh_aliases`, `compat_check` |
+| `ISOLATED_BROKERED` | Separate process with bounded IPC and parent-mediated default-deny operations; not a kernel filesystem/network sandbox | Issue #44 isolated-plugin runtime |
 | `UNTRUSTED` | Not supported — automatic execution of foreign profiles or untrusted code | (no current surface) |
+
+---
+
+## Isolated subprocess boundary
+
+The Issue #44 portable contract provides a process-memory boundary, bounded
+versioned IPC, and a default-deny broker for **PySH parent-mediated authority**.
+An isolated child receives no implicit access through PySH core to history,
+configuration objects, parent environment values, builtins or commands, open
+parent file handles, service objects, the plugin registry, diagnostic state, or
+other parent-owned resources. A supported parent-mediated operation requires
+an explicit matching grant checked by the core.
+
+The child normally retains the same OS user identity. Without #52 platform
+hardening it can directly open, read, or write user-accessible files, create
+sockets, execute or spawn processes, and inspect resources exposed by the host
+OS. Direct syscalls do not pass through the broker. The portable isolated
+subprocess is therefore not a filesystem sandbox, network sandbox, process
+sandbox, or complete confinement mechanism for arbitrary same-UID code.
 
 ---
 
@@ -96,6 +117,7 @@ Issue #7 defines and enforces the security and trust model.  It does not provide
 | `apt_check` | `TRUSTED_LOCAL` | Yes (`apt list --upgradable`) | None (read-only apt) | No sudo; no system mutation | — |
 | `apt_search` | `TRUSTED_LOCAL` | Yes (`apt search`) | None (read-only apt) | No sudo; no system mutation | — |
 | `--debug` / `--trace` | `TRUSTED_LOCAL` | No extra execution | None | Stderr-only redacted trace | #13 |
+| Isolated plugin runtime | `ISOLATED_BROKERED` | Yes (subprocess) | Child state; explicitly brokered parent operations | Process + bounded IPC; direct same-UID syscalls are not kernel-confined | #44 |
 
 ---
 
@@ -201,8 +223,14 @@ They are:
 - **Not sandboxed.**
 
 PySH does not apply import filtering, capability restriction, or content
-scanning to rc files or plugins.  A malicious rc file has full access to
-the user's session.  This is the same trust level as any shell dotfile.
+scanning to rc files or trusted in-process plugins. A malicious rc or trusted
+plugin file has full access to the user's session. This is the same trust level
+as any shell dotfile.
+
+Issue #44 adds a separate manifest-driven subprocess runtime. It does not
+change this policy or route current plugins through isolation. Its exact
+process, IPC, broker, and OS-level limitations are defined in
+[Isolated Plugin Process and Capability Contract](../security/plugin-isolation.md).
 
 For deterministic recovery, `pysh --no-rc` starts without reading or creating
 user startup configuration and without plugin discovery or startup hooks. The
@@ -304,7 +332,7 @@ negated:
 | "PySH is sandboxed" | "PySH is not sandboxed" |
 | "sandboxed execution" | (no valid form — do not use this claim) |
 | "privilege separation" | "PySH provides no privilege separation" |
-| "capability confinement" | "PySH provides no capability confinement" |
+| "OS capability confinement" | "The portable isolated-plugin broker is not OS capability confinement" |
 | "safe to run untrusted code" | "PySH is not safe for running untrusted code" |
 | "executes .zshrc by default" | "PySH does not execute .zshrc by default" |
 | "executes .bashrc by default" | "PySH does not execute .bashrc by default" |
@@ -333,6 +361,9 @@ These are enforced by `tests/test_docs_consistency.py::test_no_forbidden_securit
 | `env_audit` redacts secret variable names | `test_security_trust_model.py` | `TestDiagnosticsNonMutation` | PASS |
 | `apt_check` uses `apt list` without sudo | `test_security_trust_model.py` | `TestDiagnosticsNonMutation` | PASS |
 | Python runtime is not sandboxed (predicate) | `test_security_trust_model.py` | `TestPythonRuntimeTrust` | PASS |
+| Isolated-plugin broker defaults to no grants | `test_isolated_plugin_manifest.py`, `test_isolated_plugin_runtime.py` | Capability/runtime tests | PASS |
+| Isolated-plugin environment, cwd and fd launch state is restricted | `test_isolated_plugin_runtime.py` | Process containment tests | PASS |
+| Isolated-plugin IPC is bounded and versioned | `test_isolated_plugin_protocol.py` | Protocol tests | PASS |
 | No forbidden security claims in docs | `test_docs_consistency.py` | `test_no_forbidden_security_claims` | PASS |
 
 ---

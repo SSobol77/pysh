@@ -28,6 +28,12 @@ trust.
 Plugins are not sandboxed. The Plugin API boundary validates registrations and
 contains callback failures; it is not a security isolation boundary.
 
+Issue #44 adds a separate manifest-driven subprocess runtime with bounded IPC
+and parent-mediated capability grants. It does not replace this API, discover
+these plugin files, or make trusted callbacks isolated. See the
+[isolated-plugin contract](../security/plugin-isolation.md) for the distinct
+runtime and its documented OS-level limitations.
+
 ## Versioning
 
 PySH exports `pysh.contracts.PLUGIN_API_VERSION == (1, 0)`. A plugin class must

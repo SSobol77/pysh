@@ -83,7 +83,14 @@ src/pysh/
 │   ├── registry.py          ← deterministic discovery and explicit enablement records
 │   ├── loader.py            ← controlled file-based plugin module loading
 │   ├── api.py               ← public registration API passed to plugin classes
-│   └── manager.py           ← plugin lifecycle orchestration and callback dispatch
+│   ├── manager.py           ← trusted plugin lifecycle and callback dispatch
+│   └── isolated/            ← separate manifest/IPC/broker process boundary
+│       ├── capabilities.py  ← typed capability requests and immutable grants
+│       ├── manifest.py      ← non-executing versioned TOML manifest
+│       ├── protocol.py      ← bounded framed UTF-8 JSON IPC
+│       ├── broker.py        ← parent-owned privileged request dispatcher
+│       ├── events.py        ← secret-free audit integration seam
+│       └── runtime.py       ← subprocess handshake, lifecycle and containment
 │
 ├── python_layer/
 │   ├── highlighting.py      ← Pygments-based Python syntax renderer
@@ -187,6 +194,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.plugins.loader` | Controlled `importlib` file loading, metadata validation, class discovery and registration containment |
 | `pysh.plugins.api` | Public registration object passed to plugin `register(api)` methods |
 | `pysh.plugins.manager` | Plugin manager lifecycle, callback dispatch, error containment and shell integration boundary |
+| `pysh.plugins.isolated` | Separate subprocess runtime: versioned manifest/IPC, typed default-deny grants, parent broker, scrubbed launch state and bounded lifecycle |
 | `pysh.python_layer.runtime` | `PythonRuntime`: `exec`/`eval` in persistent namespace; `py` builtin, multiline block logic |
 | `pysh.python_layer.mode` | `#py` interactive Python command mode: REPL loop, directives, source buffer |
 | `pysh.python_layer.highlighting` | `PythonSyntaxRenderer`, Pygments integration, `pygments_available` |

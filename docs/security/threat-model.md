@@ -47,7 +47,7 @@ In scope:
 - builtins, external processes, and the persistent Python runtime;
 - interactive, `-c`, stdin-batch, and script invocation;
 - executable and declarative startup inputs;
-- current trusted plugins and future isolated extensions;
+- current trusted plugins and the separate isolated-extension runtime;
 - history, diagnostics, trace, sensitive terminal input, and `secure <cmd>`;
 - static compatibility/profile import;
 - reserved AI, remote/SSH, and package-management boundaries.
@@ -86,7 +86,7 @@ registrations/hooks, loaded configuration paths, and trace configuration.
 | External executable | Untrusted with respect to PySH integrity | Runs as a subprocess with explicitly constructed argv and inherited user authority/environment. |
 | Input file/profile/package/provider | Untrusted input until parsed or verified | May attempt injection, malformed-input denial of service, or supply-chain compromise. |
 | Local attacker with write access to user config | Outside the supported trust assumption | Can obtain user-level execution at normal interactive startup; filesystem ownership/permissions are prerequisite controls. |
-| Future isolated extension | Untrusted extension | Must receive only explicitly granted capabilities under Issue #44. |
+| Isolated extension | Protocol-untrusted extension | Receives only explicit parent-broker grants under Issue #44; direct same-UID syscalls require #52 OS policy for confinement. |
 | Future AI/remote service | External egress peer and untrusted input source | Must not receive implicit secrets; returned content is never trusted as executable intent. |
 
 PySH does not defend against an attacker who already has arbitrary write access
@@ -151,7 +151,7 @@ User / controlling TTY
 |                         [data boundary before egress]              |
 +-------------------------------------------------------------------+
         |                    |                    |             |
-        +====> [TB] future   +====> [TB] future +====> [TB]   |
+        +====> [TB] isolated +====> [TB] future +====> [TB]   |
                plugin IPC          AI provider         remote/SSH    |
         +====================================================> [TB]  |
                future package source/signature boundary              |
@@ -280,7 +280,10 @@ Declarative TOML is parsed as data, but applying it can change shell policy and
 must remain inside the startup boundary. Disabled user plugins are not imported;
 project plugins require project opt-in plus name enablement; registration is
 transactional. None of these controls converts trusted in-process plugins into
-isolated code.
+isolated code. Issue #44 provides a separate manifest-driven subprocess and
+parent broker; it does not change the authority of current plugins. The
+[isolated-plugin contract](plugin-isolation.md) defines its enforced controls
+and same-UID OS limitations.
 
 ### History, diagnostics, and sensitive input
 
@@ -310,8 +313,8 @@ visible user intent.
 | TM-RUNTIME-002 | Persistent namespace | Information disclosure | Secret remains reachable by later code/plugin | Session secrets | Session-scoped namespace | Do not emit namespace values without redaction/intent | Trusted code can inspect all process memory | Issue #50 for egress consolidation |
 | TM-RC-001 | Executable rc | Tampering, elevation | Attacker can write user startup files | User account/session | Treated as trusted local code; failure containment | `--no-rc` deterministic bypass; no mutation in safe mode | Normal startup executes compromised user files | Implemented here; filesystem controls external |
 | TM-CONFIG-001 | Declarative TOML | Tampering | Malicious/malformed data changes environment, aliases, or project-plugin policy | Shell state/trust posture | Schema validation and diagnostics | Strict `--no-rc` skips all TOML; keep parsing non-executing | Valid configuration can intentionally alter behavior | Implemented here; #50 for diagnostic seam |
-| TM-PLUGIN-001 | Current plugins | Elevation, information disclosure | Trusted plugin is malicious or compromised | All process/user assets | Explicit enablement, project opt-in, transactional registration | Continue describing current plugins as trusted code | Full ambient authority by design | Issue #44 for untrusted isolation |
-| TM-PLUGIN-002 | Future isolated plugin | Spoofing, elevation, DoS | Extension forges identity, requests excess authority, or floods IPC | Core state and user assets | Not implemented | Default-deny capabilities, authenticated bounded IPC, resource limits | Isolation strength depends on OS/process controls | #44; #53 resource limits |
+| TM-PLUGIN-001 | Current plugins | Elevation, information disclosure | Trusted plugin is malicious or compromised | All process/user assets | Explicit enablement, project opt-in, transactional registration | Continue describing current plugins as trusted code | Full ambient authority by design | Current trusted model; Issue #44 does not convert it |
+| TM-PLUGIN-002 | Isolated plugin | Spoofing, elevation, DoS | Extension forges identity, requests excess parent authority, or floods IPC | Core state and parent-mediated assets | Separate process; identity handshake; bounded protocol; immutable default-deny broker grant; scrubbed env/cwd/fds | Define optional platform syscall hardening and unified resource budgets | Same-UID child retains direct OS filesystem/network syscalls; no kernel sandbox | #44 implemented portable broker; #52 OS tier; #53 resource limits |
 | TM-HISTORY-001 | History | Information disclosure | Secret embedded in command text is persisted | Credentials/session data | Space-prefix and pattern filters; no terminal-byte capture | Document limits; central classification before future exports | Novel secret names may bypass substring filters | #50 |
 | TM-DIAG-001 | Debug/trace/audit | Information disclosure | Secret enters command/field/environment diagnostic text | Credentials | `RedactionPolicy`; redacted stderr; stdout separation | Core-owned redaction before every diagnostic/future egress | Unknown secret values without classified names may remain | #50 |
 | TM-DIAG-002 | Diagnostic tools | Repudiation/tampering | Advisory output is mistaken for enforcement | User decision integrity | Non-mutating contract; explicit risk labels | Never claim `plan` enforces execution policy | User may ignore advisory output | Current diagnostics contract |
@@ -323,10 +326,27 @@ visible user intent.
 | TM-PKG-001 | Future package management | Tampering, elevation | Unverified package/source supplies executable code | Installation and user assets | Boundary reserved; no managed install path today | Integrity/signature policy before install; activation separate from capability grant | Trusted signer or repository compromise | Future package-assurance issue (reserved) |
 
 No unresolved high-severity risk is hidden: current in-process Python, rc, and
-plugin authority is an explicit trusted-code design constraint; untrusted
-plugin isolation is assigned to #44; redaction convergence to #50; resource
-limits to #53; and network/package boundaries remain disabled until their named
-requirements are implemented.
+plugin authority is an explicit trusted-code design constraint. Issue #44
+isolates parent memory/failure and enforces broker grants but does not provide
+portable kernel syscall confinement. OS reinforcement is assigned to #52,
+redaction convergence to #50, resource limits to #53, and network/package
+boundaries remain disabled until their named requirements are implemented.
+
+### Isolated-plugin host OS authority boundary
+
+The Issue #44 security claim is **no ambient PySH parent-mediated
+capability**. The isolated child has no implicit path through the parent to
+PySH history, configuration, environment values, builtins or commands, file
+handles, service objects, plugin registry, diagnostic state, or other
+parent-owned resources. Each supported parent operation requires an explicit
+matching grant and a broker authorization decision.
+
+This is not host OS confinement. The child normally has the same OS user
+identity as PySH and, unless #52 platform hardening prevents it, can directly
+access files permitted to that user, create sockets, spawn or execute
+processes, and inspect host-exposed resources. Those direct syscalls bypass the
+broker. Consequently, the portable baseline is not a filesystem, network, or
+process sandbox for arbitrary same-UID code.
 
 ## Capability principles for Issue #44
 
@@ -334,8 +354,8 @@ Issue #44 must implement, not merely document:
 
 - default deny for every isolated-extension capability;
 - explicit capability request and an independent explicit grant;
-- least privilege and no ambient filesystem, process, network, environment, or
-  terminal authority;
+- least privilege and no ambient PySH parent-mediated filesystem, command,
+  network, environment, terminal, or other privileged capability;
 - capability checks owned by PySH core, never self-asserted by a plugin;
 - auditable grant and denial decisions with redaction before emission;
 - bounded, versioned IPC messages and deterministic failure handling;
@@ -344,11 +364,21 @@ Issue #44 must implement, not merely document:
 - no inherited secret environment and no accidental file-descriptor
   inheritance by default;
 - explicit lifecycle/revocation behavior;
-- CPU, memory, process, descriptor, and time limits supplied by #53.
+- a fail-closed seam for CPU, memory, process, descriptor, and time limits
+  supplied by #53.
 
 These principles do not retrofit isolation onto today's trusted in-process
-Plugin API. Current plugins remain executable trusted-local code until a
-separate isolated runtime exists and is tested.
+Plugin API. Current plugins remain executable trusted-local code. The separate
+runtime and its tests are described in [plugin-isolation.md](plugin-isolation.md).
+The portable process/broker implementation enforces parent-mediated grants and
+removes inherited environment, descriptors, cwd, and terminal access. It
+satisfies the Issue #44 portable parent-authority boundary. Direct same-UID
+syscalls remain governed by the host platform rather than the broker:
+#52 owns platform tiers, Linux hardening, FreeBSD Capsicum integration,
+unavailable-primitive behavior, and any future mandatory hardening tier. #53
+owns CPU, memory, file-descriptor, process-count, and wall-clock limits plus
+watchdog and hard-kill enforcement. Issue #44 provides integration seams for
+those follow-up controls but does not implement them.
 
 ## Reserved future boundaries
 
@@ -384,6 +414,10 @@ Implemented controls are exercised by:
 - `tests/test_rc.py`, `tests/test_pyshrc_py.py`, and plugin tests for normal
   startup compatibility;
 - `tests/test_docs_consistency.py` for documentation invariants;
+- `tests/test_isolated_plugin_manifest.py`,
+  `tests/test_isolated_plugin_protocol.py`, and
+  `tests/test_isolated_plugin_runtime.py` for the Issue #44 process/broker
+  boundary;
 - parser, pipeline, redirection, history, secure-runner, architecture, and
   public API suites for their respective boundaries.
 
