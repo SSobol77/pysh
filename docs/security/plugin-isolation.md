@@ -69,6 +69,22 @@ but platform and resource controls own stronger guarantees.
 Issue #44 does not route trusted plugins through the isolated runtime and does
 not change `PluginManager`, `PluginAPI`, or existing enablement semantics.
 
+## Architecture ownership and dependency direction
+
+Issue #46's [layering contract](../architecture/layering.md) assigns the
+core-to-extension integration boundary to `pysh.plugins`: `pysh.core` consumes
+the trusted plugin manager and its registration records. The distinct
+`pysh.plugins.isolated` domain owns manifest parsing, IPC, broker/capability
+internals, launch hygiene, and isolated subprocess lifecycle.
+
+The isolated domain may consume exact validation and identity helpers from
+the trusted plugin domain. The reverse is forbidden, and `pysh.core` must not
+import isolated runtime objects. `pysh.api` exposes neither subsystem's
+implementation objects. The manifest and IPC formats are versioned external
+contracts; their Python implementations remain internal. These rules are
+machine-enforced by `architecture.toml` and the AST boundary tests and do not
+alter the Issue #44 security claim.
+
 ## Versions and manifest
 
 Three versions are independent:
