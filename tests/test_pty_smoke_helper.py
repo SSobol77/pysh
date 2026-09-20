@@ -50,6 +50,7 @@ input unconditionally.
 """
 from __future__ import annotations
 
+import errno
 import importlib.util
 import os
 import subprocess
@@ -97,6 +98,102 @@ def test_normal_exiting_child_returns_promptly() -> None:
     assert not result.timed_out
     assert result.ok
     assert elapsed < 5.0, f"a promptly-exiting child took {elapsed}s"
+
+
+# ------------------------------------------ PTY EOF/process-exit race
+
+
+def test_pty_close_before_process_exit_waits_without_false_timeout() -> None:
+    """PTY hangup while the child is alive is not itself a timeout.
+
+    The child closes all three descriptors referring to the PTY slave, then
+    deliberately remains alive for a short controlled interval. This forces
+    the parent to observe EOF/hangup before process exit without using timing
+    as the assertion mechanism.
+    """
+    child_script = (
+        "import os, time\n"
+        "os.write(1, b'\\x1b[?2004h')\n"
+        "while not os.read(0, 4096).endswith(b'\\n'):\n"
+        "    pass\n"
+        "os.close(0)\n"
+        "os.close(1)\n"
+        "os.close(2)\n"
+        "time.sleep(0.3)\n"
+        "os._exit(0)\n"
+    )
+    result = PTY_SMOKE.run_pty_command(
+        [sys.executable, "-c", child_script],
+        "exit",
+        timeout=3.0,
+        ready_marker=MARKER,
+    )
+
+    assert result.ready
+    assert result.input_sent
+    assert not result.timed_out
+    assert result.returncode == 0
+    assert result.ok
+
+
+def test_pty_close_before_deadline_still_enforces_true_timeout() -> None:
+    """PTY hangup must not disable the original absolute deadline."""
+    child_script = (
+        "import os, time\n"
+        "os.write(1, b'\\x1b[?2004h')\n"
+        "while not os.read(0, 4096).endswith(b'\\n'):\n"
+        "    pass\n"
+        "os.close(0)\n"
+        "os.close(1)\n"
+        "os.close(2)\n"
+        "time.sleep(60)\n"
+    )
+    result = PTY_SMOKE.run_pty_command(
+        [sys.executable, "-c", child_script],
+        "exit",
+        timeout=0.3,
+        ready_marker=MARKER,
+    )
+
+    assert result.ready
+    assert result.input_sent
+    assert result.timed_out
+    assert result.returncode is not None
+    assert result.returncode < 0
+    assert not result.ok
+
+
+def test_unexpected_pty_read_oserror_is_raised_and_child_reaped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unexpected PTY I/O failure must surface and clean up the child."""
+    started: list[subprocess.Popen[bytes]] = []
+    real_popen = subprocess.Popen
+    real_read = os.read
+
+    def tracking_popen(*args, **kwargs):
+        proc = real_popen(*args, **kwargs)
+        started.append(proc)
+        return proc
+
+    def failing_read(fd: int, size: int) -> bytes:
+        if started:
+            raise OSError(errno.EBADF, "injected unexpected PTY read failure")
+        return real_read(fd, size)
+
+    monkeypatch.setattr(PTY_SMOKE.subprocess, "Popen", tracking_popen)
+    monkeypatch.setattr(PTY_SMOKE.os, "read", failing_read)
+
+    child_script = "import os, time; os.write(1, b'ready'); time.sleep(60)"
+    with pytest.raises(OSError, match="injected unexpected PTY read failure") as exc_info:
+        PTY_SMOKE.run_pty_command(
+            [sys.executable, "-c", child_script], "ignored", timeout=10.0
+        )
+
+    assert exc_info.value.errno == errno.EBADF
+    assert len(started) == 1
+    assert started[0].returncode is not None
+    assert started[0].returncode < 0
 
 
 # --------------------------------------------- 2/3. real bounded timeout
@@ -338,7 +435,9 @@ requires_local_pysh = pytest.mark.skipif(
 
 
 @requires_local_pysh
-def test_default_term_makes_the_ready_marker_appear_for_real_pysh() -> None:
+def test_default_term_makes_the_ready_marker_appear_for_real_pysh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A missing TERM would select PySH's input() fallback instead of the
     raw editor, so the bracketed-paste readiness marker would never be
     emitted. The PTY helper supplies a capable TERM when the environment
@@ -351,6 +450,7 @@ def test_default_term_makes_the_ready_marker_appear_for_real_pysh() -> None:
     """
     pysh_bin = _local_pysh_binary()
     assert pysh_bin is not None
+    monkeypatch.delenv("TERM", raising=False)
 
     # With TERM forced empty, PySH selects its input() fallback instead of
     # the raw editor, so the marker never appears -- this is the exact gap

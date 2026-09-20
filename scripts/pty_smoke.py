@@ -47,6 +47,7 @@ command execution), is the only synchronization primitive.
 from __future__ import annotations
 
 import dataclasses
+import errno
 import os
 import pty
 import select
@@ -96,6 +97,50 @@ class PtyResult:
         )
 
 
+def _is_expected_pty_hangup(exc: OSError) -> bool:
+    """Return whether *exc* is the platform's PTY-master hangup signal.
+
+    POSIX PTY implementations report closure of the last slave descriptor
+    either as an empty read or as ``EIO`` from the master.  Other errors are
+    genuine harness failures and must not be silently reclassified as EOF.
+    """
+    return exc.errno == errno.EIO
+
+
+def _kill_and_reap(proc: subprocess.Popen[bytes]) -> None:
+    """Best-effort terminate *proc* and collect its process-table entry."""
+    if proc.poll() is None:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _wait_until_deadline(proc: subprocess.Popen[bytes], deadline: float) -> bool:
+    """Wait for *proc* within *deadline* and report actual deadline expiry.
+
+    The deadline is the original session deadline.  In particular, reaching
+    PTY EOF/hangup never grants the child a fresh timeout budget.
+    """
+    if proc.poll() is not None:
+        return False
+
+    remaining = deadline - time.monotonic()
+    if remaining > 0:
+        try:
+            proc.wait(timeout=remaining)
+            return False
+        except subprocess.TimeoutExpired:
+            pass
+
+    _kill_and_reap(proc)
+    return True
+
+
 def run_pty_command(
     argv: list[str],
     input_line: str,
@@ -135,12 +180,15 @@ def run_pty_command(
     post-input execution -- there is no separate budget reset after the
     marker is observed or after input is sent.
 
-    On a normal exit, the child closes its end of the PTY, ``os.read()``
-    eventually returns ``b""`` (EOF), and the loop ends promptly. On a
-    stuck or non-exiting child, the absolute deadline expires, the child is
-    killed and reaped, and the result reports ``timed_out=True`` -- this
-    function itself never raises `subprocess.TimeoutExpired` and never
-    blocks past *timeout* plus a bounded child-teardown grace period.
+    On a normal exit, the child closes its end of the PTY. Depending on the
+    host PTY implementation, ``os.read()`` then returns ``b""`` or raises
+    ``EIO``. Both mean hangup, after which the child is given only the
+    remaining portion of the original deadline to exit. On a stuck or
+    non-exiting child, that absolute deadline expires, the child is killed
+    and reaped, and the result reports ``timed_out=True`` -- this function
+    itself never raises `subprocess.TimeoutExpired` and never blocks past
+    *timeout* plus a bounded child-teardown grace period. Unexpected PTY I/O
+    errors are surfaced to the caller after deterministic child cleanup.
     """
     child_env = dict(os.environ) if env is None else dict(env)
     child_env.setdefault("TERM", DEFAULT_TERM)
@@ -172,11 +220,10 @@ def run_pty_command(
 
         while True:
             remaining = deadline - time.monotonic()
+            exited = proc.poll() is not None
             if remaining <= 0:
-                timed_out = True
                 break
 
-            exited = proc.poll() is not None
             # A short grace window drains any final buffered output once
             # the child has exited, instead of waiting out the full
             # remaining budget merely to confirm there is nothing left.
@@ -186,8 +233,10 @@ def run_pty_command(
             if readable:
                 try:
                     chunk = os.read(master_fd, 4096)
-                except OSError:
-                    break
+                except OSError as exc:
+                    if _is_expected_pty_hangup(exc):
+                        break
+                    raise
                 if not chunk:
                     break
                 output += chunk
@@ -208,21 +257,16 @@ def run_pty_command(
                 continue
             # Nothing readable yet and the child hasn't exited: loop back
             # to re-check the deadline and exit status.
+        timed_out = _wait_until_deadline(proc, deadline)
+    except BaseException:
+        if proc is not None:
+            _kill_and_reap(proc)
+        raise
     finally:
         if slave_fd != -1:
             try:
                 os.close(slave_fd)
             except OSError:
-                pass
-        if proc is not None and proc.poll() is None:
-            timed_out = True
-            try:
-                proc.kill()
-            except OSError:
-                pass
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
                 pass
         try:
             os.close(master_fd)
