@@ -135,3 +135,65 @@ jobs:
           FIXTURE
 
           bash scripts/check_release_artifacts.sh --contract-only "${CONTRACT_DIR}"
+
+  performance-linux:
+    name: performance (linux, python-3.13)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Run release-blocking performance contract
+        run: |
+          python scripts/benchmark_performance.py \
+            --profile linux-python3-13 \
+            --output artifacts/performance/linux-python3-13.json
+
+      - name: Upload Linux performance evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-linux-python3-13
+          path: artifacts/performance/linux-python3-13.json
+          if-no-files-found: error
+
+  performance-freebsd:
+    name: performance (freebsd-14.4, python-3.13)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run release-blocking performance contract in FreeBSD 14.4
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.4"
+          usesh: true
+          prepare: |
+            pkg update -f
+            pkg install -y python313
+          run: |
+            set -eu
+            test "$(uname -s)" = "FreeBSD"
+            python3.13 --version
+            mkdir -p artifacts/performance
+            python3.13 scripts/benchmark_performance.py \
+              --profile freebsd-14-4-python3-13 \
+              --output artifacts/performance/freebsd-14.4-python3-13.json
+
+      - name: Upload FreeBSD performance evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-freebsd-14.4-python3-13
+          path: artifacts/performance/freebsd-14.4-python3-13.json
+          if-no-files-found: error
