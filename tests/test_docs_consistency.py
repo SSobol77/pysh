@@ -22,6 +22,8 @@ README = REPO_ROOT / "README.md"
 DOCS = REPO_ROOT / "docs"
 ARCHITECTURE_POLICY = REPO_ROOT / "architecture.toml"
 LAYERING_DOC = DOCS / "architecture" / "layering.md"
+PERFORMANCE_POLICY = REPO_ROOT / "performance.toml"
+PERFORMANCE_DOC = DOCS / "development" / "performance.md"
 
 MARKDOWN_FILES: tuple[Path, ...] = (
     *tuple(
@@ -1345,3 +1347,39 @@ def test_issue_46_related_contracts_reference_layering_owner() -> None:
     assert "architecture.toml" in api_stability
     assert "core-to-extension integration boundary" in isolation
     assert "pysh.plugins.isolated" in isolation
+
+
+# ---------------------------------------------------------------------------
+# Issue #47 — performance contract/documentation consistency
+# ---------------------------------------------------------------------------
+
+
+def test_issue_47_performance_contract_is_normative_and_indexed() -> None:
+    """The performance policy, methodology, harness, and index stay linked."""
+    assert PERFORMANCE_POLICY.is_file()
+    assert PERFORMANCE_DOC.is_file()
+    performance = PERFORMANCE_DOC.read_text(encoding="utf-8")
+    index = (DOCS / "README.md").read_text(encoding="utf-8")
+    architecture = (DOCS / "architecture" / "architecture.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "[performance.md](development/performance.md)" in index
+    assert "[performance.md](../development/performance.md)" in architecture
+    assert "performance.toml" in performance
+    assert "scripts/benchmark_performance.py" in performance
+    assert "not implementations" in performance
+    assert "Issue #52" in performance
+
+
+def test_issue_47_documented_budgets_match_machine_policy() -> None:
+    """Every benchmark ID and numeric budget appears in normative prose."""
+    with PERFORMANCE_POLICY.open("rb") as stream:
+        policy = tomllib.load(stream)
+    performance = PERFORMANCE_DOC.read_text(encoding="utf-8")
+    for benchmark in policy["benchmarks"]:
+        assert f"`{benchmark['id']}`" in performance
+        assert f"{benchmark['budget']:g} ms" in performance
+    for profile in policy["profiles"]:
+        assert f"`{profile}`" in performance
+    assert "Raising a release-blocking budget is not a normal regression fix" in performance

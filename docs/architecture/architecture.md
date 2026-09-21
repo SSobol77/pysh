@@ -318,10 +318,11 @@ defined in [api-stability.md](../development/api-stability.md).
 
 ---
 
-## Cold-start import budget
+## Import hygiene and process-start performance
 
 `tests/test_import_time_budget.py` enforces that a bare `import pysh` in a
-clean subprocess completes within **2.0 seconds** (conservative CI budget).
+clean subprocess completes within **2.0 seconds**. This is a conservative
+eager-import regression guard, not the v1.0 cold-process performance contract.
 
 Typical measured values:
 - Subprocess creation overhead: 50–150 ms
@@ -331,6 +332,11 @@ Typical measured values:
 Failure of the budget test indicates that a package initializer is performing
 heavy work (heavy module loading, terminal I/O, config reads, git probing, or
 subprocess calls) that should be deferred to first use.
+
+Issue #47 separately measures a fresh `python -m pysh --no-rc -c ""` process
+with robust sampling and structured CI evidence. Its definitions, numeric
+budgets, variance policy, and Linux/FreeBSD profiles are normative in
+[performance.md](../development/performance.md).
 
 ---
 
@@ -346,6 +352,7 @@ subprocess calls) that should be deferred to first use.
 | Issue #44 | Separate isolated-plugin subprocess, bounded protocol, manifest and parent-owned capability grants; current in-process Plugin API remains trusted. See [plugin-isolation.md](../security/plugin-isolation.md). |
 | Issue #45 | Stable external API contract: `pysh.api`, embedding lifecycle, public/internal inventory, SemVer, deprecation policy, and signature snapshot. See [api-stability.md](../development/api-stability.md). |
 | Issue #46 | Canonical v1.0 ownership and dependency freeze, backed by `architecture.toml` and negative AST regression tests. See [layering.md](layering.md). |
+| Issue #47 | Versioned performance budgets, stdlib benchmark harness, structured evidence, and gating Linux/FreeBSD jobs. See [performance.md](../development/performance.md). |
 | Issue #8 | Parser/expansion/multiline foundation: decomposes parser modules, defines unsupported syntax ownership, and classifies `pysh.parsing` as a shared leaf consumed by editor, diagnostics and script runner. |
 | Issue #9 | Native path and glob expansion: `tokenize_and_glob_expand`, tilde expansion, dotfile policy, no-match policy. See [path-expansion-contract.md](path-expansion-contract.md). |
 | Issue #13 | Observability and diagnostics: opt-in `--debug`/`--trace`, stderr-only trace output, redaction policy, and formalized diagnostic builtins. See [observability-diagnostics-contract.md](observability-diagnostics-contract.md). |

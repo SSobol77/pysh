@@ -454,7 +454,7 @@ code freeze would block bug fixes and is explicitly **not** the intent.
 
 ## #47 Performance Budget & CI Regression Gates
 **Labels:** `performance` `testing` `platform` `release-blocking`
-**Milestone:** v1.0.0 · **Status:** filed as GitHub #47
+**Milestone:** v1.0.0 · **Status:** implemented pending commit
 **Depends on:** #36 · **Gates:** planned Advanced Completion Engine, Interactive System Dashboard, and Native Git Experience
 
 **Description**
@@ -462,24 +462,23 @@ PySH advertises "fast". The planned Advanced Completion Engine, Native Git Exper
 and Interactive System Dashboard add startup and per-keystroke cost. Establish numeric budgets
 enforced as CI regression gates.
 
-**Budgets (initial targets, to be ratified)**
-- Cold start ≤ **150 ms**
+**Ratified budgets**
+- Cold start ≤ **175 ms** (150 ms initial target revised from measured Debian evidence)
 - Prompt render ≤ **20 ms**
 - Completion ≤ **50 ms** (for the planned Advanced Completion Engine)
 - Git prompt segment ≤ **10 ms** (for the planned Native Git Experience)
-- Per-keystroke render within the `#36` editor budget
+- Per-keystroke render preparation ≤ **2 ms**
 
 **Design & implementation**
-- Benchmark harness (`pytest-benchmark` for in-process paths, `hyperfine`
-  for process-level cold start), with thresholds versioned in-repo.
-- CI gate fails a PR on regression beyond a set margin (e.g. > 10 %).
-- **Lazy-import Pygments.** Pygments is installed by default and its
-  import plus the first `get_lexer_by_name` (lexer plugin scan) costs tens
-  of ms. The cold-start budget *requires* Pygments to load on first
-  highlight, never on the startup path.
-- **Lazy / async heavy segments.** Git, completion providers and dashboard
-  collectors must be lazy-initialized and kept off the synchronous startup
-  and prompt hot paths (see [Native Git Experience](#native-git-experience)).
+- The stdlib-only canonical harness and complete methodology are documented in
+  [performance.md](../development/performance.md); thresholds and sampling are
+  versioned in repository-root `performance.toml`.
+- Linux and real FreeBSD 14.4 CI jobs fail a PR when a release-blocking median
+  exceeds the explicit 20% profile margin and retain JSON evidence.
+- Fresh-process tests verify Pygments and runtime-heavy implementation modules
+  remain absent from bare `pysh` and `pysh.api` imports.
+- Git metadata, completion providers, and redraw preparation have separate
+  scenarios; ordinary printable keys do not invoke completion providers.
 
 **Watch out for**
 - Benchmarks must pin the Python build and run on tier-1 platforms (`#52`);
