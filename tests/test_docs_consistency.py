@@ -17,6 +17,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).parent.parent
 README = REPO_ROOT / "README.md"
 DOCS = REPO_ROOT / "docs"
@@ -24,6 +26,10 @@ ARCHITECTURE_POLICY = REPO_ROOT / "architecture.toml"
 LAYERING_DOC = DOCS / "architecture" / "layering.md"
 PERFORMANCE_POLICY = REPO_ROOT / "performance.toml"
 PERFORMANCE_DOC = DOCS / "development" / "performance.md"
+PERFORMANCE_TABLE_HEADER = (
+    "| Benchmark ID | Scope | Samples / warmups | Nominal budget | CI threshold | "
+    "Status of Issue #47 target |"
+)
 
 MARKDOWN_FILES: tuple[Path, ...] = (
     *tuple(
@@ -64,6 +70,63 @@ def _tracked_files(*patterns: str) -> tuple[Path, ...]:
 def _markdown_link_targets(text: str) -> list[str]:
     """Return Markdown link targets from *text*."""
     return [match.group(1) for match in LOCAL_LINK_RE.finditer(text)]
+
+
+def _performance_table_budgets(text: str) -> dict[str, str]:
+    """Return benchmark-to-budget bindings from the normative Markdown table."""
+    lines = text.splitlines()
+    header_indexes = [
+        index for index, line in enumerate(lines) if line == PERFORMANCE_TABLE_HEADER
+    ]
+    assert len(header_indexes) == 1, (
+        "Expected exactly one normative performance budget table; "
+        f"found {len(header_indexes)}"
+    )
+
+    header_index = header_indexes[0]
+    assert header_index + 2 < len(lines), "Normative performance budget table is incomplete"
+    separator = lines[header_index + 1]
+    assert separator.startswith("| ---"), (
+        "Normative performance budget table is missing its separator row"
+    )
+
+    budgets: dict[str, str] = {}
+    for line in lines[header_index + 2 :]:
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        assert len(cells) == 6, f"Malformed normative performance table row: {line}"
+        identifier_match = re.fullmatch(r"`([^`]+)`", cells[0])
+        assert identifier_match is not None, (
+            f"Malformed benchmark ID in normative performance table row: {line}"
+        )
+        identifier = identifier_match.group(1)
+        assert identifier not in budgets, (
+            f"Duplicate benchmark ID in normative performance table: {identifier}"
+        )
+        budgets[identifier] = cells[3]
+
+    assert budgets, "Normative performance budget table has no benchmark rows"
+    return budgets
+
+
+def _assert_documented_budgets_match_policy(
+    performance: str,
+    benchmarks: list[dict[str, object]],
+) -> None:
+    """Assert each policy budget is bound to its benchmark's normative row."""
+    documented_budgets = _performance_table_budgets(performance)
+    for benchmark in benchmarks:
+        identifier = str(benchmark["id"])
+        expected = f"{float(benchmark['budget']):g} ms"
+        assert identifier in documented_budgets, (
+            f"Benchmark {identifier!r} is missing from the normative performance table"
+        )
+        actual = documented_budgets[identifier]
+        assert actual == expected, (
+            f"Normative budget mismatch for {identifier!r}: "
+            f"expected {expected!r}, found {actual!r}"
+        )
 
 
 def test_docs_markdown_local_links_resolve() -> None:
@@ -1373,13 +1436,34 @@ def test_issue_47_performance_contract_is_normative_and_indexed() -> None:
 
 
 def test_issue_47_documented_budgets_match_machine_policy() -> None:
-    """Every benchmark ID and numeric budget appears in normative prose."""
+    """Every benchmark budget matches its normative Markdown table row."""
     with PERFORMANCE_POLICY.open("rb") as stream:
         policy = tomllib.load(stream)
     performance = PERFORMANCE_DOC.read_text(encoding="utf-8")
-    for benchmark in policy["benchmarks"]:
-        assert f"`{benchmark['id']}`" in performance
-        assert f"{benchmark['budget']:g} ms" in performance
+    _assert_documented_budgets_match_policy(performance, policy["benchmarks"])
     for profile in policy["profiles"]:
         assert f"`{profile}`" in performance
     assert "Raising a release-blocking budget is not a normal regression fix" in performance
+
+
+def test_issue_47_historical_budget_cannot_mask_normative_row_mismatch() -> None:
+    """Historical prose cannot satisfy a mismatched normative budget row."""
+    with PERFORMANCE_POLICY.open("rb") as stream:
+        policy = tomllib.load(stream)
+    performance = PERFORMANCE_DOC.read_text(encoding="utf-8")
+    cold_start = next(
+        benchmark
+        for benchmark in policy["benchmarks"]
+        if benchmark["id"] == "cold_start"
+    )
+    cold_start["budget"] = 150.0
+
+    assert "150 ms" in performance
+    with pytest.raises(
+        AssertionError,
+        match=(
+            r"Normative budget mismatch for 'cold_start': "
+            r"expected '150 ms', found '175 ms'"
+        ),
+    ):
+        _assert_documented_budgets_match_policy(performance, policy["benchmarks"])

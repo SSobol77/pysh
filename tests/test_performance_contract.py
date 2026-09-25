@@ -39,6 +39,15 @@ def _load_harness() -> ModuleType:
 HARNESS = _load_harness()
 
 
+def _write_modified_policy(tmp_path: Path, old: str, new: str) -> Path:
+    """Write one deterministic mutation of the canonical performance policy."""
+    text = POLICY_PATH.read_text(encoding="utf-8")
+    assert old in text
+    policy = tmp_path / "performance.toml"
+    policy.write_text(text.replace(old, new, 1), encoding="utf-8")
+    return policy
+
+
 def test_performance_policy_is_complete_and_versioned() -> None:
     """The policy defines every fixed scenario and both validation profiles."""
     policy = HARNESS.load_policy(POLICY_PATH)
@@ -78,6 +87,32 @@ def test_policy_rejects_unknown_benchmark_configuration(tmp_path: Path) -> None:
     policy = tmp_path / "performance.toml"
     policy.write_text(text, encoding="utf-8")
     with pytest.raises(HARNESS.PolicyError, match="unknown keys"):
+        HARNESS.load_policy(policy)
+
+
+def test_policy_accepts_positive_finite_number() -> None:
+    """Positive finite numeric contract values remain valid."""
+    assert HARNESS._required_number({"budget": 1.25}, "budget", "benchmark") == 1.25
+
+
+@pytest.mark.parametrize("invalid_value", ["inf", "-inf", "nan"])
+@pytest.mark.parametrize(
+    ("old", "field"),
+    [
+        ("budget = 175.0", "budget"),
+        ("ci_margin_percent = 20.0", "ci_margin_percent"),
+    ],
+)
+def test_policy_rejects_non_finite_contract_numbers(
+    tmp_path: Path,
+    old: str,
+    field: str,
+    invalid_value: str,
+) -> None:
+    """NaN and infinities cannot weaken budgets or CI margins."""
+    policy = _write_modified_policy(tmp_path, old, f"{field} = {invalid_value}")
+
+    with pytest.raises(HARNESS.PolicyError, match=rf"\.{field} must be finite$"):
         HARNESS.load_policy(policy)
 
 
@@ -175,6 +210,74 @@ def test_harness_writes_json_then_returns_nonzero_on_regression(
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["overall_status"] == "FAIL"
     assert report["benchmarks"][0]["status"] == "FAIL"
+
+
+def test_harness_returns_infrastructure_error_on_subprocess_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A cold-start timeout returns 2 without exposing a traceback."""
+
+    def raise_timeout(_contract: object) -> list[float]:
+        raise subprocess.TimeoutExpired(cmd=["pysh"], timeout=10.0)
+
+    monkeypatch.setitem(HARNESS._BENCHMARK_RUNNERS, "cold_start", raise_timeout)
+    output = tmp_path / "timeout.json"
+
+    status = HARNESS.main([
+        "--policy",
+        str(POLICY_PATH),
+        "--profile",
+        "linux-python3-13",
+        "--benchmark",
+        "cold_start",
+        "--output",
+        str(output),
+    ])
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert captured.out == ""
+    assert captured.err.startswith("pysh-performance: ")
+    assert "timed out" in captured.err
+    assert "Traceback" not in captured.err
+    assert not output.exists()
+
+
+def test_harness_returns_infrastructure_error_on_report_write_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An expected report-write failure returns 2 without a traceback."""
+    monkeypatch.setitem(
+        HARNESS._BENCHMARK_RUNNERS,
+        "prompt_render",
+        lambda contract: [contract.budget] * contract.sample_count,
+    )
+
+    def fail_write(_path: Path, _report: object) -> None:
+        raise OSError("report destination is read-only")
+
+    monkeypatch.setattr(HARNESS, "_write_report", fail_write)
+
+    status = HARNESS.main([
+        "--policy",
+        str(POLICY_PATH),
+        "--profile",
+        "linux-python3-13",
+        "--benchmark",
+        "prompt_render",
+        "--output",
+        str(tmp_path / "unwritable" / "performance.json"),
+    ])
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert captured.out == ""
+    assert captured.err == "pysh-performance: report destination is read-only\n"
+    assert "Traceback" not in captured.err
 
 
 @pytest.mark.parametrize("module_name", ["pysh", "pysh.api"])
