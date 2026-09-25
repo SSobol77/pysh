@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import math
 import os
 import platform
 import re
@@ -102,6 +103,8 @@ def _required_number(table: Mapping[str, object], key: str, owner: str) -> float
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise PolicyError(f"{owner}.{key} must be a number")
     numeric = float(value)
+    if not math.isfinite(numeric):
+        raise PolicyError(f"{owner}.{key} must be finite")
     if numeric <= 0:
         raise PolicyError(f"{owner}.{key} must be greater than zero")
     return numeric
@@ -672,11 +675,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
         )
         report = build_report(selected_policy, profile, measurements)
-    except (OSError, PolicyError, RuntimeError, ValueError) as error:
+        _write_report(args.output, report)
+    except (
+        OSError,
+        PolicyError,
+        RuntimeError,
+        ValueError,
+        subprocess.TimeoutExpired,
+    ) as error:
         print(f"pysh-performance: {error}", file=sys.stderr)
         return 2
 
-    _write_report(args.output, report)
     _print_summary(report)
     return 0 if report["overall_status"] == "PASS" else 1
 
