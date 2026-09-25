@@ -1491,6 +1491,7 @@ def test_issue_47_historical_budget_cannot_mask_normative_row_mismatch() -> None
 
     mismatched_budget = original_budget + 1.0
     mismatched_budget_text = f"{mismatched_budget:g} ms"
+    performance += f"\nHistorical budget note: {mismatched_budget_text}\n"
     cold_start["budget"] = mismatched_budget
     expected_diagnostic = (
         "Normative budget mismatch for 'cold_start': "
