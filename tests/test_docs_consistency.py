@@ -116,12 +116,19 @@ def _assert_documented_budgets_match_policy(
 ) -> None:
     """Assert each policy budget is bound to its benchmark's normative row."""
     documented_budgets = _performance_table_budgets(performance)
+    policy_ids = {str(benchmark["id"]) for benchmark in benchmarks}
+    documented_ids = set(documented_budgets)
+    missing = sorted(policy_ids - documented_ids)
+    unexpected = sorted(documented_ids - policy_ids)
+    assert not missing and not unexpected, (
+        "Normative performance table benchmark IDs disagree with policy; "
+        f"missing from documentation: {missing!r}; "
+        f"unexpected in documentation: {unexpected!r}"
+    )
+
     for benchmark in benchmarks:
         identifier = str(benchmark["id"])
         expected = f"{float(benchmark['budget']):g} ms"
-        assert identifier in documented_budgets, (
-            f"Benchmark {identifier!r} is missing from the normative performance table"
-        )
         actual = documented_budgets[identifier]
         assert actual == expected, (
             f"Normative budget mismatch for {identifier!r}: "
@@ -1446,24 +1453,53 @@ def test_issue_47_documented_budgets_match_machine_policy() -> None:
     assert "Raising a release-blocking budget is not a normal regression fix" in performance
 
 
+def test_issue_47_unexpected_normative_benchmark_row_fails() -> None:
+    """A normative table row without a machine-policy owner must fail."""
+    with PERFORMANCE_POLICY.open("rb") as stream:
+        policy = tomllib.load(stream)
+    lines = PERFORMANCE_DOC.read_text(encoding="utf-8").splitlines()
+    header_index = lines.index(PERFORMANCE_TABLE_HEADER)
+    lines.insert(
+        header_index + 2,
+        "| `obsolete_contract_fixture` | In process | 5 / 0 | 1 ms | 1.2 ms | Test fixture |",
+    )
+    performance = "\n".join(lines)
+
+    with pytest.raises(
+        AssertionError,
+        match=r"unexpected in documentation: \['obsolete_contract_fixture'\]",
+    ):
+        _assert_documented_budgets_match_policy(performance, policy["benchmarks"])
+
+
 def test_issue_47_historical_budget_cannot_mask_normative_row_mismatch() -> None:
     """Historical prose cannot satisfy a mismatched normative budget row."""
     with PERFORMANCE_POLICY.open("rb") as stream:
         policy = tomllib.load(stream)
     performance = PERFORMANCE_DOC.read_text(encoding="utf-8")
+    documented_budgets = _performance_table_budgets(performance)
     cold_start = next(
         benchmark
         for benchmark in policy["benchmarks"]
         if benchmark["id"] == "cold_start"
     )
-    cold_start["budget"] = 150.0
+    original_budget = float(cold_start["budget"])
+    documented_budget = documented_budgets["cold_start"]
 
-    assert "150 ms" in performance
+    _assert_documented_budgets_match_policy(performance, policy["benchmarks"])
+    assert documented_budget == f"{original_budget:g} ms"
+
+    mismatched_budget = original_budget + 1.0
+    mismatched_budget_text = f"{mismatched_budget:g} ms"
+    performance += f"\nHistorical budget note: {mismatched_budget_text}\n"
+    cold_start["budget"] = mismatched_budget
+    expected_diagnostic = (
+        "Normative budget mismatch for 'cold_start': "
+        f"expected {mismatched_budget_text!r}, found {documented_budget!r}"
+    )
+
     with pytest.raises(
         AssertionError,
-        match=(
-            r"Normative budget mismatch for 'cold_start': "
-            r"expected '150 ms', found '175 ms'"
-        ),
+        match=re.escape(expected_diagnostic),
     ):
         _assert_documented_budgets_match_policy(performance, policy["benchmarks"])
