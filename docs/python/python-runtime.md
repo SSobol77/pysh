@@ -39,7 +39,8 @@ py {
 }
 ```
 
-- The opener is a line that, after stripping whitespace, is exactly `py {`.
+- The opener is a line that, after stripping whitespace and an optional
+  trailing shell comment, is `py {`.
 - The closer is a line that, after stripping whitespace, is exactly `}`.
 - The block body executes in the **same persistent Python runtime context**
   as one-line `py` invocations.

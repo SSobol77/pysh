@@ -10,6 +10,7 @@ contracts without importing PySH runtime modules.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -26,6 +27,9 @@ ARCHITECTURE_POLICY = REPO_ROOT / "architecture.toml"
 LAYERING_DOC = DOCS / "architecture" / "layering.md"
 PERFORMANCE_POLICY = REPO_ROOT / "performance.toml"
 PERFORMANCE_DOC = DOCS / "development" / "performance.md"
+LANGUAGE_SPEC = DOCS / "spec" / "pysh-language.md"
+LANGUAGE_CORPUS = REPO_ROOT / "tests" / "conformance" / "pysh-language-v1.json"
+LANGUAGE_RUNNER = REPO_ROOT / "scripts" / "run_language_conformance.py"
 PERFORMANCE_TABLE_HEADER = (
     "| Benchmark ID | Scope | Samples / warmups | Nominal budget | CI threshold | "
     "Status of Issue #47 target |"
@@ -157,6 +161,25 @@ def test_docs_markdown_local_links_resolve() -> None:
                 )
 
     assert not errors, "Broken local Markdown links:\n" + "\n".join(errors)
+
+
+def test_language_specification_and_conformance_artifacts_are_indexed() -> None:
+    """The normative v1 language oracle must be present and discoverable."""
+    assert LANGUAGE_SPEC.exists()
+    assert LANGUAGE_CORPUS.exists()
+    assert LANGUAGE_RUNNER.exists()
+    docs_index = (DOCS / "README.md").read_text(encoding="utf-8")
+    specification = LANGUAGE_SPEC.read_text(encoding="utf-8")
+    corpus = json.loads(LANGUAGE_CORPUS.read_text(encoding="utf-8"))
+    assert "spec/pysh-language.md" in docs_index
+    assert "normative current pysh v1 language semantics" in docs_index.lower()
+    assert corpus["schema_version"] == 1
+    assert "`schema_version` is **1**" in specification
+    contract_ids = set(re.findall(r'<a id="(PYSH-LANG-[A-Z0-9-]+)"></a>', specification))
+    assert contract_ids
+    assert all(case["contract_ref"] in contract_ids for case in corpus["cases"])
+    represented = {case["category"] for case in corpus["cases"]}
+    assert represented == set(corpus["required_categories"])
 
 
 def test_tracked_source_docs_and_scripts_declare_repository_relative_file_path() -> None:

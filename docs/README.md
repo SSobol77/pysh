@@ -37,6 +37,8 @@ source of truth. All canonical documentation lives here under `docs/`.
 ```text
 docs/
 ├── README.md                          ← this file (documentation index)
+├── spec/                              ← normative language semantics
+│   └── pysh-language.md
 ├── user/                              ← end-user guides
 │   ├── installation.md
 │   ├── usage.md
@@ -137,6 +139,19 @@ Documentation for people who install and use PySH day to day.
 | [project-philosophy.md](user/project-philosophy.md) | Python-first philosophy, compatibility boundaries, determinism, safety and user control |
 | [manual-validation.md](user/manual-validation.md) | Final public user-path validation checklist and release evidence record |
 | [midnight-commander.md](user/midnight-commander.md) | MC integration policy and the `mc` builtin |
+
+---
+
+## Language specification
+
+| Document | Description |
+| -------- | ----------- |
+| [pysh-language.md](spec/pysh-language.md) | Normative current PySH v1 language semantics, stable contract identifiers, conformance-corpus schema, and semantic-change procedure |
+
+Authority hierarchy: `docs/spec/pysh-language.md` defines normative current
+PySH v1 language semantics. Architecture documents retain detailed subsystem,
+history, and design contracts. Compatibility documents classify compatibility;
+they are not independent grammar definitions.
 
 ---
 
@@ -291,3 +306,5 @@ Suggested future Wiki structure when mirroring is implemented:
 5. Documentation must not be duplicated into divergent copies across the tree.
 6. All compatibility and feature claims in documentation must be backed by
    tests or the current test matrix. Aspirational claims are not permitted.
+7. `docs/spec/pysh-language.md` is the normative authority for current PySH v1
+   command-language semantics.

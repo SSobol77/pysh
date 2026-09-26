@@ -50,6 +50,9 @@ jobs:
       - name: Run pytest
         run: pytest -q
 
+      - name: Run language conformance suite
+        run: python scripts/run_language_conformance.py
+
       - name: Run ruff
         run: ruff check src tests
 
