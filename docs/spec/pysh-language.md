@@ -57,8 +57,10 @@ semantic restrictions below still apply.
 
 ```ebnf
 logical-input   = chain | python-block | pipeline-python-block ;
-chain           = command, { chain-op, command } ;
-chain-op        = ";" | "&&" | "||" | "&" ;
+chain           = command, { command-connector, command }, [ background-op ] ;
+command-connector = sequence-op | background-op ;
+sequence-op     = ";" | "&&" | "||" ;
+background-op   = "&" ;
 command         = pipeline ;
 pipeline        = stage, { "|", stage } ;
 stage           = { assignment, whitespace }, simple-command,

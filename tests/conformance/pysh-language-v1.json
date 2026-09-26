@@ -139,6 +139,15 @@
       "contract_ref": "PYSH-LANG-CHAIN-BACKGROUND"
     },
     {
+      "id": "chains-trailing-background-operator",
+      "category": "chains",
+      "surface": "command",
+      "input": "fixture-status 0 &",
+      "pysh_expected": {"status": 0, "stdout": {"match": "ignore", "value": ""}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "A trailing background operator launches the command; nondeterministic job and PID output is ignored."},
+      "contract_ref": "PYSH-LANG-CHAIN-BACKGROUND"
+    },
+    {
       "id": "pipelines-data-flow",
       "category": "pipelines",
       "surface": "command",
