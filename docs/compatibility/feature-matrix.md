@@ -152,7 +152,8 @@ shell feature area in the current PySH release. Category definitions are in
 | Redirection | `2>> file` (stderr append) | Supported | Native | `tests/test_redirection.py` | — |
 | Redirection | `&> file` (stdout+stderr truncate) | Supported | Native | `tests/test_redirection.py` | — |
 | Redirection | `&>> file` (stdout+stderr append) | Supported | Native | `tests/test_redirection.py` | — |
-| Redirection | Fd duplication: `2>&1` | Unsupported | Unsupported | — | — |
+| Redirection | Standard fd duplication: `2>&1`, `1>&2`, `>&2` | Supported | Native | `tests/test_redirection.py` | — |
+| Redirection | Arbitrary fd duplication/closing | Unsupported | Unsupported | `docs/spec/pysh-language.md` | — |
 | Redirection | `/dev/null` shorthand | Supported | Native | — | — |
 
 ## Command substitution
