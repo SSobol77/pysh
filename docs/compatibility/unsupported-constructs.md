@@ -24,7 +24,8 @@ implemented status when a roadmap issue closes the gap.
 Issue #8 added parser foundation and deterministic diagnostics for selected
 unsupported constructs. It did not implement arithmetic expansion, advanced
 parameter expansion, fd duplication, nested command substitution, pipefail,
-ANSI C quoting, or full script loop semantics.
+ANSI C quoting, or full script loop semantics. Standard-descriptor duplication
+was implemented after Issue #8 for current v1 behavior.
 
 ---
 
@@ -36,7 +37,8 @@ ANSI C quoting, or full script loop semantics.
 | Shell arrays | Unsupported | — |
 | Arithmetic expansion `$((expr))` | Unsupported | — |
 | Advanced parameter expansion | Unsupported | — |
-| `fd` duplication `2>&1` | Unsupported | — |
+| Standard `fd` duplication (`2>&1`, `1>&2`, `>&2`) | Supported | — |
+| Arbitrary `fd` duplication/closing | Unsupported | — |
 | Nested command substitution | Unsupported | — |
 | Native glob expansion | Supported (Issue #9) | #9 |
 | Job-control extensions (`wait`, `disown`) | Unsupported | #11 |
@@ -99,9 +101,9 @@ ANSI C quoting, or full script loop semantics.
 
 | Field | Value |
 | ----- | ----- |
-| Construct | `2>&1`, `1>&2`, `N>&M` |
-| Current behavior | Not supported. `2>&1` is not recognized as fd duplication. |
-| Required user action | Use `&>` or `&>>` for combined stdout+stderr, or delegate to a real shell. |
+| Construct | `2>&1`, `1>&2`, `>&2`, arbitrary `N>&M`, and descriptor closing |
+| Current behavior | `2>&1`, `1>&2`, and `>&2` are supported and applied left to right. Arbitrary descriptor numbers, `<&`, and descriptor closing such as `>&-` remain unsupported. |
+| Required user action | Use the supported standard-descriptor forms, `&>` / `&>>`, or explicitly delegate constructs outside that boundary. |
 | Owner issue | — |
 
 ### Nested command substitution

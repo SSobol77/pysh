@@ -321,8 +321,9 @@ py {
 }
 ```
 
-The opener line is exactly `py {`, the closer line is exactly `}`. Block
-bodies share the persistent Python runtime with one-line `py` invocations.
+The opener line is `py {` with optional surrounding whitespace and an optional
+trailing shell comment; the closer line is exactly `}` apart from surrounding
+whitespace. Block bodies share the persistent Python runtime with one-line `py` invocations.
 See [python-runtime.md](../python/python-runtime.md).
 
 ## System profile helpers

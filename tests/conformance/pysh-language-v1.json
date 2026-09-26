@@ -1,0 +1,583 @@
+{
+  "schema_version": 1,
+  "language_version": "1",
+  "required_categories": [
+    "source",
+    "lexical",
+    "quoting",
+    "comments",
+    "chains",
+    "pipelines",
+    "redirection",
+    "fd_ordering",
+    "variables",
+    "path_expansion",
+    "substitution",
+    "heredoc",
+    "python",
+    "script",
+    "startup",
+    "exit_status",
+    "unsupported"
+  ],
+  "cases": [
+    {
+      "id": "source-backslash-continuation",
+      "category": "source",
+      "surface": "command",
+      "input": "fixture-echo hello \\\nworld",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "hello world\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Common shell line-continuation result."},
+      "contract_ref": "PYSH-LANG-SOURCE-LOGICAL"
+    },
+    {
+      "id": "lexical-unquoted-words",
+      "category": "lexical",
+      "surface": "command",
+      "input": "fixture-echo alpha beta",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "alpha beta\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Whitespace-delimited words are broadly equivalent."},
+      "contract_ref": "PYSH-LANG-LEX-WORDS"
+    },
+    {
+      "id": "lexical-adjacent-fragments",
+      "category": "lexical",
+      "surface": "command",
+      "input": "fixture-echo pre\"mid dle\"post",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "premid dlepost\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Adjacent word fragments concatenate."},
+      "contract_ref": "PYSH-LANG-LEX-WORDS"
+    },
+    {
+      "id": "quoting-groups-and-escapes",
+      "category": "quoting",
+      "surface": "command",
+      "input": "fixture-echo \"a b\" 'c d' e\\ f",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "a b c d e f\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Basic quoting and escape grouping are equivalent."},
+      "contract_ref": "PYSH-LANG-QUOTE-RULES"
+    },
+    {
+      "id": "quoting-operators-literal",
+      "category": "quoting",
+      "surface": "command",
+      "input": "fixture-echo \"a | b ; c && d || e\"",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "a | b ; c && d || e\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Quoted metacharacters remain data."},
+      "contract_ref": "PYSH-LANG-QUOTE-RULES"
+    },
+    {
+      "id": "quoting-unclosed-error",
+      "category": "quoting",
+      "surface": "command",
+      "input": "fixture-echo 'unclosed",
+      "pysh_expected": {"status": 2, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "contains", "value": "unterminated single quote"}, "diagnostic": "syntax"},
+      "reference_behavior": {"classification": "equivalent", "note": "References also diagnose incomplete quoting; wording/status may differ."},
+      "contract_ref": "PYSH-LANG-QUOTE-RULES"
+    },
+    {
+      "id": "comments-token-boundary",
+      "category": "comments",
+      "surface": "command",
+      "input": "fixture-echo value # ignored",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "value\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Token-boundary comments are equivalent."},
+      "contract_ref": "PYSH-LANG-COMMENT-BOUNDARY"
+    },
+    {
+      "id": "comments-midword-literal",
+      "category": "comments",
+      "surface": "command",
+      "input": "fixture-echo value#literal",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "value#literal\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "A mid-word hash remains literal."},
+      "contract_ref": "PYSH-LANG-COMMENT-BOUNDARY"
+    },
+    {
+      "id": "chains-sequence",
+      "category": "chains",
+      "surface": "command",
+      "input": "fixture-echo one; fixture-echo two",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "one\ntwo\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Sequential execution is equivalent."},
+      "contract_ref": "PYSH-LANG-CHAIN-SEQUENCE"
+    },
+    {
+      "id": "chains-and-short-circuit",
+      "category": "chains",
+      "surface": "command",
+      "input": "fixture-status 1 && fixture-echo forbidden",
+      "pysh_expected": {"status": 1, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "AND short-circuit and resulting status are equivalent."},
+      "contract_ref": "PYSH-LANG-CHAIN-CONDITIONAL"
+    },
+    {
+      "id": "chains-or-short-circuit",
+      "category": "chains",
+      "surface": "command",
+      "input": "fixture-status 1 || fixture-echo recovered",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "recovered\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "OR short-circuit and resulting status are equivalent."},
+      "contract_ref": "PYSH-LANG-CHAIN-CONDITIONAL"
+    },
+    {
+      "id": "chains-status-last-executed",
+      "category": "chains",
+      "surface": "command",
+      "input": "fixture-status 7 || fixture-status 3",
+      "pysh_expected": {"status": 3, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "The last executed element determines status."},
+      "contract_ref": "PYSH-LANG-CHAIN-CONDITIONAL"
+    },
+    {
+      "id": "chains-background-operator",
+      "category": "chains",
+      "surface": "command",
+      "input": "fixture-status 0 & fixture-status 0",
+      "pysh_expected": {"status": 0, "stdout": {"match": "ignore", "value": ""}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Background launch is equivalent; nondeterministic job and PID output is ignored."},
+      "contract_ref": "PYSH-LANG-CHAIN-BACKGROUND"
+    },
+    {
+      "id": "pipelines-data-flow",
+      "category": "pipelines",
+      "surface": "command",
+      "input": "fixture-echo pipeline | fixture-cat",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "pipeline\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Basic pipe data flow is equivalent."},
+      "contract_ref": "PYSH-LANG-PIPE-STATUS"
+    },
+    {
+      "id": "pipelines-final-stage-status",
+      "category": "pipelines",
+      "surface": "command",
+      "input": "fixture-status 9 | fixture-status 4",
+      "pysh_expected": {"status": 4, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Default reference pipelines also report the final stage."},
+      "contract_ref": "PYSH-LANG-PIPE-STATUS"
+    },
+    {
+      "id": "pipelines-dangling-stage",
+      "category": "pipelines",
+      "surface": "command",
+      "input": "fixture-echo value |",
+      "pysh_expected": {"status": 2, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "contains", "value": "unexpected '|'"}, "diagnostic": "syntax"},
+      "reference_behavior": {"classification": "equivalent", "note": "A dangling pipeline stage is invalid syntax."},
+      "contract_ref": "PYSH-LANG-PIPE-STATUS"
+    },
+    {
+      "id": "redirection-output-and-append",
+      "category": "redirection",
+      "surface": "command",
+      "input": "fixture-echo one > output.txt; fixture-echo two >> output.txt; fixture-cat < output.txt",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "one\ntwo\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Truncation, append, and input redirection are equivalent."},
+      "contract_ref": "PYSH-LANG-REDIR-FILES"
+    },
+    {
+      "id": "redirection-stderr-file",
+      "category": "redirection",
+      "surface": "command",
+      "input": "fixture-both 2> error.txt; fixture-cat < error.txt",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "OUT\nERR\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Descriptor 2 file redirection is equivalent."},
+      "contract_ref": "PYSH-LANG-REDIR-FILES"
+    },
+    {
+      "id": "redirection-missing-target",
+      "category": "redirection",
+      "surface": "command",
+      "input": "fixture-echo value >",
+      "pysh_expected": {"status": 2, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "contains", "value": "missing redirection target"}, "diagnostic": "syntax"},
+      "reference_behavior": {"classification": "equivalent", "note": "A missing target is invalid syntax."},
+      "contract_ref": "PYSH-LANG-REDIR-FILES"
+    },
+    {
+      "id": "redirection-explicit-numeric-descriptors",
+      "category": "redirection",
+      "surface": "command",
+      "input": "fixture-cat 0< stdin.txt 1> numeric.txt; fixture-cat < numeric.txt",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "FILE\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Explicit standard descriptor forms are equivalent."},
+      "contract_ref": "PYSH-LANG-REDIR-FILES"
+    },
+    {
+      "id": "redirection-combined-output",
+      "category": "redirection",
+      "surface": "command",
+      "input": "fixture-both &> combined.txt; fixture-cat < combined.txt",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "ERR\nOUT\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Combined output redirects both standard output streams."},
+      "contract_ref": "PYSH-LANG-REDIR-FILES"
+    },
+    {
+      "id": "fd-dup-stdout-to-stderr",
+      "category": "fd_ordering",
+      "surface": "command",
+      "input": "fixture-echo handed-over 1>&2",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "exact", "value": "handed-over\n"}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Explicit stdout-to-stderr duplication is equivalent."},
+      "contract_ref": "PYSH-LANG-REDIR-FD-DUP"
+    },
+    {
+      "id": "fd-order-output-then-dup",
+      "category": "fd_ordering",
+      "surface": "command",
+      "input": "fixture-both > ordered.txt 2>&1",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Both descriptors end at the file when duplication is last."},
+      "contract_ref": "PYSH-LANG-REDIR-ORDER"
+    },
+    {
+      "id": "fd-order-dup-then-output",
+      "category": "fd_ordering",
+      "surface": "command",
+      "input": "fixture-both 2>&1 > ordered.txt",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "ERR\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Stderr retains original stdout when duplication is first."},
+      "contract_ref": "PYSH-LANG-REDIR-ORDER"
+    },
+    {
+      "id": "variables-environment",
+      "category": "variables",
+      "surface": "command",
+      "input": "fixture-echo $PYSH_CONFORMANCE ${PYSH_CONFORMANCE}",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "value value\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Simple environment variable forms are equivalent."},
+      "contract_ref": "PYSH-LANG-EXP-VARIABLE"
+    },
+    {
+      "id": "variables-local-precedence",
+      "category": "variables",
+      "surface": "script",
+      "input": "PYSH_CONFORMANCE=local\nfixture-echo $PYSH_CONFORMANCE\n",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "local\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "different", "note": "PySH session-local assignment semantics are intentionally scoped."},
+      "contract_ref": "PYSH-LANG-EXP-VARIABLE"
+    },
+    {
+      "id": "variables-single-quote-suppression",
+      "category": "variables",
+      "surface": "command",
+      "input": "fixture-echo '$PYSH_CONFORMANCE'",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "$PYSH_CONFORMANCE\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Single quotes suppress expansion."},
+      "contract_ref": "PYSH-LANG-EXP-VARIABLE"
+    },
+    {
+      "id": "variables-last-status",
+      "category": "variables",
+      "surface": "script",
+      "input": "fixture-status 7\nfixture-echo $?\n",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "7\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "The last command status parameter is equivalent."},
+      "contract_ref": "PYSH-LANG-EXP-VARIABLE"
+    },
+    {
+      "id": "variables-command-environment",
+      "category": "variables",
+      "surface": "command",
+      "input": "CASE_VALUE=child fixture-env CASE_VALUE",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "child\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Leading assignment supplies the child environment."},
+      "contract_ref": "PYSH-LANG-EXP-VARIABLE"
+    },
+    {
+      "id": "path-glob-sorted",
+      "category": "path_expansion",
+      "surface": "command",
+      "input": "fixture-echo *.txt",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "alpha.txt beta.txt stdin.txt\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Basic sorted glob output is equivalent for this fixture."},
+      "contract_ref": "PYSH-LANG-EXP-PATH"
+    },
+    {
+      "id": "path-glob-quoted",
+      "category": "path_expansion",
+      "surface": "command",
+      "input": "fixture-echo \"*.txt\"",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "*.txt\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Quoting suppresses glob expansion."},
+      "contract_ref": "PYSH-LANG-EXP-PATH"
+    },
+    {
+      "id": "path-glob-no-match-literal",
+      "category": "path_expansion",
+      "surface": "command",
+      "input": "fixture-echo no-match-*.dat",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "no-match-*.dat\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Literal no-match behavior matches common default shells."},
+      "contract_ref": "PYSH-LANG-EXP-PATH"
+    },
+    {
+      "id": "path-tilde-home",
+      "category": "path_expansion",
+      "surface": "command",
+      "input": "fixture-echo ~",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "{{HOME}}\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Unquoted tilde resolves to HOME."},
+      "contract_ref": "PYSH-LANG-EXP-PATH"
+    },
+    {
+      "id": "path-variable-result-globs",
+      "category": "path_expansion",
+      "surface": "script",
+      "input": "PATTERN=*.txt\nfixture-echo $PATTERN\n",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "alpha.txt beta.txt stdin.txt\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "different", "note": "PySH intentionally glob-expands an unquoted variable result."},
+      "contract_ref": "PYSH-LANG-EXP-ORDER"
+    },
+    {
+      "id": "substitution-dollar-paren",
+      "category": "substitution",
+      "surface": "command",
+      "input": "fixture-echo $(fixture-echo substituted)",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "substituted\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Simple command substitution is equivalent."},
+      "contract_ref": "PYSH-LANG-SUBST-COMMAND"
+    },
+    {
+      "id": "substitution-backtick",
+      "category": "substitution",
+      "surface": "command",
+      "input": "fixture-echo `fixture-echo backtick`",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "backtick\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Simple backtick substitution is equivalent."},
+      "contract_ref": "PYSH-LANG-SUBST-COMMAND"
+    },
+    {
+      "id": "substitution-single-quote-suppression",
+      "category": "substitution",
+      "surface": "command",
+      "input": "fixture-echo '$(fixture-echo forbidden)'",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "$(fixture-echo forbidden)\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Single quotes suppress substitution."},
+      "contract_ref": "PYSH-LANG-SUBST-COMMAND"
+    },
+    {
+      "id": "heredoc-expanded-body",
+      "category": "heredoc",
+      "surface": "command",
+      "input": "fixture-cat << EOF\n$PYSH_CONFORMANCE\nEOF",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "value\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Unquoted delimiter permits variable expansion."},
+      "contract_ref": "PYSH-LANG-HEREDOC-EXPAND"
+    },
+    {
+      "id": "heredoc-quoted-literal-body",
+      "category": "heredoc",
+      "surface": "command",
+      "input": "fixture-cat << 'EOF'\n$PYSH_CONFORMANCE\nEOF",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "$PYSH_CONFORMANCE\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Quoted delimiter makes body literal."},
+      "contract_ref": "PYSH-LANG-HEREDOC-EXPAND"
+    },
+    {
+      "id": "heredoc-tab-strip",
+      "category": "heredoc",
+      "surface": "command",
+      "input": "fixture-cat <<- EOF\n\ttabbed\n\tEOF",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "tabbed\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Tab-stripping heredoc behavior is equivalent."},
+      "contract_ref": "PYSH-LANG-HEREDOC-COLLECT"
+    },
+    {
+      "id": "heredoc-missing-terminator",
+      "category": "heredoc",
+      "surface": "command",
+      "input": "fixture-cat << EOF\nmissing",
+      "pysh_expected": {"status": 2, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "contains", "value": "missing heredoc terminator"}, "diagnostic": "syntax"},
+      "reference_behavior": {"classification": "equivalent", "note": "An unterminated heredoc is invalid input."},
+      "contract_ref": "PYSH-LANG-HEREDOC-COLLECT"
+    },
+    {
+      "id": "herestring-variable-no-glob",
+      "category": "heredoc",
+      "surface": "command",
+      "input": "fixture-cat <<< \"$PYSH_CONFORMANCE *.txt\"",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "value *.txt\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "One expanded word plus newline is equivalent for this fixture."},
+      "contract_ref": "PYSH-LANG-HERESTRING-INPUT"
+    },
+    {
+      "id": "heredoc-file-then-body",
+      "category": "heredoc",
+      "surface": "command",
+      "input": "fixture-cat < stdin.txt << EOF\nHEREDOC\nEOF",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "HEREDOC\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "The later heredoc wins ordered stdin redirection."},
+      "contract_ref": "PYSH-LANG-REDIR-ORDER"
+    },
+    {
+      "id": "heredoc-body-then-file",
+      "category": "heredoc",
+      "surface": "command",
+      "input": "fixture-cat << EOF < stdin.txt\nHEREDOC\nEOF",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "FILE\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "The later file input wins ordered stdin redirection."},
+      "contract_ref": "PYSH-LANG-REDIR-ORDER"
+    },
+    {
+      "id": "heredoc-multiple-last-wins",
+      "category": "heredoc",
+      "surface": "command",
+      "input": "fixture-cat << A << B\nfirst\nA\nsecond\nB",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "second\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Multiple heredocs are collected left-to-right and the last stdin action wins."},
+      "contract_ref": "PYSH-LANG-HEREDOC-COLLECT"
+    },
+    {
+      "id": "python-inline-success",
+      "category": "python",
+      "surface": "command",
+      "input": "py print('python-inline')",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "python-inline\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "not_applicable", "note": "The py command is PySH-specific."},
+      "contract_ref": "PYSH-LANG-PY-INLINE"
+    },
+    {
+      "id": "python-inline-runtime-failure",
+      "category": "python",
+      "surface": "command",
+      "input": "py raise RuntimeError('expected')",
+      "pysh_expected": {"status": 1, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "contains", "value": "RuntimeError: expected"}, "diagnostic": "runtime"},
+      "reference_behavior": {"classification": "not_applicable", "note": "The py command is PySH-specific."},
+      "contract_ref": "PYSH-LANG-PY-INLINE"
+    },
+    {
+      "id": "python-block-persistent-session",
+      "category": "python",
+      "surface": "script",
+      "input": "py {\nvalue = 41\n}\npy print(value + 1)\n",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "42\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "not_applicable", "note": "Persistent Python blocks are PySH-specific."},
+      "contract_ref": "PYSH-LANG-PY-BLOCK"
+    },
+    {
+      "id": "python-block-pipeline",
+      "category": "python",
+      "surface": "script",
+      "input": "fixture-echo abc | py {\nimport sys\nprint(sys.stdin.read().upper(), end='')\n}\n",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "ABC\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "not_applicable", "note": "A Python block pipeline stage is PySH-specific."},
+      "contract_ref": "PYSH-LANG-PY-BLOCK"
+    },
+    {
+      "id": "script-comments-and-last-status",
+      "category": "script",
+      "surface": "script",
+      "input": "# comment\n\nfixture-status 4\n",
+      "pysh_expected": {"status": 4, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "different", "note": "Native PySH script execution is its own surface."},
+      "contract_ref": "PYSH-LANG-SCRIPT-EXECUTION"
+    },
+    {
+      "id": "script-exit-stops-execution",
+      "category": "script",
+      "surface": "script",
+      "input": "fixture-echo before\nexit 7\nfixture-echo forbidden\n",
+      "pysh_expected": {"status": 7, "stdout": {"match": "exact", "value": "before\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Explicit exit stops script execution."},
+      "contract_ref": "PYSH-LANG-SCRIPT-EXECUTION"
+    },
+    {
+      "id": "script-parse-error-stops",
+      "category": "script",
+      "surface": "script",
+      "input": "fixture-echo before\nfixture-echo value |\nfixture-echo forbidden\n",
+      "pysh_expected": {"status": 2, "stdout": {"match": "exact", "value": "before\n"}, "stderr": {"match": "contains", "value": "stopping script on status 2"}, "diagnostic": "syntax"},
+      "reference_behavior": {"classification": "different", "note": "PySH's status-2 stopping rule is explicit native-script policy."},
+      "contract_ref": "PYSH-LANG-SCRIPT-EXECUTION"
+    },
+    {
+      "id": "script-positional-count",
+      "category": "script",
+      "surface": "script",
+      "input": "fixture-echo $# ${#}\n",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "0 0\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "different", "note": "PySH v1 defines a deterministic but limited positional model."},
+      "contract_ref": "PYSH-LANG-SCRIPT-PARAMETERS"
+    },
+    {
+      "id": "script-shebang-ignored",
+      "category": "script",
+      "surface": "script",
+      "input": "#!/definitely/not/an/interpreter\nfixture-echo native\n",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "native\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "different", "note": "Direct PySH native mode ignores the shebang target."},
+      "contract_ref": "PYSH-LANG-SCRIPT-SHEBANG"
+    },
+    {
+      "id": "startup-no-rc",
+      "category": "startup",
+      "surface": "command",
+      "input": "fixture-echo clean-startup",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "clean-startup\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "not_applicable", "note": "The runner's --no-rc PySH startup boundary is intrinsic."},
+      "contract_ref": "PYSH-LANG-STARTUP-BOUNDARY"
+    },
+    {
+      "id": "exit-general-failure",
+      "category": "exit_status",
+      "surface": "command",
+      "input": "fixture-status 1",
+      "pysh_expected": {"status": 1, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "External status 1 propagation is equivalent."},
+      "contract_ref": "PYSH-LANG-EXIT-STATUS"
+    },
+    {
+      "id": "exit-cannot-execute",
+      "category": "exit_status",
+      "surface": "command",
+      "input": "{{NOEXEC}}",
+      "pysh_expected": {"status": 126, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "ignore", "value": ""}, "diagnostic": "cannot_execute"},
+      "reference_behavior": {"classification": "equivalent", "note": "Found but non-executable maps to 126; OS wording is ignored."},
+      "contract_ref": "PYSH-LANG-EXIT-STATUS"
+    },
+    {
+      "id": "exit-command-not-found",
+      "category": "exit_status",
+      "surface": "command",
+      "input": "definitely-missing-command",
+      "pysh_expected": {"status": 127, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "contains", "value": "command not found"}, "diagnostic": "command_not_found"},
+      "reference_behavior": {"classification": "equivalent", "note": "Command-not-found status is equivalent; wording may differ."},
+      "contract_ref": "PYSH-LANG-EXIT-STATUS"
+    },
+    {
+      "id": "exit-sigterm-mapping",
+      "category": "exit_status",
+      "surface": "command",
+      "input": "fixture-signal 15",
+      "pysh_expected": {"status": 143, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "signal"},
+      "reference_behavior": {"classification": "equivalent", "note": "Signal-derived status follows 128 plus signal number."},
+      "contract_ref": "PYSH-LANG-EXIT-SIGNAL"
+    },
+    {
+      "id": "exit-sigint-mapping",
+      "category": "exit_status",
+      "surface": "command",
+      "input": "fixture-signal 2",
+      "pysh_expected": {"status": 130, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "signal"},
+      "reference_behavior": {"classification": "equivalent", "note": "SIGINT maps to 130."},
+      "contract_ref": "PYSH-LANG-EXIT-SIGNAL"
+    },
+    {
+      "id": "unsupported-arithmetic",
+      "category": "unsupported",
+      "surface": "command",
+      "input": "fixture-echo $((1 + 2))",
+      "pysh_expected": {"status": 2, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "contains", "value": "unsupported syntax"}, "diagnostic": "syntax"},
+      "reference_behavior": {"classification": "different", "note": "Arithmetic expansion is deliberately unsupported by PySH."},
+      "contract_ref": "PYSH-LANG-ERROR-UNSUPPORTED"
+    },
+    {
+      "id": "unsupported-control-flow",
+      "category": "unsupported",
+      "surface": "command",
+      "input": "if fixture-status 0; then fixture-echo no; fi",
+      "pysh_expected": {"status": 2, "stdout": {"match": "exact", "value": ""}, "stderr": {"match": "contains", "value": "unsupported syntax"}, "diagnostic": "syntax"},
+      "reference_behavior": {"classification": "different", "note": "Shell control flow is deliberately unsupported by PySH."},
+      "contract_ref": "PYSH-LANG-ERROR-UNSUPPORTED"
+    }
+  ]
+}
