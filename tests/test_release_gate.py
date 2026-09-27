@@ -409,7 +409,7 @@ def test_freebsd_smoke_is_platform_blocked_on_non_freebsd_hosts(
     this repository's dev/CI/test environments are not; that real
     execution is exercised separately in
     tests/test_freebsd_package_smoke_contract.py and in
-    .github/workflows/release-artifacts.yml's FreeBSD 14.4 VM job.
+    .github/workflows/release-artifacts.yml's FreeBSD 14/15 VM matrix.
     """
     monkeypatch.setattr(GATE.platform, "system", lambda: "Linux")
     result = GATE.check_freebsd_smoke(tmp_path)
