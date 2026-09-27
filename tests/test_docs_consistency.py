@@ -873,6 +873,9 @@ def test_freebsd_pkg_builder_script_exists_and_is_executable() -> None:
     assert "pkg create" in text
     assert "pkg info -F" in text
     assert "pkg query -F" in text
+    assert 'pkg query -F "${EXPECTED_PATH}" "%q"' in text
+    assert 'EXPECTED_ARCH="FreeBSD:${FREEBSD_MAJOR}:${MACHINE_ARCH}"' in text
+    assert "unexpected package ABI" in text
     assert "/usr/local/bin/pysh" in text
     assert "exec /usr/local/bin/python3.13 -m pysh" in text
     assert "/usr/local/lib/pysh-shell/pysh" in text
