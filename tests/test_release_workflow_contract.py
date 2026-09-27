@@ -337,6 +337,16 @@ def test_release_workflow_never_uses_contract_only_fixture() -> None:
     assert "--contract-only" not in text
 
 
+def test_active_freebsd_workflows_do_not_pin_a_point_release() -> None:
+    """Supported FreeBSD majors float to the newest available point release."""
+    workflow_dir = REPO_ROOT / ".github" / "workflows"
+    for name in ("release-artifacts.yml", "freebsd-32-36-validation.yml"):
+        text = (workflow_dir / name).read_text(encoding="utf-8")
+        assert 'release: "14.4"' not in text
+        assert 'freebsd: ["14", "15"]' in text
+        assert 'release: "${{ matrix.freebsd }}"' in text
+
+
 # ------------------------------------------------------------- CLI surface
 
 
