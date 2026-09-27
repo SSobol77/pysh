@@ -77,6 +77,9 @@ fi
 
 preserve_freebsd_pkgs() {
     local pkg
+    if [ -n "${PRESERVED_FREEBSD_DIR}" ] && [ -d "${PRESERVED_FREEBSD_DIR}" ]; then
+        return
+    fi
     shopt -s nullglob
     local pkgs=("${REPO_ROOT}"/dist/os/freebsd/pysh-shell-"${VERSION}"-freebsd*-amd64.pkg)
     shopt -u nullglob
