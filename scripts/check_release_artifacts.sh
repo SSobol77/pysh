@@ -69,12 +69,14 @@ EXPECTED_SDIST_HYPHEN="pysh-shell-${VERSION}.tar.gz"
 EXPECTED_SDIST_UNDER="pysh_shell-${VERSION}.tar.gz"
 EXPECTED_DEB="${PKG_NAME}_${VERSION}-${PKG_RELEASE}_all.deb"
 EXPECTED_RPM="${PKG_NAME}-${VERSION}-${PKG_RELEASE}.noarch.rpm"
-EXPECTED_FREEBSD_PKG="${PKG_NAME}-${VERSION}.pkg"
+EXPECTED_FREEBSD_14_PKG="${PKG_NAME}-${VERSION}-freebsd14-amd64.pkg"
+EXPECTED_FREEBSD_15_PKG="${PKG_NAME}-${VERSION}-freebsd15-amd64.pkg"
 
 WHEEL_PATH="${DIST_DIR}/${EXPECTED_WHEEL_NAME}"
 DEB_PATH="${DIST_DIR}/os/deb/${EXPECTED_DEB}"
 RPM_PATH="${DIST_DIR}/os/rpm/${EXPECTED_RPM}"
-FREEBSD_PKG_PATH="${DIST_DIR}/os/freebsd/${EXPECTED_FREEBSD_PKG}"
+FREEBSD_14_PKG_PATH="${DIST_DIR}/os/freebsd/${EXPECTED_FREEBSD_14_PKG}"
+FREEBSD_15_PKG_PATH="${DIST_DIR}/os/freebsd/${EXPECTED_FREEBSD_15_PKG}"
 RELEASE_ASSETS_DIR="${DIST_DIR}/release-assets"
 
 missing=0
@@ -99,7 +101,8 @@ check_present() {
 check_present "${WHEEL_PATH}"
 check_present "${DEB_PATH}"
 check_present "${RPM_PATH}"
-check_present "${FREEBSD_PKG_PATH}"
+check_present "${FREEBSD_14_PKG_PATH}"
+check_present "${FREEBSD_15_PKG_PATH}"
 
 # Accept either backend filename form for the sdist.
 SDIST_PATH=""
@@ -145,11 +148,15 @@ done
 
 for f in "${DIST_DIR}/os/freebsd"/*.pkg; do
     base="$(basename "${f}")"
-    if [ "${base}" != "${EXPECTED_FREEBSD_PKG}" ]; then
-        echo "check_release_artifacts.sh: unexpected .pkg filename: ${base}" >&2
-        echo "check_release_artifacts.sh: canonical name must be ${EXPECTED_FREEBSD_PKG}" >&2
-        exit 1
-    fi
+    case "${base}" in
+        "${EXPECTED_FREEBSD_14_PKG}"|"${EXPECTED_FREEBSD_15_PKG}")
+            ;;
+        *)
+            echo "check_release_artifacts.sh: unexpected .pkg filename: ${base}" >&2
+            echo "check_release_artifacts.sh: canonical names are ${EXPECTED_FREEBSD_14_PKG} and ${EXPECTED_FREEBSD_15_PKG}" >&2
+            exit 1
+            ;;
+    esac
 done
 
 # Fails if SHA256SUMS does not list every expected artifact (contract item 7).
@@ -185,7 +192,8 @@ else
             "$(basename "${SDIST_PATH}")" \
             "os/deb/${EXPECTED_DEB}" \
             "os/rpm/${EXPECTED_RPM}" \
-            "os/freebsd/${EXPECTED_FREEBSD_PKG}" \
+            "os/freebsd/${EXPECTED_FREEBSD_14_PKG}" \
+            "os/freebsd/${EXPECTED_FREEBSD_15_PKG}" \
             >"${SUM_FILE}"
     )
 
@@ -200,7 +208,8 @@ require_checksum_entry "${SUM_FILE}" "${EXPECTED_WHEEL_NAME}"
 require_checksum_entry "${SUM_FILE}" "$(basename "${SDIST_PATH}")"
 require_checksum_entry "${SUM_FILE}" "os/deb/${EXPECTED_DEB}"
 require_checksum_entry "${SUM_FILE}" "os/rpm/${EXPECTED_RPM}"
-require_checksum_entry "${SUM_FILE}" "os/freebsd/${EXPECTED_FREEBSD_PKG}"
+require_checksum_entry "${SUM_FILE}" "os/freebsd/${EXPECTED_FREEBSD_14_PKG}"
+require_checksum_entry "${SUM_FILE}" "os/freebsd/${EXPECTED_FREEBSD_15_PKG}"
 
 if [ "${missing}" -ne 0 ]; then
     echo "check_release_artifacts.sh: aborting due to SHA256SUMS problems." >&2
@@ -214,7 +223,8 @@ cp "${WHEEL_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_WHEEL_NAME}"
 cp "${SDIST_PATH}" "${RELEASE_ASSETS_DIR}/$(basename "${SDIST_PATH}")"
 cp "${DEB_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_DEB}"
 cp "${RPM_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_RPM}"
-cp "${FREEBSD_PKG_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_FREEBSD_PKG}"
+cp "${FREEBSD_14_PKG_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_FREEBSD_14_PKG}"
+cp "${FREEBSD_15_PKG_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_FREEBSD_15_PKG}"
 
 RELEASE_SUM_FILE="${RELEASE_ASSETS_DIR}/SHA256SUMS"
 echo "==> Generating flat GitHub Release SHA256SUMS"
@@ -225,7 +235,8 @@ echo "==> Generating flat GitHub Release SHA256SUMS"
         "$(basename "${SDIST_PATH}")" \
         "${EXPECTED_DEB}" \
         "${EXPECTED_RPM}" \
-        "${EXPECTED_FREEBSD_PKG}" \
+        "${EXPECTED_FREEBSD_14_PKG}" \
+        "${EXPECTED_FREEBSD_15_PKG}" \
         >"${RELEASE_SUM_FILE}"
 )
 
@@ -239,7 +250,8 @@ require_checksum_entry "${RELEASE_SUM_FILE}" "${EXPECTED_WHEEL_NAME}"
 require_checksum_entry "${RELEASE_SUM_FILE}" "$(basename "${SDIST_PATH}")"
 require_checksum_entry "${RELEASE_SUM_FILE}" "${EXPECTED_DEB}"
 require_checksum_entry "${RELEASE_SUM_FILE}" "${EXPECTED_RPM}"
-require_checksum_entry "${RELEASE_SUM_FILE}" "${EXPECTED_FREEBSD_PKG}"
+require_checksum_entry "${RELEASE_SUM_FILE}" "${EXPECTED_FREEBSD_14_PKG}"
+require_checksum_entry "${RELEASE_SUM_FILE}" "${EXPECTED_FREEBSD_15_PKG}"
 
 if [ "${missing}" -ne 0 ]; then
     echo "check_release_artifacts.sh: aborting due to SHA256SUMS problems." >&2
