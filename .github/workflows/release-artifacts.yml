@@ -14,8 +14,12 @@ permissions:
 
 jobs:
   freebsd-pkg:
-    name: Build FreeBSD .pkg
+    name: Build FreeBSD ${{ matrix.freebsd }} .pkg
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        freebsd: ["14", "15"]
     # Safety bound (Issue #33): the real run this job performs -- VM boot,
     # pkg bootstrap, build, static inspection, and the full install-and-run
     # smoke -- reached the interactive PTY step in under a minute in the
@@ -32,7 +36,9 @@ jobs:
       - name: Build and inspect FreeBSD .pkg
         uses: vmactions/freebsd-vm@v1
         with:
-          release: "14.4"
+          # Use the newest point release in each supported major line. The
+          # release artifact filename records the actual major ABI.
+          release: "${{ matrix.freebsd }}"
           usesh: true
           prepare: |
             pkg update -f
@@ -45,7 +51,9 @@ jobs:
             python3.13 --version
             pkg --version
             VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
-            PKG_PATH="dist/os/freebsd/pysh-shell-${VERSION}.pkg"
+            FREEBSD_MAJOR="$(uname -r | awk -F. '{print $1}')"
+            MACHINE_ARCH="$(uname -m)"
+            PKG_PATH="dist/os/freebsd/pysh-shell-${VERSION}-freebsd${FREEBSD_MAJOR}-${MACHINE_ARCH}.pkg"
             sh scripts/build_freebsd_pkg.sh
             test -f "${PKG_PATH}"
             pkg info -F "${PKG_PATH}"
@@ -58,12 +66,12 @@ jobs:
       - name: Verify FreeBSD .pkg artifact on host
         run: |
           VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
-          test -f "dist/os/freebsd/pysh-shell-${VERSION}.pkg"
+          test -f "dist/os/freebsd/pysh-shell-${VERSION}-freebsd${{ matrix.freebsd }}-amd64.pkg"
 
       - name: Upload FreeBSD .pkg workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: freebsd-pkg
+          name: freebsd-pkg-${{ matrix.freebsd }}
           path: dist/os/freebsd/pysh-shell-*.pkg
           if-no-files-found: error
 
@@ -116,10 +124,11 @@ jobs:
       - name: RPM package real install-and-run smoke (isolated Fedora container)
         run: bash scripts/smoke_rpm_package.sh dist/os/rpm/*.rpm
 
-      - name: Download FreeBSD .pkg
+      - name: Download FreeBSD .pkg artifacts
         uses: actions/download-artifact@v4
         with:
-          name: freebsd-pkg
+          pattern: freebsd-pkg-*
+          merge-multiple: true
           path: dist/os/freebsd
 
       - name: Verify canonical artifact names + stage flat release assets
