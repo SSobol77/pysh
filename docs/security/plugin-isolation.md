@@ -285,5 +285,5 @@ handshake, broker authorization, canonical paths, crash, malformed input, and
 hang containment.
 
 Local Debian validation does not establish FreeBSD behavior. The same portable
-test modules must run in the FreeBSD 14.4 CI/VM environment; until that evidence
+test modules must run in the FreeBSD 14/15 CI/VM matrix; until that evidence
 exists, FreeBSD validation is pending rather than PASS.
