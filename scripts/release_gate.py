@@ -488,7 +488,7 @@ def check_freebsd_smoke(log_dir: Path) -> CheckResult:
     a product defect, and is reported as PLATFORM_BLOCKED, never a faked
     PASS. The real build-install-query-execute lifecycle also runs,
     unconditionally, inside .github/workflows/release-artifacts.yml's
-    FreeBSD 14.4 VM job via this same script.
+    FreeBSD 14/15 VM matrix via this same script.
     """
     if platform.system() != "FreeBSD":
         return CheckResult(
@@ -498,7 +498,7 @@ def check_freebsd_smoke(log_dir: Path) -> CheckResult:
                 ".pkg install/run smoke requires real FreeBSD 14+ and has no "
                 "container/emulation fallback. The real smoke runs "
                 "unconditionally in .github/workflows/release-artifacts.yml's "
-                "FreeBSD 14.4 VM job via scripts/smoke_freebsd_package.sh."
+                "FreeBSD 14/15 VM matrix via scripts/smoke_freebsd_package.sh."
             ),
         )
 
