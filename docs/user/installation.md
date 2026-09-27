@@ -95,8 +95,8 @@ requires `python3 >= 3.13`.
 
 ## Install from a GitHub Release `.pkg` (FreeBSD 14+)
 
-For PySH version `X.Y.Z`, release assets are ABI-specific by FreeBSD major
-version. Use the package matching the running system:
+For PySH version `X.Y.Z`, the canonical FreeBSD release artifacts are ABI-specific
+by FreeBSD major version. Use the package matching the running system:
 
 <!-- pysh-install:freebsd-name -->
 ```
