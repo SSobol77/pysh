@@ -38,7 +38,7 @@ Use the package matching the target platform:
 
 - Debian 13: install `pysh-shell_0.9.0-1_all.deb` with `apt install ./...`;
 - RPM-based Linux: install `pysh-shell-0.9.0-1.noarch.rpm`;
-- FreeBSD 14+: install `pysh-shell-0.9.0.pkg` with `pkg`.
+- FreeBSD 14+: install the ABI-matching `pysh-shell-0.9.0-freebsd14-amd64.pkg` or `pysh-shell-0.9.0-freebsd15-amd64.pkg` with `pkg add`.
 
 Then verify:
 
