@@ -66,7 +66,7 @@ def test_missing_argument_is_rejected() -> None:
 
 
 def test_missing_pkg_file_is_rejected(tmp_path: Path) -> None:
-    missing = tmp_path / "pysh-shell-0.9.0.pkg"
+    missing = tmp_path / "pysh-shell-0.9.0-freebsd15-amd64.pkg"
     result = _run(str(missing))
     assert result.returncode != 0
     assert f"artifact not found: {missing}" in result.stderr
@@ -81,7 +81,7 @@ def test_wrong_extension_is_rejected(tmp_path: Path) -> None:
 
 
 def test_zero_byte_pkg_is_rejected(tmp_path: Path) -> None:
-    empty = tmp_path / "pysh-shell-0.9.0.pkg"
+    empty = tmp_path / "pysh-shell-0.9.0-freebsd15-amd64.pkg"
     empty.touch()
     result = _run(str(empty))
     assert result.returncode != 0
@@ -98,7 +98,7 @@ def test_non_freebsd_host_gives_clear_diagnostic_no_silent_skip(tmp_path: Path) 
     actually running on FreeBSD -- it must fail closed with an explicit,
     actionable diagnostic naming the real validation path.
     """
-    fixture_pkg = tmp_path / "pysh-shell-0.9.0.pkg"
+    fixture_pkg = tmp_path / "pysh-shell-0.9.0-freebsd15-amd64.pkg"
     fixture_pkg.write_bytes(b"FIXTURE\n")
 
     result = _run(str(fixture_pkg))
