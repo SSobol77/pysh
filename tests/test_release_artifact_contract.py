@@ -33,7 +33,8 @@ WHEEL_NAME = f"pysh_shell-{VERSION}-py3-none-any.whl"
 SDIST_NAME = f"pysh_shell-{VERSION}.tar.gz"
 DEB_NAME = f"pysh-shell_{VERSION}-1_all.deb"
 RPM_NAME = f"pysh-shell-{VERSION}-1.noarch.rpm"
-PKG_NAME = f"pysh-shell-{VERSION}.pkg"
+PKG14_NAME = f"pysh-shell-{VERSION}-freebsd14-amd64.pkg"
+PKG15_NAME = f"pysh-shell-{VERSION}-freebsd15-amd64.pkg"
 
 
 def _write_fixture(path: Path, content: bytes = b"FIXTURE ARTIFACT CONTENT\n") -> None:
@@ -47,10 +48,11 @@ def _build_valid_artifact_set(root: Path) -> None:
     _write_fixture(root / SDIST_NAME, b"FIXTURE SDIST - NOT A REAL PYTHON PACKAGE\n")
     _write_fixture(root / "os" / "deb" / DEB_NAME, b"FIXTURE DEB - NOT A REAL DEBIAN PACKAGE\n")
     _write_fixture(root / "os" / "rpm" / RPM_NAME, b"FIXTURE RPM - NOT A REAL RPM PACKAGE\n")
-    _write_fixture(
-        root / "os" / "freebsd" / PKG_NAME,
-        b"FIXTURE PKG - NOT A REAL FREEBSD PACKAGE\n",
-    )
+    for pkg_name in (PKG14_NAME, PKG15_NAME):
+        _write_fixture(
+            root / "os" / "freebsd" / pkg_name,
+            b"FIXTURE PKG - NOT A REAL FREEBSD PACKAGE\n",
+        )
 
 
 def _run_contract(artifact_dir: Path) -> subprocess.CompletedProcess[str]:
@@ -115,10 +117,10 @@ def test_missing_rpm_fails(tmp_path: Path) -> None:
 def test_missing_freebsd_pkg_fails(tmp_path: Path) -> None:
     """The exact scenario this slice exists to close: no live FreeBSD builder."""
     _build_valid_artifact_set(tmp_path)
-    (tmp_path / "os" / "freebsd" / PKG_NAME).unlink()
+    (tmp_path / "os" / "freebsd" / PKG15_NAME).unlink()
     result = _run_contract(tmp_path)
     assert result.returncode != 0
-    assert f"missing artifact: {tmp_path / 'os' / 'freebsd' / PKG_NAME}" in result.stderr
+    assert f"missing artifact: {tmp_path / 'os' / 'freebsd' / PKG15_NAME}" in result.stderr
 
 
 # --------------------------------------------------- 7. wrong version in name
@@ -221,7 +223,7 @@ def test_missing_sha256sums_entry_fails(tmp_path: Path) -> None:
 
     result = _run_contract(tmp_path)
     assert result.returncode != 0
-    assert f"missing expected artifact: os/freebsd/{PKG_NAME}" in result.stderr
+    assert f"missing expected artifact: os/freebsd/{PKG15_NAME}" in result.stderr
 
 
 # -------------------------------------------------------- 11. corrupted checksum
@@ -238,7 +240,8 @@ def test_corrupted_checksum_fails(tmp_path: Path) -> None:
         SDIST_NAME,
         f"os/deb/{DEB_NAME}",
         f"os/rpm/{RPM_NAME}",
-        f"os/freebsd/{PKG_NAME}",
+        f"os/freebsd/{PKG14_NAME}",
+        f"os/freebsd/{PKG15_NAME}",
     ):
         digest = hashlib.sha256((tmp_path / relative).read_bytes()).hexdigest()
         if relative == WHEEL_NAME:
