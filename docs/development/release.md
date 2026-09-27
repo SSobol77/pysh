@@ -20,9 +20,9 @@ Copyright (C) 2026 Siergej Sobolewski
 A release is incomplete unless all current mandatory artifact families are
 built and validated: PyPI wheel + sdist, Debian `.deb`, RPM `.rpm`, FreeBSD
 `.pkg`, and `SHA256SUMS`. The local release gate must fail if mandatory
-artifacts are missing. On non-FreeBSD hosts it validates an already-produced
-`dist/os/freebsd/pysh-shell-X.Y.Z.pkg` from a FreeBSD 14+ builder and fails
-clearly if that artifact is absent.
+artifacts are missing. On non-FreeBSD hosts it validates the already-produced
+ABI-specific FreeBSD 14 and FreeBSD 15 amd64 packages under
+`dist/os/freebsd/` and fails clearly if either artifact is absent.
 
 PySH is published to PyPI as **`pysh-shell`** through GitHub Actions and
 **PyPI Trusted Publishing**. The workflow lives at
@@ -99,8 +99,9 @@ reviewed against the normative
      (`scripts/build_freebsd_pkg.sh`) and runs
      `scripts/smoke_freebsd_package.sh` against it for real, reporting
      `PASS`/`FAIL` on the genuine outcome. The real, unconditional
-     execution of this smoke happens in
-     `.github/workflows/release-artifacts.yml`'s FreeBSD 14.4 VM job (see
+     execution of these smokes happens in
+     `.github/workflows/release-artifacts.yml`'s FreeBSD 14/15 VM matrix
+     (using the newest point release in each supported major line; see
      below); `PLATFORM_BLOCKED` in a local `full`-mode run on Linux is
      expected and does not by itself indicate a problem.
 
@@ -172,7 +173,9 @@ reviewed against the normative
 - `pysh --version` and `python -m pysh --version` print the target version.
 - FreeBSD 14+ package and smoke validation follows
   [`packaging.md`](packaging.md#freebsd-validation-and-package-build-for-v080).
-  The release is incomplete without `dist/os/freebsd/pysh-shell-X.Y.Z.pkg`.
+  The release is incomplete without both
+  `dist/os/freebsd/pysh-shell-X.Y.Z-freebsd14-amd64.pkg` and
+  `dist/os/freebsd/pysh-shell-X.Y.Z-freebsd15-amd64.pkg`.
 
 ## Cutting the release
 
@@ -205,26 +208,28 @@ reviewed against the normative
      packages -- that is `release-artifacts.yml`'s exclusive responsibility,
      and the two workflows never overlap.
    - `release-artifacts.yml`, as three jobs that must succeed in order:
-     1. `freebsd-pkg` builds the real `pysh-shell-X.Y.Z.pkg` in a FreeBSD
-        14.4 VM (`vmactions/freebsd-vm`; this is a real virtual machine
-        inside the `ubuntu-latest` runner, not a self-hosted runner),
-        statically inspects it (`pkg info -F`, `pkg query -F`), then runs
-        `scripts/smoke_freebsd_package.sh` inside that same VM (Issue #33
-        RQG-E): a REAL `pkg add <local .pkg>` install on real FreeBSD,
-        verifying the installed `/usr/local/bin/pysh` entrypoint
+     1. `freebsd-pkg` is a FreeBSD-major matrix with targets `14` and
+        `15`. `vmactions/freebsd-vm` resolves each major to its newest
+        available point release. Each matrix leg builds a real ABI-specific
+        package, `pysh-shell-X.Y.Z-freebsd14-amd64.pkg` or
+        `pysh-shell-X.Y.Z-freebsd15-amd64.pkg`, statically inspects it
+        (`pkg info -F`, `pkg query -F`), then runs
+        `scripts/smoke_freebsd_package.sh` in that same real FreeBSD VM
+        (Issue #33 RQG-E): a REAL `pkg add <local .pkg>` install, verifying
+        the installed `/usr/local/bin/pysh` entrypoint
         (`pysh --version`, `python3.13 -m pysh --version`, `pysh -c`, and a
         real PTY-driven interactive `exit`/`quit`) with the module import
         proven to resolve to `/usr/local/lib/pysh-shell/pysh/__init__.py`,
-        never the VM's repository checkout. Only after that smoke passes
-        does the job upload the `.pkg` as a workflow artifact -- there is
-        no `continue-on-error` anywhere in this job, so a smoke failure
-        blocks the artifact from ever reaching the later jobs.
-     2. `build-and-validate` (needs `freebsd-pkg`) re-verifies the release
-        metadata contract, builds wheel/sdist/`.deb`/`.rpm`, downloads the
-        FreeBSD `.pkg`, and runs `scripts/check_release_artifacts.sh`
-        (naming, non-empty, checksum-complete, checksum-verified) before
-        staging the flat `dist/release-assets/` tree as a workflow
-        artifact.
+        never the VM's repository checkout. A package filename therefore
+        exposes the FreeBSD major ABI instead of hiding it behind a generic
+        `.pkg` name. There is no `continue-on-error`; either ABI smoke
+        failure blocks the release.
+     2. `build-and-validate` (needs the entire `freebsd-pkg` matrix)
+        re-verifies the release metadata contract, builds
+        wheel/sdist/`.deb`/`.rpm`, downloads both FreeBSD `.pkg`
+        artifacts, and runs `scripts/check_release_artifacts.sh` (naming,
+        non-empty, checksum-complete, checksum-verified) before staging the
+        flat `dist/release-assets/` tree as a workflow artifact.
      3. `upload` (needs `build-and-validate`, and only runs on a real
         `release` event -- never on a manual `workflow_dispatch` dry run)
         downloads that validated artifact and attaches it to the GitHub
@@ -261,9 +266,11 @@ reviewed against the normative
   pysh --version
   python -m pysh --version
   ```
-- On FreeBSD 14+, install the release `.pkg` and run smoke tests:
+- On FreeBSD 14+, install the release `.pkg` matching the running major ABI
+  and run smoke tests:
   ```sh
-  sudo pkg install ./pysh-shell-X.Y.Z.pkg
+  FREEBSD_MAJOR="$(freebsd-version -u | cut -d. -f1)"
+  sudo pkg add "./pysh-shell-X.Y.Z-freebsd${FREEBSD_MAJOR}-amd64.pkg"
   pysh --version
   python -m pysh --version
   pysh -c "echo freebsd-smoke"
