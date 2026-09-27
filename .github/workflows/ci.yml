@@ -124,14 +124,16 @@ jobs:
           # semantics here; it is never copied into dist/, never staged as
           # a release asset, and never uploaded anywhere. It is discarded
           # with the rest of ${CONTRACT_DIR} when this step ends.
-          cat >"${CONTRACT_DIR}/os/freebsd/pysh-shell-${VERSION}.pkg" <<'FIXTURE'
+          for major in 14 15; do
+            cat >"${CONTRACT_DIR}/os/freebsd/pysh-shell-${VERSION}-freebsd${major}-amd64.pkg" <<'FIXTURE'
           PYSH ARTIFACT-CONTRACT TEST FIXTURE - NOT A REAL FREEBSD PACKAGE.
           This file exists only to exercise
           scripts/check_release_artifacts.sh --contract-only naming,
           presence, and checksum semantics in ordinary Linux CI, where a
           live FreeBSD builder is unavailable. Real FreeBSD .pkg validation
-          runs in .github/workflows/release-artifacts.yml via a FreeBSD 14+
-          VM build.
+          runs in .github/workflows/release-artifacts.yml on the supported
+          FreeBSD major-version matrix.
           FIXTURE
+          done
 
           bash scripts/check_release_artifacts.sh --contract-only "${CONTRACT_DIR}"
