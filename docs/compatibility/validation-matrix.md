@@ -93,7 +93,7 @@ Current release line: **PySH 0.9.0**.
 | Debug trace redacts stderr while command stdout remains unchanged | Unit test | `tests/test_observability_diagnostics.py` | None | #43 / #50 |
 | Isolated manifest and typed capabilities fail closed | Unit test | `tests/test_isolated_plugin_manifest.py` | None | #44 |
 | Isolated IPC rejects malformed, oversized, unknown and incompatible messages | Unit test | `tests/test_isolated_plugin_protocol.py`, `tests/test_isolated_plugin_runtime.py` | None | #44 |
-| Isolated child receives scrubbed env, private cwd and no unrelated parent fd | Subprocess test | `tests/test_isolated_plugin_runtime.py` | FreeBSD 14.4 CI/VM evidence pending | #44 / #52 |
+| Isolated child receives scrubbed env, private cwd and no unrelated parent fd | Subprocess test | `tests/test_isolated_plugin_runtime.py` | FreeBSD 14/15 CI/VM evidence pending | #44 / #52 |
 | Parent broker enforces grants and canonical filesystem scopes | Subprocess test | `tests/test_isolated_plugin_runtime.py` | Direct same-UID syscall confinement requires #52 | #44 |
 | Isolated crash and hang cannot terminate the parent test session | Subprocess test | `tests/test_isolated_plugin_runtime.py` | Unified budgets deferred to #53 | #44 / #53 |
 | Comments (`#`) work correctly | Unit test | `tests/test_comments.py` | None | — |
