@@ -36,7 +36,7 @@ preserve_freebsd_pkgs() {
     fi
 }
 
-restore_freebsd_pkgss() {
+restore_freebsd_pkgs() {
     local pkg
     if [ -n "${PRESERVED_FREEBSD_DIR}" ] && [ -d "${PRESERVED_FREEBSD_DIR}" ]; then
         mkdir -p "${REPO_ROOT}/dist/os/freebsd"
