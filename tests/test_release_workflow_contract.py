@@ -81,7 +81,10 @@ def _build_valid_fixture(root: Path, version: str = CANONICAL_VERSION) -> None:
     (root / f"pysh_shell-{version}.tar.gz").write_bytes(b"FIXTURE SDIST\n")
     (root / "os" / "deb" / f"pysh-shell_{version}-1_all.deb").write_bytes(b"FIXTURE DEB\n")
     (root / "os" / "rpm" / f"pysh-shell-{version}-1.noarch.rpm").write_bytes(b"FIXTURE RPM\n")
-    (root / "os" / "freebsd" / f"pysh-shell-{version}.pkg").write_bytes(b"FIXTURE PKG\n")
+    for major in (14, 15):
+        (root / "os" / "freebsd" / f"pysh-shell-{version}-freebsd{major}-amd64.pkg").write_bytes(
+            b"FIXTURE PKG\n"
+        )
 
 
 # ------------------------------------------------------------- 1-6. required assets
@@ -105,7 +108,8 @@ def test_real_workflow_requires_all_five_artifact_families_and_checksums() -> No
         "EXPECTED_SDIST",
         "EXPECTED_DEB",
         "EXPECTED_RPM",
-        "EXPECTED_FREEBSD_PKG",
+        "EXPECTED_FREEBSD_14_PKG",
+        "EXPECTED_FREEBSD_15_PKG",
         "SHA256SUMS",
     ):
         assert marker in artifacts_text
@@ -130,7 +134,12 @@ def test_missing_wheel_fails_pre_upload_sequence(tmp_path: Path) -> None:
 
 def test_missing_pkg_fails_pre_upload_sequence(tmp_path: Path) -> None:
     _build_valid_fixture(tmp_path)
-    (tmp_path / "os" / "freebsd" / f"pysh-shell-{CANONICAL_VERSION}.pkg").unlink()
+    (
+        tmp_path
+        / "os"
+        / "freebsd"
+        / f"pysh-shell-{CANONICAL_VERSION}-freebsd15-amd64.pkg"
+    ).unlink()
     errors = CHECK.simulate_pre_upload_sequence(tmp_path)
     assert errors
     assert any("artifact gate failed" in e for e in errors)
@@ -146,7 +155,8 @@ def test_corrupt_checksum_fails_pre_upload_sequence(tmp_path: Path) -> None:
         f"pysh_shell-{CANONICAL_VERSION}.tar.gz",
         f"os/deb/pysh-shell_{CANONICAL_VERSION}-1_all.deb",
         f"os/rpm/pysh-shell-{CANONICAL_VERSION}-1.noarch.rpm",
-        f"os/freebsd/pysh-shell-{CANONICAL_VERSION}.pkg",
+        f"os/freebsd/pysh-shell-{CANONICAL_VERSION}-freebsd14-amd64.pkg",
+        f"os/freebsd/pysh-shell-{CANONICAL_VERSION}-freebsd15-amd64.pkg",
     ):
         digest = hashlib.sha256((tmp_path / relative).read_bytes()).hexdigest()
         if relative.endswith(".whl"):
@@ -318,7 +328,8 @@ def test_release_workflow_still_has_real_freebsd_vm_build() -> None:
     text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
     assert "vmactions/freebsd-vm" in text
     assert "sh scripts/build_freebsd_pkg.sh" in text
-    assert 'release: "14.4"' in text
+    assert 'freebsd: ["14", "15"]' in text
+    assert 'release: "${{ matrix.freebsd }}"' in text
 
 
 def test_release_workflow_never_uses_contract_only_fixture() -> None:
