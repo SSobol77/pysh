@@ -41,10 +41,15 @@ if [ -z "${VERSION}" ]; then
 fi
 
 PKG_NAME="pysh-shell"
-# Canonical FreeBSD package filename format: pysh-shell-${VERSION}.pkg
-EXPECTED_PKG="${PKG_NAME}-${VERSION}.pkg"
+MACHINE_ARCH="$(uname -m)"
+# FreeBSD packages carry a major-version ABI. Publish that ABI explicitly in
+# the filename so users cannot accidentally install a FreeBSD 14 package on
+# FreeBSD 15 (or vice versa).
+EXPECTED_PKG="${PKG_NAME}-${VERSION}-freebsd${FREEBSD_MAJOR}-${MACHINE_ARCH}.pkg"
+RAW_PKG="${PKG_NAME}-${VERSION}.pkg"
 OUT_DIR="${REPO_ROOT}/dist/os/freebsd"
 EXPECTED_PATH="${OUT_DIR}/${EXPECTED_PKG}"
+RAW_PATH="${OUT_DIR}/${RAW_PKG}"
 PREFIX="/usr/local"
 LIB_DIR="${PREFIX}/lib/${PKG_NAME}/pysh"
 DOC_DIR="${PREFIX}/share/doc/${PKG_NAME}"
@@ -122,27 +127,27 @@ deps: {
 }
 EOF
 
-rm -f "${EXPECTED_PATH}"
+rm -f "${RAW_PATH}" "${EXPECTED_PATH}"
 pkg create -r "${STAGE_DIR}" -M "${MANIFEST}" -p "${PLIST}" -o "${OUT_DIR}"
 
-if [ ! -f "${EXPECTED_PATH}" ]; then
-    echo "build_freebsd_pkg.sh: expected ${EXPECTED_PATH} but it was not produced." >&2
+if [ ! -f "${RAW_PATH}" ]; then
+    echo "build_freebsd_pkg.sh: expected raw package ${RAW_PATH} but it was not produced." >&2
     echo "build_freebsd_pkg.sh: contents of ${OUT_DIR}:" >&2
     ls -1 "${OUT_DIR}" >&2 || true
     exit 1
 fi
 
-for f in "${OUT_DIR}"/*.pkg; do
-    base="$(basename "${f}")"
-    if [ "${base}" != "${EXPECTED_PKG}" ]; then
-        echo "build_freebsd_pkg.sh: unexpected artifact filename: ${base}" >&2
-        echo "build_freebsd_pkg.sh: canonical name must be ${EXPECTED_PKG}" >&2
-        exit 1
-    fi
-done
+mv "${RAW_PATH}" "${EXPECTED_PATH}"
 
 echo "==> Validating ${EXPECTED_PATH}"
 pkg info -F "${EXPECTED_PATH}"
+
+PACKAGE_ARCH="$(pkg query -F "${EXPECTED_PATH}" "%q")"
+EXPECTED_ARCH="FreeBSD:${FREEBSD_MAJOR}:${MACHINE_ARCH}"
+if [ "${PACKAGE_ARCH}" != "${EXPECTED_ARCH}" ]; then
+    fail "unexpected package ABI: expected ${EXPECTED_ARCH}, got ${PACKAGE_ARCH}"
+fi
+
 pkg query -F "${EXPECTED_PATH}" "%Fp" >"${LISTING}"
 
 if ! grep -Fxq "${REQUIRED_BIN}" "${LISTING}"; then
