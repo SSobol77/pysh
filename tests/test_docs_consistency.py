@@ -1049,27 +1049,27 @@ def test_release_quality_gate_preserves_prebuilt_freebsd_pkg_before_cleaning() -
     )
 
     assert "PRESERVED_FREEBSD_DIR" in quality_gate
-    assert "preserve_freebsd_pkgss()" in quality_gate
-    assert "restore_freebsd_pkgss()" in quality_gate
+    assert "preserve_freebsd_pkgs()" in quality_gate
+    assert "restore_freebsd_pkgs()" in quality_gate
     assert 'pysh-shell-"${VERSION}"-freebsd*-amd64.pkg' in quality_gate
     assert 'cp "${pkg}" "${PRESERVED_FREEBSD_DIR}/"' in quality_gate
     assert 'cp "${pkg}" "${REPO_ROOT}/dist/os/freebsd/"' in quality_gate
 
-    preserve_idx = quality_gate.index("\npreserve_freebsd_pkgss\n")
+    preserve_idx = quality_gate.index("\npreserve_freebsd_pkgs\n")
     clean_idx = quality_gate.index("rm -rf dist build ./*.egg-info")
-    restore_idx = quality_gate.index("\nrestore_freebsd_pkgss\n")
+    restore_idx = quality_gate.index("\nrestore_freebsd_pkgs\n")
     build_idx = quality_gate.index('bash "${REPO_ROOT}/scripts/build_release_artifacts.sh"')
     assert preserve_idx < clean_idx < restore_idx < build_idx
 
     ruff_idx = quality_gate.index("ruff check src tests")
     assert preserve_idx < ruff_idx, (
-        "preserve_freebsd_pkgss must be called before ruff/pytest can clean artifacts"
+        "preserve_freebsd_pkgs must be called before ruff/pytest can clean artifacts"
     )
 
-    restore_after_clean_idx = quality_gate.index("\nrestore_freebsd_pkgss\n", clean_idx)
+    restore_after_clean_idx = quality_gate.index("\nrestore_freebsd_pkgs\n", clean_idx)
     assert clean_idx < restore_after_clean_idx < build_idx
 
-    final_restore_idx = quality_gate.rindex("\nrestore_freebsd_pkgss\n", 0, build_idx)
+    final_restore_idx = quality_gate.rindex("\nrestore_freebsd_pkgs\n", 0, build_idx)
     assert final_restore_idx >= restore_after_clean_idx
 
     assert "prebuilt FreeBSD 14 and 15 .pkg artifacts are required" in quality_gate
