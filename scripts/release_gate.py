@@ -326,13 +326,19 @@ def check_artifact_contract(log_dir: Path) -> CheckResult:
         shutil.copy(rpm, contract_dir / "os" / "rpm" / rpm.name)
 
         version = canonical_version()
-        fixture_pkg = contract_dir / "os" / "freebsd" / f"pysh-shell-{version}.pkg"
-        fixture_pkg.write_text(
-            "PYSH ARTIFACT-CONTRACT TEST FIXTURE - NOT A REAL FREEBSD PACKAGE.\n"
-            "Real FreeBSD .pkg validation runs in "
-            ".github/workflows/release-artifacts.yml via a FreeBSD 14+ VM build.\n",
-            encoding="utf-8",
-        )
+        for major in (14, 15):
+            fixture_pkg = (
+                contract_dir
+                / "os"
+                / "freebsd"
+                / f"pysh-shell-{version}-freebsd{major}-amd64.pkg"
+            )
+            fixture_pkg.write_text(
+                "PYSH ARTIFACT-CONTRACT TEST FIXTURE - NOT A REAL FREEBSD PACKAGE.\n"
+                "Real FreeBSD .pkg validation runs in "
+                ".github/workflows/release-artifacts.yml via the FreeBSD 14/15 VM matrix.\n",
+                encoding="utf-8",
+            )
 
         artifact_result = subprocess.run(
             [
