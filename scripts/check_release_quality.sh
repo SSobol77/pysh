@@ -75,7 +75,7 @@ if [ -z "${VERSION}" ]; then
     fail "failed to read version from pyproject.toml"
 fi
 
-preserve_freebsd_pkgss() {
+preserve_freebsd_pkgs() {
     local pkg
     shopt -s nullglob
     local pkgs=("${REPO_ROOT}"/dist/os/freebsd/pysh-shell-"${VERSION}"-freebsd*-amd64.pkg)
@@ -89,7 +89,7 @@ preserve_freebsd_pkgss() {
     fi
 }
 
-restore_freebsd_pkgss() {
+restore_freebsd_pkgs() {
     local pkg
     if [ -n "${PRESERVED_FREEBSD_DIR}" ] && [ -d "${PRESERVED_FREEBSD_DIR}" ]; then
         mkdir -p "${REPO_ROOT}/dist/os/freebsd"
@@ -101,7 +101,7 @@ restore_freebsd_pkgss() {
     fi
 }
 
-preserve_freebsd_pkgss
+preserve_freebsd_pkgs
 
 log "[1/14] ruff check src tests"
 uv run ruff check src tests
