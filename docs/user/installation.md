@@ -95,20 +95,25 @@ requires `python3 >= 3.13`.
 
 ## Install from a GitHub Release `.pkg` (FreeBSD 14+)
 
-For PySH version `X.Y.Z`, the canonical FreeBSD artifact is:
+For PySH version `X.Y.Z`, release assets are ABI-specific by FreeBSD major
+version. Use the package matching the running system:
 
 <!-- pysh-install:freebsd-name -->
 ```
-pysh-shell-X.Y.Z.pkg
+pysh-shell-X.Y.Z-freebsd14-amd64.pkg
+pysh-shell-X.Y.Z-freebsd15-amd64.pkg
 ```
 <!-- /pysh-install:freebsd-name -->
 
 <!-- pysh-install:freebsd -->
 ```sh
-sudo pkg install ./pysh-shell-X.Y.Z.pkg
+FREEBSD_MAJOR="$(freebsd-version -u | cut -d. -f1)"
+sudo pkg add "./pysh-shell-X.Y.Z-freebsd${FREEBSD_MAJOR}-amd64.pkg"
 pysh --version
 ```
 <!-- /pysh-install:freebsd -->
+
+Do not force-install a package built for a different FreeBSD major ABI.
 
 The `.pkg` installs the wrapper at `/usr/local/bin/pysh` and the Python
 package under `/usr/local/lib/pysh-shell/pysh/`. It must not replace
@@ -192,7 +197,8 @@ Download the new `.pkg` for the target version from the GitHub Release page,
 then upgrade on FreeBSD 14+:
 
 ```sh
-sudo pkg install ./pysh-shell-X.Y.Z.pkg
+FREEBSD_MAJOR="$(freebsd-version -u | cut -d. -f1)"
+sudo pkg add "./pysh-shell-X.Y.Z-freebsd${FREEBSD_MAJOR}-amd64.pkg"
 pysh --version
 ```
 
