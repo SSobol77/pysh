@@ -33,10 +33,10 @@ individually well built:
 - `tests/test_docs_consistency.py` (1083 lines, 43 test functions) already
   encodes version consistency, changelog currency, FreeBSD-artifact
   mandatoriness, and forbidden-claim checks as automated `pytest` tests.
-- `.github/workflows/release-artifacts.yml` performs a **real** FreeBSD
-  14.4 build inside a VM (`vmactions/freebsd-vm`), builds real
-  wheel/sdist/deb/rpm, and stages flat GitHub Release assets — this is not
-  a stub.
+- `.github/workflows/release-artifacts.yml` performs **real** FreeBSD 14 and
+  15 package builds inside a `vmactions/freebsd-vm` matrix, builds real
+  wheel/sdist/deb/rpm, and stages flat GitHub Release assets — this is not a
+  stub. Each `.pkg` filename exposes its verified FreeBSD major ABI.
 - Version, license, and entrypoint metadata (`pysh --version`,
   `python -m pysh --version`, `pysh -c`, `exit`/`quit`) all have real
   automated coverage somewhere in the repository.
@@ -126,9 +126,9 @@ publishes a release or manually dispatches the workflow.
                      │  .github/workflows/release-artifacts.yml       │
                      │    on: release[published], workflow_dispatch   │
                      │                                                │
-                     │  freebsd-pkg (needs: none)                     │
-                     │    -> REAL FreeBSD 14.4 VM build (.pkg)        │
-                     │    -> upload-artifact "freebsd-pkg"            │
+                     │  freebsd-pkg matrix (14, 15; needs: none)      │
+                     │    -> REAL native-major VM build (.pkg)         │
+                     │    -> upload-artifact "freebsd-pkg-<major>"    │
                      │         │                                      │
                      │         ▼                                      │
                      │  build-and-validate (needs: freebsd-pkg)       │
@@ -303,13 +303,13 @@ a real installed entrypoint on every push/PR.
 
 ### 4.6 `.github/workflows/release-artifacts.yml` (release-time only)
 
-The one workflow that performs a **real** FreeBSD 14.4 build
-(`vmactions/freebsd-vm@v1`), asserts `uname -s = FreeBSD` and major
-version `>= 14` inside the VM, builds the `.pkg`, inspects it with
-`pkg info -F` / `pkg query -F` for required paths, uploads it as a
-workflow artifact, downloads it into a second job, and runs the real
-`check_release_artifacts.sh` against all 5 real artifact families before
-uploading flat assets to the GitHub Release. This is a fully real,
+The one workflow that performs **real** FreeBSD package builds uses a
+`vmactions/freebsd-vm@v1` matrix for package ABIs 14 and 15. Each matrix leg
+builds an ABI-specific `.pkg`, verifies its embedded ABI and required paths
+with native `pkg` tooling, runs the real install-and-run smoke, and uploads
+only that exact package. The validation job downloads both packages and runs
+the real `check_release_artifacts.sh` against all mandatory artifact families
+before uploading flat assets to the GitHub Release. This is a fully real,
 non-stubbed pipeline — its only weakness is *when* it runs (§5.3).
 
 ## 5. Missing Enforcement Points
@@ -379,8 +379,8 @@ project's actual branch-workflow convention (CLAUDE.md §13; branches are
 zero unique release guarantee, since its `workflow_dispatch` trigger
 offered nothing `release-artifacts.yml`'s own `workflow_dispatch` did not
 already provide. **Decision: retired.** `.github/workflows/freebsd-pkg.yml`
-was deleted; the real FreeBSD 14.4 VM build now lives solely in
-`release-artifacts.yml`'s `freebsd-pkg` job, unchanged and still reachable
+was deleted; the real FreeBSD package matrix now lives solely in
+`release-artifacts.yml`'s `freebsd-pkg` job and is still reachable
 via both `release: published` and `workflow_dispatch`. See
 `tests/test_release_workflow_contract.py::test_freebsd_pkg_workflow_was_retired`
 and `::test_release_workflow_still_has_real_freebsd_vm_build`.
@@ -741,8 +741,8 @@ implemented.** The genuine native FreeBSD install-and-run smoke — the
 Debian-parallel counterpart to RQG-D that RQG-H's initial ship left as an
 explicit, honestly-reported gap — now exists as
 `scripts/smoke_freebsd_package.sh`, wired into both
-`release-artifacts.yml`'s FreeBSD 14.4 VM job (unconditional, real
-build→install→query→execute) and `scripts/release_gate.py --mode full`
+`release-artifacts.yml`'s FreeBSD 14/15 package VM matrix (unconditional,
+real build→install→query→execute) and `scripts/release_gate.py --mode full`
 (real on a FreeBSD host, `PLATFORM_BLOCKED` — never faked `PASS` — on
 every other host, including this project's own Linux dev/CI machines).
 `READY_EXCEPT_PLATFORM_VALIDATION` therefore now reflects only genuine,

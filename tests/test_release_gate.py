@@ -409,7 +409,7 @@ def test_freebsd_smoke_is_platform_blocked_on_non_freebsd_hosts(
     this repository's dev/CI/test environments are not; that real
     execution is exercised separately in
     tests/test_freebsd_package_smoke_contract.py and in
-    .github/workflows/release-artifacts.yml's FreeBSD 14.4 VM job.
+    .github/workflows/release-artifacts.yml's FreeBSD 14/15 VM matrix.
     """
     monkeypatch.setattr(GATE.platform, "system", lambda: "Linux")
     result = GATE.check_freebsd_smoke(tmp_path)
@@ -436,6 +436,44 @@ def test_freebsd_smoke_attempts_real_build_and_install_on_freebsd_hosts(
     result = GATE.check_freebsd_smoke(tmp_path)
     assert result.status == GATE.STATUS_FAIL
     assert result.status != GATE.STATUS_PASS
+
+
+def test_native_freebsd_package_selection_uses_embedded_abi(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Filename ordering must not select a package for another FreeBSD ABI."""
+    pkg14 = tmp_path / "pysh-shell-0.9.0-freebsd14-amd64.pkg"
+    pkg15 = tmp_path / "pysh-shell-0.9.0-freebsd15-amd64.pkg"
+
+    def fake_run(argv, **_kwargs):
+        assert argv == ["pkg", "config", "ABI"]
+        return subprocess.CompletedProcess(argv, 0, stdout="FreeBSD:14:amd64\n", stderr="")
+
+    monkeypatch.setattr(GATE.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        GATE,
+        "_pkg_abi",
+        lambda package: "FreeBSD:14:amd64" if package == pkg14 else "FreeBSD:15:amd64",
+    )
+
+    assert GATE._native_freebsd_package([pkg15, pkg14]) == pkg14
+
+
+def test_native_freebsd_package_selection_rejects_missing_native_abi(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cross-major archive must fail selection instead of being force-smoked."""
+    pkg15 = tmp_path / "pysh-shell-0.9.0-freebsd15-amd64.pkg"
+
+    def fake_run(argv, **_kwargs):
+        assert argv == ["pkg", "config", "ABI"]
+        return subprocess.CompletedProcess(argv, 0, stdout="FreeBSD:14:amd64\n", stderr="")
+
+    monkeypatch.setattr(GATE.subprocess, "run", fake_run)
+    monkeypatch.setattr(GATE, "_pkg_abi", lambda _package: "FreeBSD:15:amd64")
+
+    with pytest.raises(RuntimeError, match="native ABI FreeBSD:14:amd64"):
+        GATE._native_freebsd_package([pkg15])
 
 
 # --------------------------------------------------- 13/14/15. mode semantics

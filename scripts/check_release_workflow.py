@@ -61,6 +61,11 @@ def check_release_artifacts_workflow_structure(text: str) -> list[str]:
         "actions/download-artifact",
         "name: release-assets",
         "gh release upload",
+        'freebsd: ["14", "15"]',
+        'release: "${{ matrix.freebsd }}"',
+        'pkg query -F "${PKG_PATH}" "%q"',
+        "pattern: freebsd-pkg-*",
+        "merge-multiple: true",
     )
     for substring in required_substrings:
         if substring not in text:

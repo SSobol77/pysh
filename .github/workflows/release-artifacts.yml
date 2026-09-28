@@ -14,8 +14,12 @@ permissions:
 
 jobs:
   freebsd-pkg:
-    name: Build FreeBSD .pkg
+    name: Build FreeBSD ${{ matrix.freebsd }} .pkg
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        freebsd: ["14", "15"]
     # Safety bound (Issue #33): the real run this job performs -- VM boot,
     # pkg bootstrap, build, static inspection, and the full install-and-run
     # smoke -- reached the interactive PTY step in under a minute in the
@@ -32,23 +36,28 @@ jobs:
       - name: Build and inspect FreeBSD .pkg
         uses: vmactions/freebsd-vm@v1
         with:
-          release: "14.4"
+          # Package ABI coverage is a major-version matrix. This is separate
+          # from ci.yml's exact FreeBSD 14.4 behavioral reference baseline.
+          release: "${{ matrix.freebsd }}"
           usesh: true
           prepare: |
             pkg update -f
             pkg install -y python313
           run: |
             set -eu
+            export PYSH_FREEBSD_PYTHON_VERSION=3.13
             test "$(uname -s)" = "FreeBSD"
             major="$(uname -r | awk -F. '{print $1}')"
-            test "${major}" -ge 14
+            test "${major}" = "${{ matrix.freebsd }}"
+            test "$(uname -m)" = "amd64"
             python3.13 --version
             pkg --version
             VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
-            PKG_PATH="dist/os/freebsd/pysh-shell-${VERSION}.pkg"
+            PKG_PATH="dist/os/freebsd/pysh-shell-${VERSION}-freebsd${major}-amd64.pkg"
             sh scripts/build_freebsd_pkg.sh
             test -f "${PKG_PATH}"
             pkg info -F "${PKG_PATH}"
+            test "$(pkg query -F "${PKG_PATH}" "%q")" = "$(pkg config ABI)"
             pkg query -F "${PKG_PATH}" "%Fp" | tee /tmp/pysh-freebsd-pkg-files
             grep -Fx /usr/local/bin/pysh /tmp/pysh-freebsd-pkg-files
             grep -E '^/usr/local/lib/pysh-shell/pysh(/|$)' \
@@ -58,13 +67,13 @@ jobs:
       - name: Verify FreeBSD .pkg artifact on host
         run: |
           VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
-          test -f "dist/os/freebsd/pysh-shell-${VERSION}.pkg"
+          test -f "dist/os/freebsd/pysh-shell-${VERSION}-freebsd${{ matrix.freebsd }}-amd64.pkg"
 
       - name: Upload FreeBSD .pkg workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: freebsd-pkg
-          path: dist/os/freebsd/pysh-shell-*.pkg
+          name: freebsd-pkg-${{ matrix.freebsd }}
+          path: dist/os/freebsd/pysh-shell-*-freebsd${{ matrix.freebsd }}-amd64.pkg
           if-no-files-found: error
 
   build-and-validate:
@@ -116,10 +125,11 @@ jobs:
       - name: RPM package real install-and-run smoke (isolated Fedora container)
         run: bash scripts/smoke_rpm_package.sh dist/os/rpm/*.rpm
 
-      - name: Download FreeBSD .pkg
+      - name: Download FreeBSD .pkg artifacts
         uses: actions/download-artifact@v4
         with:
-          name: freebsd-pkg
+          pattern: freebsd-pkg-*
+          merge-multiple: true
           path: dist/os/freebsd
 
       - name: Verify canonical artifact names + stage flat release assets

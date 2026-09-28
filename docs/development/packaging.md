@@ -17,15 +17,15 @@ PySH publishes four artifact families per v0.9.0 release:
 1. **PyPI** — wheel and sdist (primary distribution channel for Python users).
 2. **Debian `.deb`** — attached to the matching GitHub Release.
 3. **Red Hat / Fedora `.rpm`** — attached to the matching GitHub Release.
-4. **FreeBSD `.pkg`** — built by a FreeBSD 14+ builder and attached to the
-   matching GitHub Release.
+4. **FreeBSD `.pkg`** — ABI-specific FreeBSD 14 and 15 amd64 packages, built
+   natively and attached to the matching GitHub Release.
 
 A PySH release is incomplete unless all current mandatory artifact families
 are built and validated: PyPI wheel + sdist, Debian `.deb`, RPM `.rpm`,
 FreeBSD `.pkg`, and `SHA256SUMS`. The release quality gate must fail rather
-than skip mandatory artifacts. On Debian it validates an already-produced
-FreeBSD `.pkg`; if that artifact is absent, the gate fails with a deterministic
-message requiring a FreeBSD 14+ build.
+than skip mandatory artifacts. On Debian it validates already-produced FreeBSD
+14 and 15 `.pkg` files; if either artifact is absent, the gate fails with a
+deterministic message requiring the corresponding native build.
 
 > The `.deb`, `.rpm`, and `.pkg` packages are **GitHub Release artifacts**.
 > They are **not** yet published to official Debian, Ubuntu, Fedora,
@@ -52,7 +52,8 @@ For version `X.Y.Z` and package release `1`:
 | Sdist        | `pysh_shell-X.Y.Z.tar.gz` (or backend-emitted hyphen form `pysh-shell-X.Y.Z.tar.gz`) |
 | Debian       | `pysh-shell_X.Y.Z-1_all.deb`                          |
 | RPM          | `pysh-shell-X.Y.Z-1.noarch.rpm`                       |
-| FreeBSD      | `pysh-shell-X.Y.Z.pkg`                                 |
+| FreeBSD 14   | `pysh-shell-X.Y.Z-freebsd14-amd64.pkg`                |
+| FreeBSD 15   | `pysh-shell-X.Y.Z-freebsd15-amd64.pkg`                |
 | Checksums    | `SHA256SUMS`                                          |
 
 The build scripts and CI **fail** if produced `.deb`, `.rpm`, or `.pkg`
@@ -74,13 +75,15 @@ dist/
 │   ├── pysh_shell-X.Y.Z.tar.gz
 │   ├── pysh-shell_X.Y.Z-1_all.deb
 │   ├── pysh-shell-X.Y.Z-1.noarch.rpm
-│   ├── pysh-shell-X.Y.Z.pkg
+│   ├── pysh-shell-X.Y.Z-freebsd14-amd64.pkg
+│   ├── pysh-shell-X.Y.Z-freebsd15-amd64.pkg
 │   └── SHA256SUMS
 └── os/
     ├── deb/
     │   └── pysh-shell_X.Y.Z-1_all.deb
     ├── freebsd/
-    │   └── pysh-shell-X.Y.Z.pkg
+    │   ├── pysh-shell-X.Y.Z-freebsd14-amd64.pkg
+    │   └── pysh-shell-X.Y.Z-freebsd15-amd64.pkg
     └── rpm/
         └── pysh-shell-X.Y.Z-1.noarch.rpm
 ```
@@ -114,10 +117,15 @@ pysh --version
 
 ### From the GitHub Release `.pkg` on FreeBSD 14+
 
+Select the package matching the running FreeBSD major ABI:
+
 ```sh
-sudo pkg install ./pysh-shell-X.Y.Z.pkg
+FREEBSD_MAJOR="$(freebsd-version -u | cut -d. -f1)"
+sudo pkg add "./pysh-shell-X.Y.Z-freebsd${FREEBSD_MAJOR}-amd64.pkg"
 pysh --version
 ```
+
+Do not force-install a package built for another FreeBSD major version.
 
 ## FreeBSD validation and package build for v0.9.0
 
@@ -125,6 +133,20 @@ FreeBSD 14+ validation is mandatory for v0.9.0 release completion. PySH
 requires Python 3.13 or newer. The FreeBSD `.pkg` must be built by
 FreeBSD-native package tooling; Docker on Debian is not a native FreeBSD
 package builder and must not be used to fake `.pkg` bytes.
+
+The package builder targets one explicit compatible interpreter per `.pkg`.
+`PYSH_FREEBSD_PYTHON_VERSION` defaults to the current 3.13 release reference
+and derives `/usr/local/bin/python3.13`, `python313`, and `lang/python313`
+together. A future package may select a validated newer target such as `3.14`;
+malformed values and versions below 3.13 fail before the build starts. This
+package-target choice is narrower than, and does not redefine, the source
+runtime policy of CPython 3.13 or newer.
+
+Python-minor targeting and OS ABI compatibility are separate. `pkg create`
+embeds the build host ABI (for example `FreeBSD:14:amd64`). The builder reads
+that value with `pkg query -F ... "%q"`, requires it to equal `pkg config ABI`,
+and derives the release filename from the verified metadata. The smoke script
+repeats that equality check before `pkg add`; it never disables the ABI guard.
 
 Recommended FreeBSD builder commands:
 
@@ -142,10 +164,12 @@ python -m pip install pytest ruff
 python -m pytest -q
 python -m ruff check src tests
 bash scripts/build_freebsd_pkg.sh
-ls -l dist/os/freebsd/pysh-shell-X.Y.Z.pkg
-pkg info -F dist/os/freebsd/pysh-shell-X.Y.Z.pkg
-pkg query -F dist/os/freebsd/pysh-shell-X.Y.Z.pkg "%Fp"
-sudo pkg install ./dist/os/freebsd/pysh-shell-X.Y.Z.pkg
+FREEBSD_MAJOR="$(freebsd-version -u | cut -d. -f1)"
+PKG="dist/os/freebsd/pysh-shell-X.Y.Z-freebsd${FREEBSD_MAJOR}-amd64.pkg"
+ls -l "${PKG}"
+pkg info -F "${PKG}"
+pkg query -F "${PKG}" "%q %Fp"
+sudo pkg add "${PKG}"
 pysh --version
 python -m pysh --version
 pysh -c "echo freebsd-smoke"
@@ -182,10 +206,12 @@ Known OS-specific areas to watch on FreeBSD:
 
 ## FreeBSD `.pkg` package contract
 
-FreeBSD `.pkg` packaging is current mandatory v0.9.0 release work. The package
-filename is `pysh-shell-X.Y.Z.pkg`; the local artifact path is
-`dist/os/freebsd/pysh-shell-X.Y.Z.pkg`; and the flat GitHub Release asset path
-is `dist/release-assets/pysh-shell-X.Y.Z.pkg`.
+FreeBSD `.pkg` packaging is current mandatory v0.9.0 release work. Releases
+publish `pysh-shell-X.Y.Z-freebsd14-amd64.pkg` and
+`pysh-shell-X.Y.Z-freebsd15-amd64.pkg`. Local artifacts live under
+`dist/os/freebsd/`; the same filenames are staged flat under
+`dist/release-assets/`. The filename exposes the embedded FreeBSD major ABI so
+a FreeBSD 14 package cannot be mistaken for a FreeBSD 15 package.
 
 The `.pkg` must install:
 
@@ -224,10 +250,13 @@ Both OS packages place files in identical paths:
 | `/usr/bin/pysh`                     | Wrapper that execs `python3 -m pysh` |
 | `/usr/share/doc/pysh-shell/copyright` | Debian copyright file (`.deb` only) |
 
-The wrapper sets `PYTHONPATH=/opt/pysh-shell/lib` and invokes
-`/usr/bin/python3 -m pysh`. PySH is pure Python (standard library
-only) so the packages are architecture-independent
-(`Architecture: all` / `BuildArch: noarch`).
+The Debian/RPM wrapper sets `PYTHONPATH=/opt/pysh-shell/lib` and invokes
+`/usr/bin/python3 -m pysh`; it does not require an executable named
+`python3.13`. Their metadata requires `python3 >= 3.13`, so a compatible newer
+distribution `python3` satisfies the package contract. PySH is pure Python
+(standard library only), so those packages are architecture-independent
+(`Architecture: all` / `BuildArch: noarch`). FreeBSD archives retain a native
+ABI tag in `pkg` metadata even though their PySH payload is pure Python.
 
 ## Local packaging commands
 
@@ -246,11 +275,11 @@ install-and-run smoke (`scripts/smoke_debian_package.sh`), a real RPM
 install-and-run smoke (`scripts/smoke_rpm_package.sh`), and a clean
 temporary virtualenv install smoke test. It does not publish artifacts,
 upload files, create tags, create GitHub releases or require credentials.
-On non-FreeBSD hosts the gate requires a prebuilt
-`dist/os/freebsd/pysh-shell-X.Y.Z.pkg` from the FreeBSD 14+ builder (its
-own real install-and-run smoke, `scripts/smoke_freebsd_package.sh`, can
-only execute on real FreeBSD and runs unconditionally in
-`.github/workflows/release-artifacts.yml`'s FreeBSD VM job).
+On non-FreeBSD hosts the gate requires both prebuilt ABI-specific packages
+under `dist/os/freebsd/`. Their real install-and-run smoke,
+`scripts/smoke_freebsd_package.sh`, can only execute on real FreeBSD and runs
+unconditionally in `.github/workflows/release-artifacts.yml`'s FreeBSD 14/15
+VM matrix.
 
 The package-quality model for each OS artifact family is now the same
 three tiers: **build** (produces the canonical filename), **static
@@ -287,7 +316,7 @@ If it is missing, the script fails fast with a deterministic message.
 | ----------------------------------------- | --------------------------------------------- |
 | `.github/workflows/ci.yml`                | Tests, lint, build, twine, packaging scripts, real Debian/RPM install-and-run smoke |
 | `.github/workflows/publish.yml`           | **Only** path that publishes to PyPI (Trusted Publishing) |
-| `.github/workflows/release-artifacts.yml` | Builds a real FreeBSD `.pkg` in a FreeBSD 14+ VM (with its own real install-and-run smoke), then builds/stages wheel, sdist, `.deb` (with real install-and-run smoke), `.rpm` (with real install-and-run smoke), `.pkg`, and flat `SHA256SUMS`, then attaches `dist/release-assets/*` to the GitHub Release |
+| `.github/workflows/release-artifacts.yml` | Builds real ABI-specific FreeBSD 14 and 15 `.pkg` artifacts in a major-version VM matrix (each with a real install-and-run smoke), then builds/stages wheel, sdist, `.deb`, `.rpm`, both `.pkg` files, and flat `SHA256SUMS`, then attaches `dist/release-assets/*` to the GitHub Release |
 
 There is exactly one PyPI publish path; the OS-packages workflow does
 not publish to PyPI.

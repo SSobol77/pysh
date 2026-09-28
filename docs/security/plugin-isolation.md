@@ -300,6 +300,10 @@ manifest/capability validation, protocol bounds, environment/cwd/fd hygiene,
 handshake, broker authorization, canonical paths, crash, malformed input, and
 hang containment.
 
-Local Debian validation does not establish FreeBSD behavior. The same portable
-test modules must run in the FreeBSD 14.4 CI/VM environment; until that evidence
-exists, FreeBSD validation is pending rather than PASS.
+Local Debian validation does not establish FreeBSD behavior. The portable
+runtime module is wired into the release-blocking Debian 13 and FreeBSD 14.4
+reference gates defined by the
+[platform tier contract](../compatibility/platform-tiers.md). A local Linux
+result remains local-environment evidence; the reference results for a commit
+are pending until those CI gates run and pass.
+Until then, FreeBSD validation is pending rather than PASS.

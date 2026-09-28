@@ -93,7 +93,7 @@ Current release line: **PySH 0.9.0**.
 | Debug trace redacts stderr while command stdout remains unchanged | Unit test | `tests/test_observability_diagnostics.py` | None | #43 / #50 |
 | Isolated manifest and typed capabilities fail closed | Unit test | `tests/test_isolated_plugin_manifest.py` | None | #44 |
 | Isolated IPC rejects malformed, oversized, unknown and incompatible messages | Unit test | `tests/test_isolated_plugin_protocol.py`, `tests/test_isolated_plugin_runtime.py` | None | #44 |
-| Isolated child receives scrubbed env, private cwd and no unrelated parent fd | Subprocess test | `tests/test_isolated_plugin_runtime.py` | FreeBSD 14.4 CI/VM evidence pending | #44 / #52 |
+| Isolated child receives scrubbed env, private cwd and no unrelated parent fd | Subprocess test | `tests/test_isolated_plugin_runtime.py` | Wired into the Debian 13 and FreeBSD 14.4 reference gates; native results required per commit | #44 / #52 |
 | Parent broker enforces grants and canonical filesystem scopes | Subprocess test | `tests/test_isolated_plugin_runtime.py` | Direct same-UID syscall confinement requires #52 | #44 |
 | Isolated crash and hang cannot terminate the parent test session | Subprocess test | `tests/test_isolated_plugin_runtime.py` | Unified budgets deferred to #53 | #44 / #53 |
 | Comments (`#`) work correctly | Unit test | `tests/test_comments.py` | None | — |
@@ -180,8 +180,17 @@ Current release line: **PySH 0.9.0**.
 
 | Gate | Current status | Gap |
 | ---- | -------------- | --- |
-| `uv run ruff check src tests` | Active in CI | None |
-| `uv run pytest -q` (full suite) | Active in CI | None |
+| Linux Ruff (`ruff check src tests`) | Active in ordinary CI | None |
+| Linux full pytest suite | Active in ordinary CI | None |
+| Linux language conformance corpus | Active in ordinary CI | None |
+| Debian 13 amd64 platform-sensitive pytest suites | Active in the `platform-debian` reference container gate | Native result is produced only after CI runs the commit |
+| Debian 13 language conformance corpus | Active in the `platform-debian` reference container gate | Native result is produced only after CI runs the commit |
+| FreeBSD 14.4 amd64 platform-sensitive pytest suites | Active in the `platform-freebsd` native VM gate | Native result is produced only after CI runs the commit |
+| FreeBSD 14.4 language conformance corpus | Active in the `platform-freebsd` native VM gate | Native result is produced only after CI runs the commit |
+| Linux and FreeBSD performance profiles | Active as release-blocking CI jobs | None |
+| Debian 13 native-package install smoke | Active in ordinary CI | None |
+| Fedora 43 RPM native-package install smoke | Active in ordinary CI and `release-artifacts.yml` | Package-path evidence only; not a Fedora-family behavioral matrix |
+| FreeBSD 14/15 amd64 ABI-specific native-package install smokes | Active in the `release-artifacts.yml` package matrix | Release/workflow-dispatch evidence required; separate from the FreeBSD 14.4 behavioral reference |
 | Import-boundary test | Active (Issue #3) | None |
 | Public API snapshot | Active (Issue #3) | None |
 | Cold-start budget | Active (Issue #3) | None |
@@ -189,7 +198,7 @@ Current release line: **PySH 0.9.0**.
 | Feature matrix broad-claim audit | Active (Issue #4) | None |
 | Shell comparison tests | Not yet | Issue #16 |
 | Negative construct tests (job control) | Partial | Issue #11 |
-| FreeBSD validation | Mandatory for v0.8.2 release completion | Issue #18 |
+| Platform tier policy | Active — see [platform-tiers.md](platform-tiers.md) | None |
 
 ---
 
@@ -201,7 +210,7 @@ Current release line: **PySH 0.9.0**.
 | Shell comparison tests (PySH vs real zsh/bash) | #16 | Medium |
 | Script mode full contract validation | #14 | High |
 | POSIX sh script fixture tests | #17 | Medium |
-| FreeBSD terminal and PTY validation | #18 | Release-blocking for v0.8.2 |
+| Debian and FreeBSD native reference evidence for each commit | #52 | Release-blocking for v1.0.0; obtained after push/PR |
 | Programmable completion validation | #12 | Medium |
 
 ---

@@ -42,9 +42,11 @@ Every benchmark is release-blocking for both current validation profiles:
   `ubuntu-latest`, Python 3.13;
 - `freebsd-14-4-python3-13`: real FreeBSD 14.4 VM, Python 3.13.
 
-These are performance validation profiles, not final support-tier decisions.
-Issue #52 may formalize or reclassify tiers without changing the benchmark
-schema.
+These profiles implement the current release-reference performance obligation
+in the normative [platform tier contract](../compatibility/platform-tiers.md)
+established by Issue #52. They are evidence anchors, not runtime allowlists:
+the supported-family and CPython `>=3.13` policy is broader than the exact
+performance profiles.
 
 ## Benchmark definitions
 
@@ -199,11 +201,12 @@ aggregate, nominal budget, margin, effective threshold, and PASS/FAIL status.
 It never records environment contents, hostnames, usernames, home paths,
 tokens, or benchmark fixture paths.
 
-Pull-request CI has two independent gating jobs:
+Pull-request CI has two release-blocking platform profiles:
 
 - Linux writes `artifacts/performance/linux-python3-13.json` and uploads the
   `performance-linux-python3-13` artifact.
-- A real `vmactions/freebsd-vm@v1` FreeBSD 14.4 VM writes
+- The combined native platform/performance job in a real
+  `vmactions/freebsd-vm@v1` FreeBSD 14.4 VM writes
   `artifacts/performance/freebsd-14.4-python3-13.json` and uploads the
   `performance-freebsd-14.4-python3-13` artifact.
 

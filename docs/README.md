@@ -71,6 +71,7 @@ docs/
 │   └── plugin-guide.md
 ├── compatibility/                     ← compatibility contracts and scope (Issue #4)
 │   ├── README.md
+│   ├── platform-tiers.md
 │   ├── shell-compatibility-contract.md
 │   ├── feature-matrix.md
 │   ├── posix-sh-scope.md
@@ -219,6 +220,7 @@ All compatibility claims are explicit, scoped, and test-backed.
 | Document | Description |
 | -------- | ----------- |
 | [compatibility/README.md](compatibility/README.md) | Compatibility overview: status, categories, source-of-truth policy |
+| [platform-tiers.md](compatibility/platform-tiers.md) | Normative v1.0 runtime families, reference environments, platform behavior, fallbacks, and CI evidence |
 | [shell-compatibility-contract.md](compatibility/shell-compatibility-contract.md) | Contract language, categories, governing rules, forbidden claim patterns |
 | [feature-matrix.md](compatibility/feature-matrix.md) | Per-feature matrix: status, category, evidence, owner issue |
 | [posix-sh-scope.md](compatibility/posix-sh-scope.md) | POSIX sh scope: what PySH supports, what it does not, `/bin/sh` prohibition |

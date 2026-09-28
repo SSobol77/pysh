@@ -348,13 +348,14 @@ def test_ci_has_gating_linux_and_freebsd_performance_jobs() -> None:
     """Pull-request CI executes both platform gates and preserves JSON evidence."""
     text = CI_WORKFLOW.read_text(encoding="utf-8")
     assert "performance-linux:" in text
-    assert "performance-freebsd:" in text
+    assert "platform-freebsd:" in text
+    assert "platform + performance (freebsd-14.4, amd64, python-3.13)" in text
     assert text.count("scripts/benchmark_performance.py") == 2
     assert "--profile linux-python3-13" in text
     assert "--profile freebsd-14-4-python3-13" in text
     assert 'release: "14.4"' in text
     assert "pkg install -y python313" in text
-    assert "python3.13 scripts/benchmark_performance.py" in text
+    assert "python scripts/benchmark_performance.py" in text
     assert "artifacts/performance/linux-python3-13.json" in text
     assert "artifacts/performance/freebsd-14.4-python3-13.json" in text
     assert text.count("if: ${{ always() }}") >= 2

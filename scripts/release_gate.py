@@ -262,11 +262,11 @@ def check_pty_xterm(log_dir: Path) -> CheckResult:
 
 
 def check_artifact_contract(log_dir: Path) -> CheckResult:
-    """Build real wheel/sdist/deb/rpm + one labeled FreeBSD fixture, contract-only.
+    """Build real wheel/sdist/deb/rpm plus labeled FreeBSD fixtures, contract-only.
 
     Mirrors ci.yml's own "Verify artifact contract" step exactly: only the
-    FreeBSD .pkg (which cannot be produced on this host) is a clearly
-    labeled, non-empty fixture. Reuses build_pysh_package.sh/build_deb.sh/
+    FreeBSD .pkg files (which cannot be produced on this host) are clearly
+    labeled, non-empty fixtures. Reuses build_pysh_package.sh/build_deb.sh/
     build_rpm.sh/check_release_artifacts.sh unchanged.
     """
     start = time.monotonic()
@@ -326,13 +326,19 @@ def check_artifact_contract(log_dir: Path) -> CheckResult:
         shutil.copy(rpm, contract_dir / "os" / "rpm" / rpm.name)
 
         version = canonical_version()
-        fixture_pkg = contract_dir / "os" / "freebsd" / f"pysh-shell-{version}.pkg"
-        fixture_pkg.write_text(
-            "PYSH ARTIFACT-CONTRACT TEST FIXTURE - NOT A REAL FREEBSD PACKAGE.\n"
-            "Real FreeBSD .pkg validation runs in "
-            ".github/workflows/release-artifacts.yml via a FreeBSD 14+ VM build.\n",
-            encoding="utf-8",
-        )
+        for major in (14, 15):
+            fixture_pkg = (
+                contract_dir
+                / "os"
+                / "freebsd"
+                / f"pysh-shell-{version}-freebsd{major}-amd64.pkg"
+            )
+            fixture_pkg.write_text(
+                "PYSH ARTIFACT-CONTRACT TEST FIXTURE - NOT A REAL FREEBSD PACKAGE.\n"
+                "Native FreeBSD .pkg validation runs in "
+                ".github/workflows/release-artifacts.yml via the FreeBSD 14/15 VM matrix.\n",
+                encoding="utf-8",
+            )
 
         artifact_result = subprocess.run(
             [
@@ -419,6 +425,48 @@ def check_debian_smoke(log_dir: Path) -> CheckResult:
     )
 
 
+def _pkg_abi(package: Path) -> str:
+    """Return the ABI embedded in one native FreeBSD package archive."""
+    result = subprocess.run(
+        ["pkg", "query", "-F", str(package), "%q"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    abi = result.stdout.strip()
+    if result.returncode != 0 or not abi:
+        detail = _last_lines(result.stdout + result.stderr, 3)
+        raise RuntimeError(f"cannot read ABI from {package.name}: {detail}")
+    return abi
+
+
+def _native_freebsd_package(packages: list[Path]) -> Path:
+    """Select exactly one archive whose embedded ABI matches pkg's host ABI."""
+    result = subprocess.run(
+        ["pkg", "config", "ABI"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    host_abi = result.stdout.strip()
+    if result.returncode != 0 or not host_abi:
+        detail = _last_lines(result.stdout + result.stderr, 3)
+        raise RuntimeError(f"cannot determine native pkg ABI: {detail}")
+
+    matches = [package for package in packages if _pkg_abi(package) == host_abi]
+    if len(matches) != 1:
+        names = ", ".join(package.name for package in packages) or "none"
+        raise RuntimeError(
+            f"expected exactly one package for native ABI {host_abi}; "
+            f"found {len(matches)} among: {names}"
+        )
+    return matches[0]
+
+
 def check_rpm_smoke(log_dir: Path) -> CheckResult:
     """Real RPM install-and-run smoke, reusing scripts/smoke_rpm_package.sh.
 
@@ -488,7 +536,7 @@ def check_freebsd_smoke(log_dir: Path) -> CheckResult:
     a product defect, and is reported as PLATFORM_BLOCKED, never a faked
     PASS. The real build-install-query-execute lifecycle also runs,
     unconditionally, inside .github/workflows/release-artifacts.yml's
-    FreeBSD 14.4 VM job via this same script.
+    FreeBSD 14/15 package VM matrix via this same script.
     """
     if platform.system() != "FreeBSD":
         return CheckResult(
@@ -498,7 +546,7 @@ def check_freebsd_smoke(log_dir: Path) -> CheckResult:
                 ".pkg install/run smoke requires real FreeBSD 14+ and has no "
                 "container/emulation fallback. The real smoke runs "
                 "unconditionally in .github/workflows/release-artifacts.yml's "
-                "FreeBSD 14.4 VM job via scripts/smoke_freebsd_package.sh."
+                "FreeBSD 14/15 package VM matrix via scripts/smoke_freebsd_package.sh."
             ),
         )
 
@@ -532,8 +580,18 @@ def check_freebsd_smoke(log_dir: Path) -> CheckResult:
             diagnostic="build_freebsd_pkg.sh did not produce a .pkg",
         )
 
+    try:
+        native_pkg = _native_freebsd_package(pkgs)
+    except RuntimeError as exc:
+        duration = time.monotonic() - start
+        return CheckResult(
+            status=STATUS_FAIL,
+            duration_seconds=duration,
+            diagnostic=str(exc),
+        )
+
     return run_subprocess_check(
-        ["sh", str(REPO_ROOT / "scripts" / "smoke_freebsd_package.sh"), str(pkgs[-1])],
+        ["sh", str(REPO_ROOT / "scripts" / "smoke_freebsd_package.sh"), str(native_pkg)],
         log_dir=log_dir,
         log_name="freebsd-smoke",
         timeout=180.0,

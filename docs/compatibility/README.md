@@ -20,6 +20,7 @@ This directory is the authoritative source for all PySH compatibility claims.
 
 | Target | Claim | Status |
 | ------ | ----- | ------ |
+| Platform support | Runtime families are distinct from exact reference evidence | Normative — see [platform-tiers.md](platform-tiers.md) |
 | POSIX `/bin/sh` | PySH is **not** a POSIX sh replacement | Confirmed — see [posix-sh-scope.md](posix-sh-scope.md) |
 | zsh | PySH is **not** a zsh clone | Confirmed — see [zsh-scope.md](zsh-scope.md) |
 | bash | PySH is **not** bash | Confirmed — see [bash-scope.md](bash-scope.md) |
@@ -35,6 +36,7 @@ test-backed. Aspirational claims are not permitted in this documentation.
 
 | Document | Purpose |
 | -------- | ------- |
+| [platform-tiers.md](platform-tiers.md) | Normative v1.0 runtime families, reference evidence, OS-dependent behavior, fallbacks, and CI obligations |
 | [shell-compatibility-contract.md](shell-compatibility-contract.md) | Contract language, categories, and governing rules |
 | [feature-matrix.md](feature-matrix.md) | Per-feature matrix: status, category, evidence, owner issue |
 | [posix-sh-scope.md](posix-sh-scope.md) | POSIX sh scope: what PySH supports, what it does not |
@@ -106,6 +108,7 @@ operating-system `/bin/sh` provider. See
 ## Source-of-truth policy
 
 - `docs/compatibility/` is the authoritative source for all compatibility claims.
+- `platform-tiers.md` is the single normative source for v1.0 platform support claims.
 - `docs/user/limitations.md` summarizes non-goals for users; links here for detail.
 - `docs/migration/zsh-compatibility.md` documents the zsh transition layer; links here for scope.
 - `docs/migration/migration.md` documents migration workflows; links here for contract.

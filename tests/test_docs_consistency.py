@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -254,13 +255,16 @@ def test_release_artifact_script_stages_flat_github_release_assets() -> None:
     assert 'rm -rf "${RELEASE_ASSETS_DIR}"' in text
     assert 'cp "${DEB_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_DEB}"' in text
     assert 'cp "${RPM_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_RPM}"' in text
-    assert 'cp "${FREEBSD_PKG_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_FREEBSD_PKG}"' in text
+    assert 'cp "${FREEBSD_14_PKG_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_FREEBSD_14_PKG}"' in text
+    assert 'cp "${FREEBSD_15_PKG_PATH}" "${RELEASE_ASSETS_DIR}/${EXPECTED_FREEBSD_15_PKG}"' in text
     assert '"os/deb/${EXPECTED_DEB}"' in text
     assert '"os/rpm/${EXPECTED_RPM}"' in text
-    assert '"os/freebsd/${EXPECTED_FREEBSD_PKG}"' in text
+    assert '"os/freebsd/${EXPECTED_FREEBSD_14_PKG}"' in text
+    assert '"os/freebsd/${EXPECTED_FREEBSD_15_PKG}"' in text
     assert '"${EXPECTED_DEB}"' in text
     assert '"${EXPECTED_RPM}"' in text
-    assert '"${EXPECTED_FREEBSD_PKG}"' in text
+    assert '"${EXPECTED_FREEBSD_14_PKG}"' in text
+    assert '"${EXPECTED_FREEBSD_15_PKG}"' in text
 
 
 def test_release_workflow_uploads_flat_staged_assets() -> None:
@@ -279,14 +283,16 @@ def test_release_workflow_uploads_flat_staged_assets() -> None:
 
     assert "runs-on: [self-hosted, freebsd, x64]" not in text
     assert "vmactions/freebsd-vm" in text or "cross-platform-actions/action" in text
-    assert 'release: "14.4"' in text
+    assert 'freebsd: ["14", "15"]' in text
+    assert 'release: "${{ matrix.freebsd }}"' in text
     assert "pkg install -y python313" in text
     assert "python3.13 --version" in text
     assert "pkg --version" in text
-    assert 'PKG_PATH="dist/os/freebsd/pysh-shell-${VERSION}.pkg"' in text
+    assert 'PKG_PATH="dist/os/freebsd/pysh-shell-${VERSION}-freebsd${major}-amd64.pkg"' in text
     assert "pysh-shell-0.8.0.pkg" not in text
     assert "sh scripts/build_freebsd_pkg.sh" in text
     assert 'pkg info -F "${PKG_PATH}"' in text
+    assert 'pkg query -F "${PKG_PATH}" "%q"' in text
     assert 'pkg query -F "${PKG_PATH}" "%Fp"' in text
     assert "/usr/local/bin/pysh" in text
     assert "/usr/local/lib/pysh-shell/pysh" in text
@@ -966,26 +972,35 @@ def test_freebsd_pkg_builder_script_exists_and_is_executable() -> None:
     assert "pkg create" in text
     assert "pkg info -F" in text
     assert "pkg query -F" in text
+    assert 'HOST_ABI="$(pkg config ABI)"' in text
+    assert 'PACKAGE_ABI="$(pkg query -F "${RAW_PATH}" "%q")"' in text
+    assert 'if [ "${PACKAGE_ABI}" != "${HOST_ABI}" ]' in text
     assert "/usr/local/bin/pysh" in text
-    assert "exec /usr/local/bin/python3.13 -m pysh" in text
+    assert "PYSH_FREEBSD_PYTHON_COMMAND" in text
+    assert "PYSH_FREEBSD_PYTHON_PACKAGE" in text
+    assert "PYSH_FREEBSD_PYTHON_ORIGIN" in text
+    assert "exec /usr/local/bin/python3.13 -m pysh" not in text
     assert "/usr/local/lib/pysh-shell/pysh" in text
-    assert "pysh-shell-${VERSION}.pkg" in text
+    assert "freebsd${PACKAGE_FREEBSD_MAJOR}-${PACKAGE_ARCH}.pkg" in text
 
 
-def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg() -> None:
+def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg(tmp_path: Path) -> None:
     """On non-FreeBSD hosts, the builder must fail before creating fake .pkg bytes."""
     if os.uname().sysname == "FreeBSD":
         return
-    import tomllib
 
-    version = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
-    expected = REPO_ROOT / "dist" / "os" / "freebsd" / f"pysh-shell-{version}.pkg"
-    if expected.exists():
-        expected.unlink()
+    # Run from an isolated miniature repository. A contract test must never
+    # delete or rewrite prepared release packages under the real dist/ tree.
+    isolated_repo = tmp_path / "repo"
+    scripts_dir = isolated_repo / "scripts"
+    scripts_dir.mkdir(parents=True)
+    for name in ("build_freebsd_pkg.sh", "_pysh_version.sh", "_freebsd_python.sh"):
+        shutil.copy2(REPO_ROOT / "scripts" / name, scripts_dir / name)
+    shutil.copy2(PYPROJECT, isolated_repo / "pyproject.toml")
 
     result = subprocess.run(
         ["bash", "scripts/build_freebsd_pkg.sh"],
-        cwd=REPO_ROOT,
+        cwd=isolated_repo,
         check=False,
         capture_output=True,
         text=True,
@@ -997,7 +1012,7 @@ def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg() -> None:
         "FreeBSD .pkg must be built on FreeBSD 14+ with native pkg tooling; "
         f"refusing to fake .pkg on {os.uname().sysname}."
     ) in result.stderr
-    assert not expected.exists()
+    assert not (isolated_repo / "dist" / "os" / "freebsd").exists()
 
 
 def test_docs_freebsd_pkg_is_mandatory_for_current_release() -> None:
@@ -1038,7 +1053,7 @@ def test_freebsd_validation_docs_include_required_smoke_commands() -> None:
         'pysh -c "exit"',
         'pysh -c "quit"',
         "bash scripts/build_freebsd_pkg.sh",
-        "sudo pkg install ./pysh-shell-X.Y.Z.pkg",
+        'sudo pkg add "./pysh-shell-X.Y.Z-freebsd${FREEBSD_MAJOR}-amd64.pkg"',
     )
     for text in (packaging_doc, installation_doc):
         for command in required_commands:
@@ -1093,9 +1108,10 @@ def test_freebsd_pkg_future_direction_is_not_current_artifact_policy() -> None:
         f"FreeBSD `.pkg` packaging is current mandatory v{CURRENT_VERSION} release work"
         in combined
     )
-    assert "pysh-shell-X.Y.Z.pkg" in combined
-    assert "dist/os/freebsd/pysh-shell-X.Y.Z.pkg" in combined
-    assert "dist/release-assets/pysh-shell-X.Y.Z.pkg" in combined
+    assert "pysh-shell-X.Y.Z-freebsd14-amd64.pkg" in combined
+    assert "pysh-shell-X.Y.Z-freebsd15-amd64.pkg" in combined
+    assert "dist/os/freebsd/" in combined
+    assert "dist/release-assets/" in combined
     assert "/usr/local/bin/pysh" in packaging_doc
     assert "/usr/local/lib/pysh-shell/pysh/" in combined
     assert "/usr/local/share/doc/pysh-shell/" in combined
@@ -1121,9 +1137,10 @@ def test_release_gates_require_freebsd_pkg_without_fake_builds() -> None:
         assert "dist/*.tar.gz" in text or "EXPECTED_SDIST" in text
         assert "pysh-shell_*-1_all.deb" in text or "EXPECTED_DEB" in text
         assert "pysh-shell-*-1.noarch.rpm" in text or "EXPECTED_RPM" in text
-        assert "pysh-shell-*.pkg" in text or "EXPECTED_FREEBSD_PKG" in text
+        assert "pysh-shell-*.pkg" in text or "EXPECTED_FREEBSD_14_PKG" in text
+        assert "pysh-shell-*.pkg" in text or "EXPECTED_FREEBSD_15_PKG" in text
         assert "SHA256SUMS" in text
-    assert "FreeBSD .pkg is mandatory" in (
+    assert "required FreeBSD .pkg is missing or empty" in (
         REPO_ROOT / "scripts" / "build_release_artifacts.sh"
     ).read_text(encoding="utf-8")
     assert "dist/release-assets/*" in workflow
@@ -1135,18 +1152,17 @@ def test_release_quality_gate_preserves_prebuilt_freebsd_pkg_before_cleaning() -
         encoding="utf-8"
     )
 
-    assert 'EXPECTED_FREEBSD_PKG="pysh-shell-${VERSION}.pkg"' in quality_gate
-    assert 'FREEBSD_PKG_PATH="${REPO_ROOT}/dist/os/freebsd/${EXPECTED_FREEBSD_PKG}"' in (
-        quality_gate
-    )
-    assert "preserve_freebsd_pkg()" in quality_gate
-    assert "restore_freebsd_pkg()" in quality_gate
-    assert 'cp "${FREEBSD_PKG_PATH}" "${PRESERVED_FREEBSD_PKG}"' in quality_gate
-    assert 'cp "${PRESERVED_FREEBSD_PKG}" "${FREEBSD_PKG_PATH}"' in quality_gate
+    assert 'EXPECTED_FREEBSD_14_PKG="pysh-shell-${VERSION}-freebsd14-amd64.pkg"' in quality_gate
+    assert 'EXPECTED_FREEBSD_15_PKG="pysh-shell-${VERSION}-freebsd15-amd64.pkg"' in quality_gate
+    assert "preserve_freebsd_pkgs()" in quality_gate
+    assert "restore_missing_freebsd_pkgs()" in quality_gate
+    assert 'cp "${path}" "${PRESERVED_FREEBSD_DIR}/${name}"' in quality_gate
+    assert 'if [ -f "${preserved}" ] && [ ! -e "${target}" ]' in quality_gate
+    assert 'cp "${preserved}" "${target}"' in quality_gate
 
-    preserve_idx = quality_gate.index("\npreserve_freebsd_pkg\n")
+    preserve_idx = quality_gate.index("\npreserve_freebsd_pkgs\n")
     clean_idx = quality_gate.index("rm -rf dist build ./*.egg-info")
-    restore_idx = quality_gate.index("\nrestore_freebsd_pkg\n")
+    restore_idx = quality_gate.index("\nrestore_missing_freebsd_pkgs\n")
     build_idx = quality_gate.index('bash "${REPO_ROOT}/scripts/build_release_artifacts.sh"')
     assert preserve_idx < clean_idx < restore_idx < build_idx
 
@@ -1154,29 +1170,26 @@ def test_release_quality_gate_preserves_prebuilt_freebsd_pkg_before_cleaning() -
     # pytest suite cannot delete the .pkg before it is saved to a temp file.
     ruff_idx = quality_gate.index("ruff check src tests")
     assert preserve_idx < ruff_idx, (
-        "preserve_freebsd_pkg must be called before step [1/12] ruff check src tests"
+        "preserve_freebsd_pkgs must be called before ruff check src tests"
     )
 
-    # restore_freebsd_pkg must be called immediately after rm -rf dist
-    restore_after_clean_idx = quality_gate.index("\nrestore_freebsd_pkg\n", clean_idx)
+    # Missing packages must be restored immediately after rm -rf dist.
+    restore_after_clean_idx = quality_gate.index("\nrestore_missing_freebsd_pkgs\n", clean_idx)
     assert clean_idx < restore_after_clean_idx < build_idx, (
-        "restore_freebsd_pkg must be called immediately after rm -rf dist"
+        "restore_missing_freebsd_pkgs must be called immediately after rm -rf dist"
     )
 
-    # restore_freebsd_pkg must also be called a second time immediately before
+    # restore_missing_freebsd_pkgs must also be called a second time before
     # build_release_artifacts.sh (redundant guard in case TMPDIR setup intervenes)
-    final_restore_idx = quality_gate.rindex("\nrestore_freebsd_pkg\n", 0, build_idx)
+    final_restore_idx = quality_gate.rindex("\nrestore_missing_freebsd_pkgs\n", 0, build_idx)
     assert final_restore_idx > restore_after_clean_idx, (
-        "a second restore_freebsd_pkg call must appear immediately before build_release_artifacts.sh"
+        "a second restore_missing_freebsd_pkgs call must precede build_release_artifacts.sh"
     )
 
-    # Non-FreeBSD must hard-fail with a clear message if the .pkg is absent or empty
-    assert '! -s "${FREEBSD_PKG_PATH}"' in quality_gate, (
-        "check_release_quality.sh must guard [ ! -s FREEBSD_PKG_PATH ] before build_release_artifacts.sh"
-    )
-    assert "prebuilt FreeBSD .pkg is required before build_release_artifacts.sh" in quality_gate, (
-        "check_release_quality.sh must emit a hard-fail message when the prebuilt .pkg is missing"
-    )
+    # Non-FreeBSD requires both ABIs; a native host requires the other ABI.
+    assert 'require_nonempty_file "${FREEBSD_PKG_DIR}/${EXPECTED_FREEBSD_14_PKG}"' in quality_gate
+    assert 'require_nonempty_file "${FREEBSD_PKG_DIR}/${EXPECTED_FREEBSD_15_PKG}"' in quality_gate
+    assert 'HOST_ABI="$(pkg config ABI)"' in quality_gate
 
 
 # ---------------------------------------------------------------------------
@@ -1274,40 +1287,40 @@ def test_build_release_artifacts_preserves_and_restores_freebsd_pkg_redundantly(
     script = (REPO_ROOT / "scripts" / "build_release_artifacts.sh").read_text(encoding="utf-8")
 
     # --- preserve block at script start ---
-    assert 'PRESERVED_FREEBSD_PKG="$(mktemp' in script
-    assert 'cp "${FREEBSD_PKG_PATH}" "${PRESERVED_FREEBSD_PKG}"' in script
+    assert 'PRESERVED_FREEBSD_DIR="$(mktemp' in script
+    assert 'cp "${path}" "${PRESERVED_FREEBSD_DIR}/${name}"' in script
     assert "Preserved prebuilt FreeBSD .pkg" in script
 
-    # --- restore_freebsd_pkg function logs when it restores ---
-    assert "restore_freebsd_pkg()" in script
-    assert 'cp "${PRESERVED_FREEBSD_PKG}" "${FREEBSD_PKG_PATH}"' in script
-    assert "Restored prebuilt FreeBSD .pkg" in script
+    # Restore only a missing artifact, never overwrite a fresh native build.
+    assert "restore_missing_freebsd_pkgs()" in script
+    assert 'if [ -f "${preserved}" ] && [ ! -e "${target}" ]' in script
+    assert 'cp "${preserved}" "${target}"' in script
+    assert "Restored missing prebuilt FreeBSD .pkg" in script
 
     # --- restore order: after build_pysh_package.sh, after build_deb.sh,
     #     after build_rpm.sh, and immediately before check_release_artifacts.sh ---
     pysh_pkg_idx = script.index("build_pysh_package.sh")
-    restore_after_pysh = script.index("restore_freebsd_pkg", pysh_pkg_idx)
+    restore_after_pysh = script.index("restore_missing_freebsd_pkgs", pysh_pkg_idx)
 
     deb_idx = script.index("build_deb.sh")
-    restore_after_deb = script.index("restore_freebsd_pkg", deb_idx)
+    restore_after_deb = script.index("restore_missing_freebsd_pkgs", deb_idx)
     assert restore_after_pysh < deb_idx < restore_after_deb, (
-        "restore_freebsd_pkg must appear after build_deb.sh"
+        "restore_missing_freebsd_pkgs must appear after build_deb.sh"
     )
 
     rpm_idx = script.index("build_rpm.sh")
-    restore_after_rpm = script.index("restore_freebsd_pkg", rpm_idx)
+    restore_after_rpm = script.index("restore_missing_freebsd_pkgs", rpm_idx)
     assert restore_after_deb < rpm_idx < restore_after_rpm, (
-        "restore_freebsd_pkg must appear after build_rpm.sh"
+        "restore_missing_freebsd_pkgs must appear after build_rpm.sh"
     )
 
     check_artifacts_idx = script.index("check_release_artifacts.sh")
-    restore_before_check = script.rindex("restore_freebsd_pkg", 0, check_artifacts_idx)
-    assert restore_after_rpm < restore_before_check < check_artifacts_idx, (
-        "restore_freebsd_pkg must appear immediately before check_release_artifacts.sh"
-    )
+    assert restore_after_rpm < check_artifacts_idx
+    assert 'require_freebsd_pkg "${FREEBSD_PKG_DIR}/${EXPECTED_FREEBSD_14_PKG}"' in script
+    assert 'require_freebsd_pkg "${FREEBSD_PKG_DIR}/${EXPECTED_FREEBSD_15_PKG}"' in script
 
     # --- missing .pkg on non-FreeBSD must be a hard release-blocking failure ---
-    mandatory_idx = script.index("FreeBSD .pkg is mandatory")
+    mandatory_idx = script.index("required FreeBSD .pkg is missing or empty")
     assert "exit 1" in script[mandatory_idx:mandatory_idx + 300], (
         "Missing FreeBSD .pkg must cause exit 1, not silent continuation"
     )
@@ -1320,7 +1333,7 @@ def test_check_release_quality_logs_freebsd_pkg_preserve_and_restore() -> None:
     assert "Preserved prebuilt FreeBSD .pkg" in script, (
         "check_release_quality.sh must log when it preserves the prebuilt FreeBSD .pkg"
     )
-    assert "Restored prebuilt FreeBSD .pkg" in script, (
+    assert "Restored missing prebuilt FreeBSD .pkg" in script, (
         "check_release_quality.sh must log when it restores the prebuilt FreeBSD .pkg"
     )
 

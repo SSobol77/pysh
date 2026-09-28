@@ -11,11 +11,15 @@ cd "${REPO_ROOT}"
 
 # shellcheck source=scripts/_pysh_version.sh
 . "${REPO_ROOT}/scripts/_pysh_version.sh"
+# shellcheck source=scripts/_freebsd_python.sh
+. "${REPO_ROOT}/scripts/_freebsd_python.sh"
 
 fail() {
     echo "build_freebsd_pkg.sh: $*" >&2
     exit 1
 }
+
+pysh_freebsd_python_config "build_freebsd_pkg.sh"
 
 if [ "$(uname -s)" != "FreeBSD" ]; then
     fail "FreeBSD .pkg must be built on FreeBSD 14+ with native pkg tooling; refusing to fake .pkg on $(uname -s)."
@@ -35,23 +39,37 @@ if ! command -v pkg >/dev/null 2>&1; then
     fail "required FreeBSD pkg tooling not found in PATH."
 fi
 
+HOST_ABI="$(pkg config ABI)" || fail "failed to read the native ABI from pkg config ABI."
+HOST_ABI_SYSTEM="$(printf '%s\n' "${HOST_ABI}" | awk -F: '{print $1}')"
+HOST_ABI_MAJOR="$(printf '%s\n' "${HOST_ABI}" | awk -F: '{print $2}')"
+HOST_ABI_ARCH="$(printf '%s\n' "${HOST_ABI}" | awk -F: '{print $3}')"
+if [ "${HOST_ABI}" != "${HOST_ABI_SYSTEM}:${HOST_ABI_MAJOR}:${HOST_ABI_ARCH}" ] || \
+    [ "${HOST_ABI_SYSTEM}" != "FreeBSD" ] || \
+    [ "${HOST_ABI_MAJOR}" != "${FREEBSD_MAJOR}" ]; then
+    fail "pkg host ABI does not match uname -r: ${HOST_ABI} versus FreeBSD ${FREEBSD_MAJOR}."
+fi
+case "${HOST_ABI_ARCH}" in
+    ''|*[!A-Za-z0-9_]*) fail "unsupported architecture token in pkg host ABI: ${HOST_ABI}" ;;
+esac
+
 VERSION="$(pysh_read_version "${REPO_ROOT}/pyproject.toml")"
 if [ -z "${VERSION}" ]; then
     fail "failed to read version from pyproject.toml"
 fi
 
 PKG_NAME="pysh-shell"
-# Canonical FreeBSD package filename format: pysh-shell-${VERSION}.pkg
-EXPECTED_PKG="${PKG_NAME}-${VERSION}.pkg"
+# pkg create first emits the package manager's raw name. The release filename
+# is derived only after reading the archive's real ABI metadata with pkg query.
+RAW_PKG="${PKG_NAME}-${VERSION}.pkg"
 OUT_DIR="${REPO_ROOT}/dist/os/freebsd"
-EXPECTED_PATH="${OUT_DIR}/${EXPECTED_PKG}"
+RAW_PATH="${OUT_DIR}/${RAW_PKG}"
 PREFIX="/usr/local"
 LIB_DIR="${PREFIX}/lib/${PKG_NAME}/pysh"
 DOC_DIR="${PREFIX}/share/doc/${PKG_NAME}"
 REQUIRED_BIN="/usr/local/bin/pysh"
 REQUIRED_LIB="/usr/local/lib/pysh-shell/pysh"
 
-echo "==> Building FreeBSD package ${EXPECTED_PKG}"
+echo "==> Building FreeBSD package for native ABI ${HOST_ABI}"
 
 STAGE_DIR="$(mktemp -d -t pysh-freebsd-pkg.XXXXXXXX)"
 MANIFEST="$(mktemp -t pysh-freebsd-manifest.XXXXXXXX)"
@@ -84,9 +102,9 @@ else
     PYTHONPATH="${PYSH_APP_PREFIX}"
 fi
 export PYTHONPATH
-
-exec /usr/local/bin/python3.13 -m pysh "$@"
 SH
+printf '\nexec %s -m pysh "$@"\n' "${PYSH_FREEBSD_PYTHON_COMMAND}" \
+    >>"${STAGE_DIR}${PREFIX}/bin/pysh"
 chmod 0755 "${STAGE_DIR}${PREFIX}/bin/pysh"
 
 install -m 0644 "${REPO_ROOT}/README.md" "${STAGE_DIR}${DOC_DIR}/README.md"
@@ -115,34 +133,53 @@ licenselogic: single
 licenses: [GPLv2]
 categories: [shells, python]
 deps: {
-  python313: {
-    origin: lang/python313
-    version: ">=3.13"
+  ${PYSH_FREEBSD_PYTHON_PACKAGE}: {
+    origin: ${PYSH_FREEBSD_PYTHON_ORIGIN}
+    version: ">=${PYSH_FREEBSD_PYTHON_VERSION}"
   }
 }
 EOF
 
-rm -f "${EXPECTED_PATH}"
+rm -f "${RAW_PATH}"
 pkg create -r "${STAGE_DIR}" -M "${MANIFEST}" -p "${PLIST}" -o "${OUT_DIR}"
 
-if [ ! -f "${EXPECTED_PATH}" ]; then
-    echo "build_freebsd_pkg.sh: expected ${EXPECTED_PATH} but it was not produced." >&2
+if [ ! -f "${RAW_PATH}" ]; then
+    echo "build_freebsd_pkg.sh: expected raw package ${RAW_PATH} but it was not produced." >&2
     echo "build_freebsd_pkg.sh: contents of ${OUT_DIR}:" >&2
     ls -1 "${OUT_DIR}" >&2 || true
     exit 1
 fi
 
-for f in "${OUT_DIR}"/*.pkg; do
-    base="$(basename "${f}")"
-    if [ "${base}" != "${EXPECTED_PKG}" ]; then
-        echo "build_freebsd_pkg.sh: unexpected artifact filename: ${base}" >&2
-        echo "build_freebsd_pkg.sh: canonical name must be ${EXPECTED_PKG}" >&2
-        exit 1
-    fi
-done
+PACKAGE_ABI="$(pkg query -F "${RAW_PATH}" "%q")" || \
+    fail "failed to read package ABI from ${RAW_PATH}."
+PACKAGE_ABI_SYSTEM="$(printf '%s\n' "${PACKAGE_ABI}" | awk -F: '{print $1}')"
+PACKAGE_FREEBSD_MAJOR="$(printf '%s\n' "${PACKAGE_ABI}" | awk -F: '{print $2}')"
+PACKAGE_ARCH="$(printf '%s\n' "${PACKAGE_ABI}" | awk -F: '{print $3}')"
+case "${PACKAGE_FREEBSD_MAJOR}" in
+    ''|*[!0-9]*) fail "unexpected package ABI metadata: ${PACKAGE_ABI}" ;;
+esac
+case "${PACKAGE_ARCH}" in
+    ''|*[!A-Za-z0-9_]*) fail "unexpected package ABI metadata: ${PACKAGE_ABI}" ;;
+esac
+if [ "${PACKAGE_ABI}" != "${PACKAGE_ABI_SYSTEM}:${PACKAGE_FREEBSD_MAJOR}:${PACKAGE_ARCH}" ] || \
+    [ "${PACKAGE_ABI_SYSTEM}" != "FreeBSD" ]; then
+    fail "unexpected package ABI metadata: ${PACKAGE_ABI}"
+fi
+if [ "${PACKAGE_ABI}" != "${HOST_ABI}" ]; then
+    fail "unexpected package ABI: expected native ${HOST_ABI}, got ${PACKAGE_ABI}"
+fi
+
+EXPECTED_PKG="${PKG_NAME}-${VERSION}-freebsd${PACKAGE_FREEBSD_MAJOR}-${PACKAGE_ARCH}.pkg"
+EXPECTED_PATH="${OUT_DIR}/${EXPECTED_PKG}"
+rm -f "${EXPECTED_PATH}"
+mv "${RAW_PATH}" "${EXPECTED_PATH}"
 
 echo "==> Validating ${EXPECTED_PATH}"
 pkg info -F "${EXPECTED_PATH}"
+VALIDATED_ABI="$(pkg query -F "${EXPECTED_PATH}" "%q")"
+if [ "${VALIDATED_ABI}" != "${PACKAGE_ABI}" ]; then
+    fail "package ABI changed after canonical rename: ${PACKAGE_ABI} -> ${VALIDATED_ABI}"
+fi
 pkg query -F "${EXPECTED_PATH}" "%Fp" >"${LISTING}"
 
 if ! grep -Fxq "${REQUIRED_BIN}" "${LISTING}"; then

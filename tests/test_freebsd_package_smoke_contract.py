@@ -8,7 +8,7 @@
 ``scripts/smoke_freebsd_package.sh`` installs a built ``.pkg`` through real
 ``pkg add <local-file>`` package management directly on the FreeBSD host it
 runs on, then verifies the INSTALLED console entrypoint (``pysh --version``,
-``python3.13 -m pysh --version``, ``pysh -c``, and a real PTY-driven
+the package-selected Python's ``-m pysh --version``, ``pysh -c``, and a real PTY-driven
 interactive ``exit``/``quit``). It never treats archive extraction as an
 installed package, and it never runs on a non-FreeBSD host: FreeBSD's
 native ``.pkg`` format and ``pkg(8)`` tooling do not exist anywhere else,
@@ -19,13 +19,14 @@ Argument validation and the "not FreeBSD" diagnostic run on every host,
 with no FreeBSD dependency, because the script rejects those inputs before
 ever touching ``pkg``. The full build-install-query-execute chain genuinely
 needs real FreeBSD 14+ and is exercised for real only in
-``.github/workflows/release-artifacts.yml``'s FreeBSD 14.4 VM job -- this
+``.github/workflows/release-artifacts.yml``'s FreeBSD 14/15 VM matrix -- this
 suite never fakes that outcome locally, it only marks the dynamic end-to-end
 test skipped on non-FreeBSD hosts (i.e. everywhere this test suite normally
 runs) so the rest of ``pytest -q`` remains fast and portable.
 """
 from __future__ import annotations
 
+import os
 import platform
 import re
 import subprocess
@@ -35,6 +36,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "smoke_freebsd_package.sh"
+BUILDER = REPO_ROOT / "scripts" / "build_freebsd_pkg.sh"
+PYTHON_CONFIG = REPO_ROOT / "scripts" / "_freebsd_python.sh"
 
 IS_FREEBSD = platform.system() == "FreeBSD"
 
@@ -55,6 +58,89 @@ def _run(*args: str, timeout: float = 30.0) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _derive_python_target(version: str | None) -> subprocess.CompletedProcess[str]:
+    """Run the shared POSIX-shell derivation contract in isolation."""
+    env = dict(os.environ)
+    if version is None:
+        env.pop("PYSH_FREEBSD_PYTHON_VERSION", None)
+    else:
+        env["PYSH_FREEBSD_PYTHON_VERSION"] = version
+    return subprocess.run(
+        [
+            "sh",
+            "-c",
+            '. "$1"; pysh_freebsd_python_config test && '
+            "printf '%s|%s|%s|%s\\n' "
+            '"${PYSH_FREEBSD_PYTHON_VERSION}" '
+            '"${PYSH_FREEBSD_PYTHON_COMMAND}" '
+            '"${PYSH_FREEBSD_PYTHON_PACKAGE}" '
+            '"${PYSH_FREEBSD_PYTHON_ORIGIN}"',
+            "sh",
+            str(PYTHON_CONFIG),
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+def test_freebsd_python_target_defaults_to_reference_python_3_13() -> None:
+    """An unset override must derive the current release-reference target."""
+    result = _derive_python_target(None)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == (
+        "3.13|/usr/local/bin/python3.13|python313|lang/python313"
+    )
+
+
+def test_freebsd_python_target_accepts_compatible_python_3_14() -> None:
+    """A future compatible target must derive all identifiers together."""
+    result = _derive_python_target("3.14")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == (
+        "3.14|/usr/local/bin/python3.14|python314|lang/python314"
+    )
+
+
+@pytest.mark.parametrize("version", ["3.12", "2.7"])
+def test_freebsd_python_target_rejects_versions_below_floor(version: str) -> None:
+    """The package target must never weaken the project Python floor."""
+    result = _derive_python_target(version)
+    assert result.returncode != 0
+    assert "must be >= 3.13" in result.stderr
+
+
+@pytest.mark.parametrize("version", ["", "python313", "3", "latest", "3.13.1"])
+def test_freebsd_python_target_rejects_malformed_versions(version: str) -> None:
+    """Malformed or explicitly empty overrides must fail, not default."""
+    result = _derive_python_target(version)
+    assert result.returncode != 0
+    assert "must be major.minor and >= 3.13" in result.stderr
+
+
+def test_builder_derives_launcher_and_dependency_from_same_target() -> None:
+    """The manifest and installed launcher must consume the shared derivation."""
+    text = BUILDER.read_text(encoding="utf-8")
+    assert '. "${REPO_ROOT}/scripts/_freebsd_python.sh"' in text
+    assert '"${PYSH_FREEBSD_PYTHON_COMMAND}"' in text
+    assert "${PYSH_FREEBSD_PYTHON_PACKAGE}:" in text
+    assert "origin: ${PYSH_FREEBSD_PYTHON_ORIGIN}" in text
+    assert 'version: ">=${PYSH_FREEBSD_PYTHON_VERSION}"' in text
+    assert "exec /usr/local/bin/python3.13 -m pysh" not in text
+
+
+def test_builder_derives_filename_from_verified_pkg_abi_metadata() -> None:
+    """The archive name must expose the ABI reported by pkg, not a guess."""
+    text = BUILDER.read_text(encoding="utf-8")
+    assert 'HOST_ABI="$(pkg config ABI)"' in text
+    assert 'PACKAGE_ABI="$(pkg query -F "${RAW_PATH}" "%q")"' in text
+    assert 'if [ "${PACKAGE_ABI}" != "${HOST_ABI}" ]' in text
+    assert "freebsd${PACKAGE_FREEBSD_MAJOR}-${PACKAGE_ARCH}.pkg" in text
+
+
 # ---------------------------------------------------- 1-3. argument validation
 
 
@@ -66,7 +152,7 @@ def test_missing_argument_is_rejected() -> None:
 
 
 def test_missing_pkg_file_is_rejected(tmp_path: Path) -> None:
-    missing = tmp_path / "pysh-shell-0.9.0.pkg"
+    missing = tmp_path / "pysh-shell-0.9.0-freebsd14-amd64.pkg"
     result = _run(str(missing))
     assert result.returncode != 0
     assert f"artifact not found: {missing}" in result.stderr
@@ -81,7 +167,7 @@ def test_wrong_extension_is_rejected(tmp_path: Path) -> None:
 
 
 def test_zero_byte_pkg_is_rejected(tmp_path: Path) -> None:
-    empty = tmp_path / "pysh-shell-0.9.0.pkg"
+    empty = tmp_path / "pysh-shell-0.9.0-freebsd14-amd64.pkg"
     empty.touch()
     result = _run(str(empty))
     assert result.returncode != 0
@@ -98,7 +184,7 @@ def test_non_freebsd_host_gives_clear_diagnostic_no_silent_skip(tmp_path: Path) 
     actually running on FreeBSD -- it must fail closed with an explicit,
     actionable diagnostic naming the real validation path.
     """
-    fixture_pkg = tmp_path / "pysh-shell-0.9.0.pkg"
+    fixture_pkg = tmp_path / "pysh-shell-0.9.0-freebsd14-amd64.pkg"
     fixture_pkg.write_bytes(b"FIXTURE\n")
 
     result = _run(str(fixture_pkg))
@@ -134,6 +220,21 @@ def test_script_installs_via_real_pkg_add_not_extraction() -> None:
     assert "pkg add \"${PKG_ABS_PATH}\"" in text
 
 
+def test_script_rejects_non_native_abi_before_pkg_add() -> None:
+    """The smoke must compare embedded and host ABI before installation."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    host_idx = text.index('HOST_ABI="$(pkg config ABI)"')
+    package_idx = text.index('PACKAGE_ABI="$(pkg query -F "${PKG_ABS_PATH}" "%q")"')
+    compare_idx = text.index('if [ "${PACKAGE_ABI}" != "${HOST_ABI}" ]')
+    add_idx = text.index('pkg add "${PKG_ABS_PATH}"')
+    assert host_idx < package_idx < compare_idx < add_idx
+    assert "refusing installation" in text
+    assert 'PACKAGE_ABI_SYSTEM="$(printf' in text
+    assert '[ "${PACKAGE_ABI_SYSTEM}" != "FreeBSD" ]' in text
+    assert '[ "${PACKAGE_FREEBSD_MAJOR}" != "${FREEBSD_MAJOR}" ]' in text
+    assert "package filename does not match embedded ABI metadata" in text
+
+
 def test_script_verifies_pkg_info_installed_state() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     assert 'pkg info "${PKG_NAME}"' in text
@@ -143,7 +244,8 @@ def test_script_verifies_pkg_info_installed_state() -> None:
 def test_script_verifies_installed_version_output() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     assert "pysh --version" in text
-    assert "python3.13 -m pysh --version" in text
+    assert '"${PYSH_FREEBSD_PYTHON_COMMAND}" -m pysh --version' in text
+    assert "python3.13 -m pysh --version" not in text
 
 
 def test_script_verifies_cli_echo_exit_quit() -> None:
@@ -188,6 +290,15 @@ def test_script_includes_real_pty_driven_interactive_smoke() -> None:
     assert "PTY interactive smoke PASSED" in text
 
 
+def test_smoke_uses_shared_selected_python_for_module_and_pty_checks() -> None:
+    """Smoke validation must follow the package target instead of hard-coding 3.13."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert '. "${REPO_ROOT}/scripts/_freebsd_python.sh"' in text
+    assert text.count('"${PYSH_FREEBSD_PYTHON_COMMAND}"') >= 4
+    assert "python3.13" not in text
+    assert "installed launcher does not use selected interpreter" in text
+
+
 def test_script_checks_freebsd_version_before_installing() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     assert 'uname -s' in text
@@ -204,6 +315,7 @@ def test_release_artifacts_workflow_invokes_freebsd_smoke_unconditionally() -> N
         encoding="utf-8"
     )
     assert "smoke_freebsd_package.sh" in text
+    assert "export PYSH_FREEBSD_PYTHON_VERSION=3.13" in text
     assert "continue-on-error" not in text
 
 
@@ -233,6 +345,9 @@ def test_release_gate_reuses_the_same_smoke_script() -> None:
     text = (REPO_ROOT / "scripts" / "release_gate.py").read_text(encoding="utf-8")
     assert "scripts/smoke_freebsd_package.sh" in text
     assert "smoke_freebsd_package.sh" in text
+    assert '["pkg", "config", "ABI"]' in text
+    assert '["pkg", "query", "-F", str(package), "%q"]' in text
+    assert "native_pkg = _native_freebsd_package(pkgs)" in text
 
 
 def test_build_freebsd_pkg_static_checks_are_preserved() -> None:
@@ -256,7 +371,7 @@ def test_real_freebsd_install_and_run_smoke_passes(tmp_path: Path) -> None:
     this file is fast and FreeBSD-independent by design. This test is
     skipped everywhere except a real FreeBSD 14+ host (this repository's
     normal dev/CI/test hosts are all Linux, so it is only ever exercised
-    inside .github/workflows/release-artifacts.yml's FreeBSD 14.4 VM job,
+    inside .github/workflows/release-artifacts.yml's FreeBSD 14/15 VM matrix,
     or by a maintainer running pytest directly on FreeBSD).
     """
     build_result = subprocess.run(
@@ -271,7 +386,27 @@ def test_real_freebsd_install_and_run_smoke_passes(tmp_path: Path) -> None:
 
     pkgs = sorted((REPO_ROOT / "dist" / "os" / "freebsd").glob("pysh-shell-*.pkg"))
     assert pkgs, "build_freebsd_pkg.sh did not produce a .pkg"
-    pkg_path = pkgs[-1]
+    host_abi = subprocess.run(
+        ["pkg", "config", "ABI"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    ).stdout.strip()
+    native_pkgs = [
+        package
+        for package in pkgs
+        if subprocess.run(
+            ["pkg", "query", "-F", str(package), "%q"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+        == host_abi
+    ]
+    assert len(native_pkgs) == 1, f"expected one package for native ABI {host_abi}"
+    pkg_path = native_pkgs[0]
 
     result = _run(str(pkg_path), timeout=180.0)
     assert result.returncode == 0, result.stdout + result.stderr

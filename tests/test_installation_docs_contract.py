@@ -137,13 +137,15 @@ pysh --version
 
 <!-- pysh-install:freebsd-name -->
 ```
-{CANONICAL_NAME}-X.Y.Z.pkg
+{CANONICAL_NAME}-X.Y.Z-freebsd14-amd64.pkg
+{CANONICAL_NAME}-X.Y.Z-freebsd15-amd64.pkg
 ```
 <!-- /pysh-install:freebsd-name -->
 
 <!-- pysh-install:freebsd -->
 ```sh
-sudo pkg install ./{CANONICAL_NAME}-X.Y.Z.pkg
+FREEBSD_MAJOR="$(freebsd-version -u | cut -d. -f1)"
+sudo pkg add "./{CANONICAL_NAME}-X.Y.Z-freebsd${{FREEBSD_MAJOR}}-amd64.pkg"
 pysh --version
 ```
 <!-- /pysh-install:freebsd -->
@@ -234,7 +236,7 @@ def test_correct_artifact_names_fixture_passes(tmp_path: Path) -> None:
     [
         ("deb-name", "wrong-name_X.Y.Z-1_all.deb"),
         ("rpm-name", "wrong-name-X.Y.Z-1.noarch.rpm"),
-        ("freebsd-name", "wrong-name-X.Y.Z.pkg"),
+        ("freebsd-name", "wrong-name-X.Y.Z-freebsd14-amd64.pkg"),
     ],
 )
 def test_wrong_os_package_basename_fails(tmp_path: Path, marker_name: str, wrong_value: str) -> None:
@@ -252,6 +254,33 @@ def test_wrong_os_package_basename_fails(tmp_path: Path, marker_name: str, wrong
     )
     assert result.returncode != 0
     assert "does not match the canonical naming pattern" in result.stderr
+
+
+def test_missing_freebsd_abi_artifact_name_fails(tmp_path: Path) -> None:
+    """Both currently published FreeBSD ABI filenames are required."""
+    mutated_doc = _VALID_INSTALLATION_DOC.replace(
+        f"{CANONICAL_NAME}-X.Y.Z-freebsd15-amd64.pkg\n", ""
+    )
+    readme_path, install_path = _write_pair(tmp_path, _VALID_README, mutated_doc)
+    result = _run(
+        "--skip-portable", "--readme", str(readme_path), "--installation-doc", str(install_path)
+    )
+    assert result.returncode != 0
+    assert "does not match the canonical naming pattern" in result.stderr
+
+
+def test_freebsd_install_must_select_native_major_abi(tmp_path: Path) -> None:
+    """A hard-coded or cross-major package command must not pass the docs gate."""
+    mutated_doc = _VALID_INSTALLATION_DOC.replace(
+        'sudo pkg add "./pysh-shell-X.Y.Z-freebsd${FREEBSD_MAJOR}-amd64.pkg"',
+        'sudo pkg add "./pysh-shell-X.Y.Z-freebsd15-amd64.pkg"',
+    )
+    readme_path, install_path = _write_pair(tmp_path, _VALID_README, mutated_doc)
+    result = _run(
+        "--skip-portable", "--readme", str(readme_path), "--installation-doc", str(install_path)
+    )
+    assert result.returncode != 0
+    assert "missing native FreeBSD ABI package-selection command" in result.stderr
 
 
 # --------------------------------------------- 9. nonexistent referenced script
