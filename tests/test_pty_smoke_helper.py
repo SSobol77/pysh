@@ -636,13 +636,18 @@ def test_no_package_smoke_sends_input_before_the_ready_flag_is_present() -> None
         section = _pty_smoke_section(script.read_text(encoding="utf-8"))
         for target in ("exit /usr/bin/pysh", "quit /usr/bin/pysh",
                        "exit /usr/local/bin/pysh", "quit /usr/local/bin/pysh"):
-            if target not in section:
-                continue
-            call_start = section.rindex("python3", 0, section.index(target))
-            call_text = section[call_start : section.index(target) + len(target)]
-            assert "--ready-marker-hex" in call_text, (
-                f"{script.name}: found an ungated PTY call: {call_text!r}"
-            )
+            search_from = 0
+            while True:
+                target_start = section.find(target, search_from)
+                if target_start == -1:
+                    break
+                target_line_start = section.rindex("\n", 0, target_start)
+                call_start = section.rindex("\n", 0, target_line_start) + 1
+                call_text = section[call_start : target_start + len(target)]
+                assert "--ready-marker-hex" in call_text, (
+                    f"{script.name}: found an ungated PTY call: {call_text!r}"
+                )
+                search_from = target_start + len(target)
 
 
 # ------------------------------------- 14. no sleep-based synchronization

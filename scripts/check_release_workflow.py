@@ -60,6 +60,8 @@ def check_release_artifacts_workflow_structure(text: str) -> list[str]:
         "actions/upload-artifact",
         "actions/download-artifact",
         "name: release-assets",
+        "name: freebsd-reference-pkg",
+        "reference-pkg: true",
         "gh release upload",
     )
     for substring in required_substrings:

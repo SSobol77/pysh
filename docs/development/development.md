@@ -60,9 +60,10 @@ See [`packaging.md`](packaging.md) for the canonical artifact naming
 contract and per-script details. `scripts/build_rpm.sh` needs the
 `rpm` package installed locally (`sudo apt-get install -y rpm` on
 Debian); if it is missing, the script fails fast with a deterministic
-message. `scripts/build_freebsd_pkg.sh` runs only on FreeBSD 14+ with native
-`pkg` tooling. On Debian, the release gate requires a prebuilt
-`dist/os/freebsd/pysh-shell-X.Y.Z.pkg` from that FreeBSD builder and fails
+message. `scripts/build_freebsd_pkg.sh` runs only in a native FreeBSD-family
+environment with `pkg` tooling. On Debian, the release gate requires the
+prebuilt FreeBSD 14.4 reference
+`dist/os/freebsd/pysh-shell-X.Y.Z.pkg` and fails
 clearly if it is missing.
 
 `bash scripts/check_headers.sh` should print no output. `uv run pytest -q`

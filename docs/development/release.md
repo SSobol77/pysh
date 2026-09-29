@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Release Process (`vX.Y.Z`)
 
-> Each v0.9.0 release ships **four** artifact families: PyPI (wheel + sdist),
+> Each v0.9.1 release ships **four** artifact families: PyPI (wheel + sdist),
 > Debian `.deb`, Red Hat/Fedora `.rpm`, and FreeBSD `.pkg`. See
 > [`packaging.md`](packaging.md) for the canonical naming contract and
 > [`installation.md`](../user/installation.md) for end-user install commands.
@@ -21,8 +21,15 @@ A release is incomplete unless all current mandatory artifact families are
 built and validated: PyPI wheel + sdist, Debian `.deb`, RPM `.rpm`, FreeBSD
 `.pkg`, and `SHA256SUMS`. The local release gate must fail if mandatory
 artifacts are missing. On non-FreeBSD hosts it validates an already-produced
-`dist/os/freebsd/pysh-shell-X.Y.Z.pkg` from a FreeBSD 14+ builder and fails
+`dist/os/freebsd/pysh-shell-X.Y.Z.pkg` from the native reference builder and fails
 clearly if that artifact is absent.
+
+The flat release contains one official reference `pysh-shell-X.Y.Z.pkg`,
+built on FreeBSD 14.4 amd64 with CPython 3.13. Its embedded native ABI can
+limit installation of that archive and must not be bypassed. This archive
+compatibility boundary is separate from release-independent FreeBSD/GhostBSD
+runtime support; use Python packaging or build the `.pkg` on another
+compatible host when the reference ABI does not match.
 
 PySH is published to PyPI as **`pysh-shell`** through GitHub Actions and
 **PyPI Trusted Publishing**. The workflow lives at
@@ -37,6 +44,8 @@ the `pypi` GitHub environment.
 Prepare curated GitHub Release notes from
 [release-notes-template.md](release-notes-template.md). Public user-path
 acceptance follows [manual-validation.md](../user/manual-validation.md).
+The prepared 0.9.1 notes are in
+[release-notes-0.9.1.md](release-notes-0.9.1.md).
 Public Python, CLI, configuration, and deprecation compatibility must be
 reviewed against the normative
 [API stability policy](api-stability.md) before assigning the release version.
@@ -92,15 +101,15 @@ reviewed against the normative
      has no daemon-reachability
      capability probe the way Docker does: the orchestrator checks
      `platform.system() == "FreeBSD"` directly. On any host that is not
-     real FreeBSD 14+ -- which includes every ordinary Debian/Linux
+     real FreeBSD -- which includes every ordinary Debian/Linux
      developer machine and this project's own CI runners -- it is reported
      `PLATFORM_BLOCKED`, never `FAIL` or a faked `PASS`. On an actual
-     FreeBSD 14+ host it builds the `.pkg`
+     compatible FreeBSD host it builds the `.pkg`
      (`scripts/build_freebsd_pkg.sh`) and runs
      `scripts/smoke_freebsd_package.sh` against it for real, reporting
      `PASS`/`FAIL` on the genuine outcome. The real, unconditional
      execution of this smoke happens in
-     `.github/workflows/release-artifacts.yml`'s FreeBSD 14.4 VM job (see
+     `.github/workflows/release-artifacts.yml`'s native FreeBSD VM jobs (see
      below); `PLATFORM_BLOCKED` in a local `full`-mode run on Linux is
      expected and does not by itself indicate a problem.
 
@@ -170,7 +179,7 @@ reviewed against the normative
 - `scripts/check_release_quality.sh` passes.
 - `twine check dist/*.whl dist/*.tar.gz` passes.
 - `pysh --version` and `python -m pysh --version` print the target version.
-- FreeBSD 14+ package and smoke validation follows
+- Native FreeBSD package and smoke validation follows
   [`packaging.md`](packaging.md#freebsd-validation-and-package-build-for-v080).
   The release is incomplete without `dist/os/freebsd/pysh-shell-X.Y.Z.pkg`.
 
@@ -205,18 +214,23 @@ reviewed against the normative
      packages -- that is `release-artifacts.yml`'s exclusive responsibility,
      and the two workflows never overlap.
    - `release-artifacts.yml`, as three jobs that must succeed in order:
-     1. `freebsd-pkg` builds the real `pysh-shell-X.Y.Z.pkg` in a FreeBSD
-        14.4 VM (`vmactions/freebsd-vm`; this is a real virtual machine
+     1. `freebsd-pkg` builds the official reference
+        `pysh-shell-X.Y.Z.pkg` in a FreeBSD 14.4 amd64 / CPython 3.13 VM and
+        may run additional validation-only ABI legs (`vmactions/freebsd-vm`;
+        these are real virtual machines
         inside the `ubuntu-latest` runner, not a self-hosted runner),
         statically inspects it (`pkg info -F`, `pkg query -F`), then runs
         `scripts/smoke_freebsd_package.sh` inside that same VM (Issue #33
         RQG-E): a REAL `pkg add <local .pkg>` install on real FreeBSD,
         verifying the installed `/usr/local/bin/pysh` entrypoint
-        (`pysh --version`, `python3.13 -m pysh --version`, `pysh -c`, and a
+        (`pysh --version`, selected-Python `-m pysh --version`, `pysh -c`, and a
         real PTY-driven interactive `exit`/`quit`) with the module import
         proven to resolve to `/usr/local/lib/pysh-shell/pysh/__init__.py`,
         never the VM's repository checkout. Only after that smoke passes
-        does the job upload the `.pkg` as a workflow artifact -- there is
+        does each job upload its `.pkg` as a uniquely named workflow artifact.
+        Only `freebsd-reference-pkg` is downloaded into the release gate and
+        promoted under the canonical generic basename; additional legs remain
+        validation evidence. There is
         no `continue-on-error` anywhere in this job, so a smoke failure
         blocks the artifact from ever reaching the later jobs.
      2. `build-and-validate` (needs `freebsd-pkg`) re-verifies the release
@@ -261,9 +275,11 @@ reviewed against the normative
   pysh --version
   python -m pysh --version
   ```
-- On FreeBSD 14+, install the release `.pkg` and run smoke tests:
+- On a FreeBSD/GhostBSD host whose native ABI matches the reference archive,
+  install the release `.pkg` and run smoke tests:
   ```sh
-  sudo pkg install ./pysh-shell-X.Y.Z.pkg
+  test "$(pkg query -F ./pysh-shell-X.Y.Z.pkg '%q')" = "$(pkg config ABI)"
+  sudo pkg add "./pysh-shell-X.Y.Z.pkg"
   pysh --version
   python -m pysh --version
   pysh -c "echo freebsd-smoke"

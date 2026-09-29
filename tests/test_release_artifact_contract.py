@@ -269,6 +269,21 @@ def test_build_release_artifacts_script_does_not_use_contract_only_mode() -> Non
     assert "--contract-only" not in text
 
 
+def test_preserved_freebsd_package_never_overwrites_a_fresh_build() -> None:
+    """Restore is recovery-only: an existing target always wins."""
+    for relative in (
+        "scripts/build_release_artifacts.sh",
+        "scripts/check_release_quality.sh",
+    ):
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        restore = text[text.index("restore_freebsd_pkg()") :]
+        restore = restore[: restore.index("\n}")]
+        assert '[ ! -e "${FREEBSD_PKG_PATH}" ]' in restore
+        assert restore.index('[ ! -e "${FREEBSD_PKG_PATH}" ]') < restore.index(
+            'cp "${PRESERVED_FREEBSD_PKG}" "${FREEBSD_PKG_PATH}"'
+        )
+
+
 def test_release_artifacts_workflow_does_not_use_contract_only_mode() -> None:
     """release-artifacts.yml must keep requiring the real, full artifact set."""
     text = (REPO_ROOT / ".github" / "workflows" / "release-artifacts.yml").read_text(

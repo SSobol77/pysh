@@ -83,7 +83,7 @@ Current PySH baseline:
 * Language: Python
 * Runtime target: Python 3.13+
 * Primary development OS: Debian
-* Additional validation target: FreeBSD 14+
+* Reference validation target: FreeBSD 14.4 (runtime support is family-based)
 * Distribution targets: PyPI, Debian package, FreeBSD package, release artifacts
 * Current branch workflow: every new version has a dedicated development branch, for example `develop/v0.9.0`
 * Feature branches are created from the version branch, for example:

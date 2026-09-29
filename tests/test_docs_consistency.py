@@ -858,19 +858,21 @@ def test_docs_system_shell_policy_present() -> None:
 
 
 def test_freebsd_pkg_builder_script_exists_and_is_executable() -> None:
-    """FreeBSD package builder must exist, be executable and document FreeBSD-only use."""
+    """FreeBSD package builder must exist and require native pkg metadata."""
     script = REPO_ROOT / "scripts" / "build_freebsd_pkg.sh"
     assert script.exists()
     assert script.stat().st_mode & 0o111
     text = script.read_text(encoding="utf-8")
     assert "SPDX-License-Identifier: GPL-2.0-only" in text
     assert "uname -s" in text
-    assert "FreeBSD 14+" in text
+    assert "native FreeBSD-family pkg environment" in text
     assert "pkg create" in text
     assert "pkg info -F" in text
     assert "pkg query -F" in text
     assert "/usr/local/bin/pysh" in text
-    assert "exec /usr/local/bin/python3.13 -m pysh" in text
+    assert "PYSH_FREEBSD_PYTHON_COMMAND" in text
+    assert "pkg config ABI" in text
+    assert 'pkg query -F "${EXPECTED_PATH}" "%q"' in text
     assert "/usr/local/lib/pysh-shell/pysh" in text
     assert "pysh-shell-${VERSION}.pkg" in text
 
@@ -897,7 +899,7 @@ def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg() -> None:
 
     assert result.returncode != 0
     assert (
-        "FreeBSD .pkg must be built on FreeBSD 14+ with native pkg tooling; "
+        "FreeBSD .pkg must be built in a native FreeBSD-family pkg environment; "
         f"refusing to fake .pkg on {os.uname().sysname}."
     ) in result.stderr
     assert not expected.exists()
@@ -910,8 +912,10 @@ def test_docs_freebsd_pkg_is_mandatory_for_current_release() -> None:
     installation_doc = (DOCS / "user" / "installation.md").read_text(encoding="utf-8")
 
     assert f"FreeBSD validation and package build for v{CURRENT_VERSION}" in packaging_doc
-    assert "Install from a GitHub Release `.pkg` (FreeBSD 14+)" in installation_doc
-    assert "FreeBSD 14+ package and smoke validation" in release_doc
+    assert "Install the reference `.pkg` (FreeBSD / GhostBSD)" in installation_doc
+    assert "Native FreeBSD package and smoke validation" in release_doc
+    assert "FreeBSD 14.4 amd64 with CPython 3.13" in installation_doc
+    assert "must not be bypassed" in installation_doc
 
     for name, text in (
         ("packaging.md", packaging_doc),
@@ -940,8 +944,8 @@ def test_freebsd_validation_docs_include_required_smoke_commands() -> None:
         'pysh -c "echo freebsd-smoke"',
         'pysh -c "exit"',
         'pysh -c "quit"',
-        "bash scripts/build_freebsd_pkg.sh",
-        "sudo pkg install ./pysh-shell-X.Y.Z.pkg",
+        "sh scripts/build_freebsd_pkg.sh",
+        'sudo pkg add "./pysh-shell-X.Y.Z.pkg"',
     )
     for text in (packaging_doc, installation_doc):
         for command in required_commands:
@@ -992,10 +996,7 @@ def test_freebsd_pkg_future_direction_is_not_current_artifact_policy() -> None:
     for artifact in current_artifacts:
         assert artifact in combined
 
-    assert (
-        f"FreeBSD `.pkg` packaging is current mandatory v{CURRENT_VERSION} release work"
-        in combined
-    )
+    assert f"FreeBSD `.pkg` packaging is mandatory v{CURRENT_VERSION} release work" in combined
     assert "pysh-shell-X.Y.Z.pkg" in combined
     assert "dist/os/freebsd/pysh-shell-X.Y.Z.pkg" in combined
     assert "dist/release-assets/pysh-shell-X.Y.Z.pkg" in combined

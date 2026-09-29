@@ -53,8 +53,9 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current release: **PySH 0.9.0**. PySH targets **Python 3.13+** and is
-validated primarily on **Debian 13** and Unix-like systems.
+Current release candidate: **PySH 0.9.1**. PySH requires **CPython 3.13+**
+with no upper minor-version bound. Debian 13, Fedora 43, and FreeBSD 14.4 are
+reference CI environments, not installation allowlists.
 
 ---
 
@@ -768,9 +769,11 @@ Do **not** publish from a developer machine; let the workflow do it.
 
 ## Target platform
 
-- Primary target: **Debian 13** with **Python 3.13+**.
-- Should work on any POSIX system with a working `subprocess` and
-  `readline`, but only Debian 13 is regularly validated.
+- Supported families: Debian/Ubuntu derivatives, RPM-family Linux, and
+  FreeBSD/GhostBSD with **CPython 3.13 or newer** and required Unix facilities.
+- Operating-system release numbers are not product support requirements.
+- Exact CI images are reference evidence. See the normative
+  [platform support contract](https://github.com/SSobol77/pysh/blob/main/docs/compatibility/platform-tiers.md).
 
 ---
 

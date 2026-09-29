@@ -143,7 +143,7 @@ pysh --version
 
 <!-- pysh-install:freebsd -->
 ```sh
-sudo pkg install ./{CANONICAL_NAME}-X.Y.Z.pkg
+sudo pkg add "./{CANONICAL_NAME}-X.Y.Z.pkg"
 pysh --version
 ```
 <!-- /pysh-install:freebsd -->
@@ -252,6 +252,43 @@ def test_wrong_os_package_basename_fails(tmp_path: Path, marker_name: str, wrong
     )
     assert result.returncode != 0
     assert "does not match the canonical naming pattern" in result.stderr
+
+
+def test_freebsd_name_marker_rejects_multiple_abi_suffixed_names(tmp_path: Path) -> None:
+    mutated = _VALID_INSTALLATION_DOC.replace(
+        f"{CANONICAL_NAME}-X.Y.Z.pkg",
+        f"{CANONICAL_NAME}-X.Y.Z-freebsd14-amd64.pkg\n"
+        f"{CANONICAL_NAME}-X.Y.Z-freebsd15-amd64.pkg",
+        1,
+    )
+    readme_path, install_path = _write_pair(tmp_path, _VALID_README, mutated)
+    result = _run(
+        "--skip-portable",
+        "--readme",
+        str(readme_path),
+        "--installation-doc",
+        str(install_path),
+    )
+    assert result.returncode != 0
+    assert "canonical naming pattern" in result.stderr
+
+
+@pytest.mark.parametrize("bypass", ["pkg add -f", "IGNORE_OSVERSION=1 pkg add"])
+def test_freebsd_install_marker_rejects_abi_bypass(tmp_path: Path, bypass: str) -> None:
+    mutated = _VALID_INSTALLATION_DOC.replace(
+        f'sudo pkg add "./{CANONICAL_NAME}-X.Y.Z.pkg"',
+        f'sudo {bypass} "./{CANONICAL_NAME}-X.Y.Z.pkg"',
+    )
+    readme_path, install_path = _write_pair(tmp_path, _VALID_README, mutated)
+    result = _run(
+        "--skip-portable",
+        "--readme",
+        str(readme_path),
+        "--installation-doc",
+        str(install_path),
+    )
+    assert result.returncode != 0
+    assert "FreeBSD" in result.stderr
 
 
 # --------------------------------------------- 9. nonexistent referenced script

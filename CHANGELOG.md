@@ -14,7 +14,45 @@ Copyright (C) 2026 Siergej Sobolewski
 
 All notable changes to PySH are documented in this file.
 
-## Unreleased
+## 0.9.1 - 2026-09-29
+
+Maintenance release focused on installation portability and release safety.
+
+### Packaging and platform portability
+
+- Defined support by Debian-family, RPM-family, and FreeBSD-family runtime
+  capabilities rather than distribution release numbers. Debian 13, Fedora
+  43, and FreeBSD 14.4 remain reference CI environments, not allowlists.
+- Preserved the CPython 3.13 minimum with no upper minor-version bound. The
+  Debian/RPM launcher now validates actual interpreters and can select a
+  qualifying versioned `python3.N` when the generic `python3` is too old.
+- Kept one canonical `pysh-shell-0.9.1.pkg` reference release asset, built on
+  FreeBSD 14.4 amd64 with CPython 3.13, while retaining native `pkg` ABI
+  validation. The reference archive is not claimed to be ABI-universal.
+- Made the FreeBSD package's selected Python minor drive its manifest,
+  installed wrapper, and native smoke test consistently.
+- Hardened release staging so a freshly built FreeBSD package is not replaced
+  by preserved bytes and the required reference package reaches the artifact
+  gate before release upload.
+
+### CI and terminal portability
+
+- Added explicit Debian 13 and FreeBSD 14.4 platform-reference lanes.
+- Installed and verified Bash before FreeBSD PTY tests.
+- Normalized the terminal-visible FreeBSD Ctrl+D echo sequence in the
+  SecureRunner regression test without weakening exit-status validation.
+- Strengthened the PTY smoke contract to inspect every exit/quit invocation.
+
+### Documentation and release contracts
+
+- Corrected installation documentation and its validator for canonical
+  distro-neutral package names and the FreeBSD reference-package ABI caveat.
+- Required wheel, sdist, `.deb`, `.rpm`, reference `.pkg`, and `SHA256SUMS`
+  through the flat GitHub Release artifact contract.
+
+The platform/runtime/installability foundation from Issue #52 ships in this
+maintenance release. Any remaining v1.0 assurance evidence and milestone
+bookkeeping continue separately.
 
 ### Public API
 

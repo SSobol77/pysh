@@ -8,7 +8,7 @@
 ``scripts/smoke_freebsd_package.sh`` installs a built ``.pkg`` through real
 ``pkg add <local-file>`` package management directly on the FreeBSD host it
 runs on, then verifies the INSTALLED console entrypoint (``pysh --version``,
-``python3.13 -m pysh --version``, ``pysh -c``, and a real PTY-driven
+the selected Python's ``-m pysh --version``, ``pysh -c``, and a real PTY-driven
 interactive ``exit``/``quit``). It never treats archive extraction as an
 installed package, and it never runs on a non-FreeBSD host: FreeBSD's
 native ``.pkg`` format and ``pkg(8)`` tooling do not exist anywhere else,
@@ -18,29 +18,33 @@ real.
 Argument validation and the "not FreeBSD" diagnostic run on every host,
 with no FreeBSD dependency, because the script rejects those inputs before
 ever touching ``pkg``. The full build-install-query-execute chain genuinely
-needs real FreeBSD 14+ and is exercised for real only in
-``.github/workflows/release-artifacts.yml``'s FreeBSD 14.4 VM job -- this
+needs a real FreeBSD-family host and is exercised for real only in
+``.github/workflows/release-artifacts.yml``'s native VM jobs -- this
 suite never fakes that outcome locally, it only marks the dynamic end-to-end
 test skipped on non-FreeBSD hosts (i.e. everywhere this test suite normally
 runs) so the rest of ``pytest -q`` remains fast and portable.
 """
 from __future__ import annotations
 
+import os
 import platform
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "smoke_freebsd_package.sh"
+BUILDER = REPO_ROOT / "scripts" / "build_freebsd_pkg.sh"
+PYTHON_CONFIG = REPO_ROOT / "scripts" / "_freebsd_python.sh"
 
 IS_FREEBSD = platform.system() == "FreeBSD"
 
 requires_freebsd = pytest.mark.skipif(
     not IS_FREEBSD,
-    reason="real FreeBSD 14+ is required for the native install-and-run smoke",
+    reason="a real FreeBSD-family host is required for the native install-and-run smoke",
 )
 
 
@@ -53,6 +57,115 @@ def _run(*args: str, timeout: float = 30.0) -> subprocess.CompletedProcess[str]:
         text=True,
         timeout=timeout,
     )
+
+
+def _derive_python_target(version: str | None) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    if version is None:
+        env.pop("PYSH_FREEBSD_PYTHON_VERSION", None)
+    else:
+        env["PYSH_FREEBSD_PYTHON_VERSION"] = version
+    return subprocess.run(
+        [
+            "sh",
+            "-c",
+            '. "$1"; pysh_freebsd_python_config test && '
+            "printf '%s|%s|%s|%s\\n' "
+            '"${PYSH_FREEBSD_PYTHON_VERSION}" '
+            '"${PYSH_FREEBSD_PYTHON_COMMAND}" '
+            '"${PYSH_FREEBSD_PYTHON_PACKAGE}" '
+            '"${PYSH_FREEBSD_PYTHON_ORIGIN}"',
+            "sh",
+            str(PYTHON_CONFIG),
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+def test_freebsd_python_target_defaults_to_reference_python_3_13() -> None:
+    result = _derive_python_target(None)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == (
+        "3.13|/usr/local/bin/python3.13|python313|lang/python313"
+    )
+
+
+@pytest.mark.parametrize("version", ["3.14", "3.15", "3.99"])
+def test_freebsd_python_target_accepts_newer_compatible_minor(version: str) -> None:
+    result = _derive_python_target(version)
+    compact = version.replace(".", "")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == (
+        f"{version}|/usr/local/bin/python{version}|python{compact}|lang/python{compact}"
+    )
+
+
+@pytest.mark.parametrize("version", ["3.12", "2.7"])
+def test_freebsd_python_target_rejects_versions_below_floor(version: str) -> None:
+    result = _derive_python_target(version)
+    assert result.returncode != 0
+    assert "must be >= 3.13" in result.stderr
+
+
+@pytest.mark.parametrize("version", ["", "python313", "3", "latest", "3.13.1", "03.13"])
+def test_freebsd_python_target_rejects_malformed_versions(version: str) -> None:
+    result = _derive_python_target(version)
+    assert result.returncode != 0
+    assert "must be major.minor and >= 3.13" in result.stderr
+
+
+def test_builder_uses_one_selected_python_for_dependency_and_launcher() -> None:
+    text = BUILDER.read_text(encoding="utf-8")
+    assert '. "${REPO_ROOT}/scripts/_freebsd_python.sh"' in text
+    assert '"${PYSH_FREEBSD_PYTHON_COMMAND}"' in text
+    assert "${PYSH_FREEBSD_PYTHON_PACKAGE}:" in text
+    assert "origin: ${PYSH_FREEBSD_PYTHON_ORIGIN}" in text
+    assert 'version: ">=${PYSH_FREEBSD_PYTHON_VERSION}"' in text
+    assert "exec /usr/local/bin/python3.13 -m pysh" not in text
+    assert 'pysh_freebsd_python_validate "build_freebsd_pkg.sh"' in text
+
+
+def test_selected_freebsd_python_is_validated_by_actual_runtime() -> None:
+    helper = PYTHON_CONFIG.read_text(encoding="utf-8")
+    assert 'sys.implementation.name == "cpython"' in helper
+    assert "sys.version_info >= (3, 13)" in helper
+    assert "sys.version_info[:2] == selected" in helper
+
+
+def test_freebsd_python_runtime_validation_rejects_selected_minor_mismatch() -> None:
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            '. "$1"; pysh_freebsd_python_config test; '
+            'PYSH_FREEBSD_PYTHON_COMMAND="$2"; '
+            'PYSH_FREEBSD_PYTHON_VERSION=3.14; '
+            "pysh_freebsd_python_validate test",
+            "sh",
+            str(PYTHON_CONFIG),
+            sys.executable,
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode != 0
+    assert "is not the selected compatible CPython 3.14 interpreter" in result.stderr
+
+
+def test_builder_requires_embedded_pkg_abi_to_match_host() -> None:
+    text = BUILDER.read_text(encoding="utf-8")
+    assert 'HOST_ABI="$(pkg config ABI)"' in text
+    assert 'PACKAGE_ABI="$(pkg query -F "${EXPECTED_PATH}" "%q")"' in text
+    assert 'if [ "${PACKAGE_ABI}" != "${HOST_ABI}" ]' in text
+    assert 'EXPECTED_PKG="${PKG_NAME}-${VERSION}.pkg"' in text
 
 
 # ---------------------------------------------------- 1-3. argument validation
@@ -107,7 +220,7 @@ def test_non_freebsd_host_gives_clear_diagnostic_no_silent_skip(tmp_path: Path) 
         # A real FreeBSD host would proceed past this guard; the diagnostic
         # this test checks for only applies to non-FreeBSD hosts.
         return
-    assert "must be executed on FreeBSD 14+" in result.stderr
+    assert "must be executed on a FreeBSD-family host" in result.stderr
     assert "found" in result.stderr
     assert "no Linux/Docker/emulation fallback" in result.stderr
     assert "release-artifacts.yml" in result.stderr
@@ -134,6 +247,16 @@ def test_script_installs_via_real_pkg_add_not_extraction() -> None:
     assert "pkg add \"${PKG_ABS_PATH}\"" in text
 
 
+def test_script_rejects_non_native_abi_before_pkg_add() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    host_idx = text.index('HOST_ABI="$(pkg config ABI)"')
+    package_idx = text.index('PACKAGE_ABI="$(pkg query -F "${PKG_ABS_PATH}" "%q")"')
+    compare_idx = text.index('if [ "${PACKAGE_ABI}" != "${HOST_ABI}" ]')
+    add_idx = text.index('pkg add "${PKG_ABS_PATH}"')
+    assert host_idx < package_idx < compare_idx < add_idx
+    assert "refusing installation" in text
+
+
 def test_script_verifies_pkg_info_installed_state() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     assert 'pkg info "${PKG_NAME}"' in text
@@ -143,7 +266,8 @@ def test_script_verifies_pkg_info_installed_state() -> None:
 def test_script_verifies_installed_version_output() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     assert "pysh --version" in text
-    assert "python3.13 -m pysh --version" in text
+    assert '"${PYSH_FREEBSD_PYTHON_COMMAND}" -m pysh --version' in text
+    assert "python3.13 -m pysh --version" not in text
 
 
 def test_script_verifies_cli_echo_exit_quit() -> None:
@@ -193,7 +317,7 @@ def test_script_checks_freebsd_version_before_installing() -> None:
     assert 'uname -s' in text
     assert 'FreeBSD' in text
     assert "FREEBSD_MAJOR" in text
-    assert '"${FREEBSD_MAJOR}" -lt 14' in text
+    assert '"${FREEBSD_MAJOR}" -lt 14' not in text
 
 
 # ------------------------------------------------------------- 14/15. CI wiring

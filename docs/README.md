@@ -22,9 +22,9 @@ source of truth. All canonical documentation lives here under `docs/`.
 
 | Attribute            | Value                                             |
 | -------------------- | ------------------------------------------------- |
-| Version              | 0.9.0 current release                           |
+| Version              | 0.9.1 release candidate                         |
 | Language             | Pure Python (stdlib only, no external deps)       |
-| Primary target       | Debian 13, Python 3.13+                           |
+| Runtime policy       | Supported Unix families with CPython 3.13+       |
 | Shell type           | Python-first interactive shell and script runner  |
 | POSIX `/bin/sh`      | Not a replacement                                 |
 | Zsh compatibility    | Transition layer only — not a zsh clone           |
@@ -69,6 +69,7 @@ docs/
 │   └── plugin-guide.md
 ├── compatibility/                     ← compatibility contracts and scope (Issue #4)
 │   ├── README.md
+│   ├── platform-tiers.md
 │   ├── shell-compatibility-contract.md
 │   ├── feature-matrix.md
 │   ├── posix-sh-scope.md
@@ -108,6 +109,7 @@ docs/
 │   ├── repository-structure.md
 │   ├── release.md
 │   ├── release-notes-template.md
+│   ├── release-notes-0.9.1.md
 │   └── packaging.md
 └── img/                               ← project images and icons
 ```
@@ -202,6 +204,7 @@ All compatibility claims are explicit, scoped, and test-backed.
 | Document | Description |
 | -------- | ----------- |
 | [compatibility/README.md](compatibility/README.md) | Compatibility overview: status, categories, source-of-truth policy |
+| [platform-tiers.md](compatibility/platform-tiers.md) | Runtime family support, Python floor, reference CI, and native-package ABI boundaries |
 | [shell-compatibility-contract.md](compatibility/shell-compatibility-contract.md) | Contract language, categories, governing rules, forbidden claim patterns |
 | [feature-matrix.md](compatibility/feature-matrix.md) | Per-feature matrix: status, category, evidence, owner issue |
 | [posix-sh-scope.md](compatibility/posix-sh-scope.md) | POSIX sh scope: what PySH supports, what it does not, `/bin/sh` prohibition |
@@ -253,6 +256,7 @@ Documentation for contributors, maintainers, and the release process.
 | [repository-structure.md](development/repository-structure.md) | Repository-relative path map and guidance for similarly named files |
 | [release.md](development/release.md) | Release checklist, tagging, PyPI Trusted Publishing via GitHub Actions |
 | [release-notes-template.md](development/release-notes-template.md) | Canonical GitHub Release notes template with platform and validation evidence sections |
+| [release-notes-0.9.1.md](development/release-notes-0.9.1.md) | Prepared maintenance-release notes for PySH 0.9.1 |
 | [packaging.md](development/packaging.md) | Canonical naming contract; PyPI / `.deb` / `.rpm` / `.pkg` artifact filenames and build scripts |
 
 ---

@@ -16,14 +16,18 @@ PySH is distributed on PyPI as the package **`pysh-shell`**. It installs a
 single console command, `pysh`, and can also be run as a module with
 `python -m pysh`.
 
-<!-- pysh-install:version -->Current release: **PySH 0.9.0**.<!-- /pysh-install:version -->
+<!-- pysh-install:version -->Current release: **PySH 0.9.1**.<!-- /pysh-install:version -->
 
 ## Requirements
 
-- Python **3.13 or newer**.
-- A POSIX-like operating system (primary validation target is Debian 13).
+- CPython **3.13.0 or newer**, with no upper minor-version bound.
+- A supported Unix family: Debian-family Linux, RPM-family Linux, or the
+  FreeBSD family (including GhostBSD), with required Unix/POSIX facilities.
 - A working `readline` is optional; PySH's raw editor provides native history
   navigation and Ctrl+R reverse search on capable terminals.
+
+Debian 13, Fedora 43, and FreeBSD 14.4 are reference test environments, not
+installation allowlists or minimum operating-system releases.
 
 PySH installs the explicit `pysh` command. It is not a `/bin/sh` provider and
 packages must not replace the operating-system shell used by system scripts or
@@ -49,7 +53,7 @@ python -m pysh --version
 
 Both commands must print the installed `pysh` version.
 
-## Install from a GitHub Release `.deb` (Debian / Ubuntu)
+## Install from a GitHub Release `.deb` (Debian family)
 
 For PySH version `X.Y.Z`, the canonical Debian artifact is:
 
@@ -67,9 +71,13 @@ pysh --version
 <!-- /pysh-install:deb -->
 
 The `.deb` installs the Python package under `/opt/pysh-shell/lib/pysh`
-and a wrapper at `/usr/bin/pysh`. Depends on `python3 (>= 3.13)`.
+and a wrapper at `/usr/bin/pysh`. It depends on `python3 (>= 3.13)` and is
+intended for compatible Debian, Ubuntu, Kali Linux, Linux Mint, Pop!_OS, and
+other Debian/Ubuntu-derived systems regardless of release number. The wrapper
+validates actual interpreter versions and can select a compatible versioned
+`python3.N` from `PATH` if the generic `python3` is too old.
 
-## Install from a GitHub Release `.rpm` (Fedora / RHEL)
+## Install from a GitHub Release `.rpm` (RPM family)
 
 For PySH version `X.Y.Z`, the canonical RPM artifact is:
 
@@ -87,13 +95,15 @@ pysh --version
 <!-- /pysh-install:rpm -->
 
 The `.rpm` shares the install layout with the Debian package and
-requires `python3 >= 3.13`.
+requires `python3 >= 3.13`. Supported-family examples include Fedora, RHEL,
+Rocky Linux, AlmaLinux, and CentOS Stream. Fedora 43 is a reference smoke
+environment, not a runtime allowlist.
 
 > The `.deb`, `.rpm`, and `.pkg` packages are GitHub Release artifacts. They
 > are **not** yet shipped via the official Debian, Ubuntu, Fedora,
 > RHEL/EPEL or FreeBSD package repositories.
 
-## Install from a GitHub Release `.pkg` (FreeBSD 14+)
+## Install the reference `.pkg` (FreeBSD / GhostBSD)
 
 For PySH version `X.Y.Z`, the canonical FreeBSD artifact is:
 
@@ -105,25 +115,39 @@ pysh-shell-X.Y.Z.pkg
 
 <!-- pysh-install:freebsd -->
 ```sh
-sudo pkg install ./pysh-shell-X.Y.Z.pkg
+sudo pkg add "./pysh-shell-X.Y.Z.pkg"
 pysh --version
 ```
 <!-- /pysh-install:freebsd -->
+
+`pysh-shell-X.Y.Z.pkg` is the official reference prebuilt package, produced on
+FreeBSD 14.4 amd64 with CPython 3.13. Its native `pkg` ABI may restrict where
+that particular archive can be installed. This does not define PySH runtime
+support and must not be bypassed with `pkg add -f` or `IGNORE_OSVERSION`.
+On another compatible FreeBSD or GhostBSD ABI, use Python packaging or build
+the canonical `.pkg` on that host.
 
 The `.pkg` installs the wrapper at `/usr/local/bin/pysh` and the Python
 package under `/usr/local/lib/pysh-shell/pysh/`. It must not replace
 `/bin/sh`, divert `/bin/sh`, register PySH as a POSIX sh provider, or overwrite
 an existing `~/.pyshrc.py`.
 
-The FreeBSD package is built on FreeBSD 14+ with:
+The FreeBSD package is built in a native FreeBSD-family `pkg` environment:
 
 <!-- pysh-install:freebsd-build -->
 ```sh
-bash scripts/build_freebsd_pkg.sh
+sh scripts/build_freebsd_pkg.sh
 ```
 <!-- /pysh-install:freebsd-build -->
 
-FreeBSD 14+ validation also includes the Python/wheel smoke path:
+The default target is CPython 3.13. A package targeting another compatible
+minor must use that same target in its manifest, wrapper, and smoke test:
+
+```sh
+PYSH_FREEBSD_PYTHON_VERSION=3.14 sh scripts/build_freebsd_pkg.sh
+```
+
+FreeBSD-family validation also includes the Python/wheel smoke path:
 
 ```sh
 python3.13 -m venv /tmp/pysh-freebsd-smoke
@@ -189,10 +213,10 @@ pysh --version
 ### Upgrade from a GitHub Release `.pkg`
 
 Download the new `.pkg` for the target version from the GitHub Release page,
-then upgrade on FreeBSD 14+:
+then upgrade on a host with a matching native package ABI:
 
 ```sh
-sudo pkg install ./pysh-shell-X.Y.Z.pkg
+sudo pkg add "./pysh-shell-X.Y.Z.pkg"
 pysh --version
 ```
 
