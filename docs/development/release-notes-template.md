@@ -51,8 +51,8 @@ Release date: <YYYY-MM-DD>
 
 ## Platforms
 
-- Debian 13: <validation result>
-- FreeBSD 14+: <validation result>
+- Debian 13 reference environment: <validation result>
+- FreeBSD 14.4 reference environment: <validation result>
 - Other Unix-like systems: <documented support statement>
 
 ## Packaging

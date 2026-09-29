@@ -59,10 +59,11 @@ Potentially consequential actions remain explicit.
 
 ## Platform policy
 
-Debian 13 is the primary development and user-validation target. FreeBSD is a
-first-class validated Unix-like target where documented. Platform differences
-must be visible in tests and documentation rather than hidden behind unsupported
-compatibility claims.
+PySH supports documented Debian-family, RPM-family, and FreeBSD-family systems
+by runtime capability, not operating-system release number. Debian 13, Fedora
+43, and FreeBSD 14.4 are reference validation environments. Platform
+differences must be visible in tests and documentation rather than hidden
+behind unsupported compatibility claims.
 
 ## Documentation as a contract
 

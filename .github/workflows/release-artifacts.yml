@@ -14,8 +14,18 @@ permissions:
 
 jobs:
   freebsd-pkg:
-    name: Build FreeBSD .pkg
+    name: Build FreeBSD ${{ matrix.release }} .pkg
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - release: "14.4"
+            artifact: freebsd-reference-pkg
+            reference-pkg: true
+          - release: "15"
+            artifact: freebsd-validation-15
+            reference-pkg: false
     # Safety bound (Issue #33): the real run this job performs -- VM boot,
     # pkg bootstrap, build, static inspection, and the full install-and-run
     # smoke -- reached the interactive PTY step in under a minute in the
@@ -32,16 +42,18 @@ jobs:
       - name: Build and inspect FreeBSD .pkg
         uses: vmactions/freebsd-vm@v1
         with:
-          release: "14.4"
+          release: "${{ matrix.release }}"
           usesh: true
           prepare: |
             pkg update -f
             pkg install -y python313
           run: |
             set -eu
+            export PYSH_FREEBSD_PYTHON_VERSION=3.13
             test "$(uname -s)" = "FreeBSD"
             major="$(uname -r | awk -F. '{print $1}')"
-            test "${major}" -ge 14
+            test "${major}" = "$(printf '%s' '${{ matrix.release }}' | cut -d. -f1)"
+            test "$(uname -m)" = "amd64"
             python3.13 --version
             pkg --version
             VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
@@ -49,6 +61,7 @@ jobs:
             sh scripts/build_freebsd_pkg.sh
             test -f "${PKG_PATH}"
             pkg info -F "${PKG_PATH}"
+            test "$(pkg query -F "${PKG_PATH}" "%q")" = "$(pkg config ABI)"
             pkg query -F "${PKG_PATH}" "%Fp" | tee /tmp/pysh-freebsd-pkg-files
             grep -Fx /usr/local/bin/pysh /tmp/pysh-freebsd-pkg-files
             grep -E '^/usr/local/lib/pysh-shell/pysh(/|$)' \
@@ -63,7 +76,7 @@ jobs:
       - name: Upload FreeBSD .pkg workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: freebsd-pkg
+          name: ${{ matrix.artifact }}
           path: dist/os/freebsd/pysh-shell-*.pkg
           if-no-files-found: error
 
@@ -119,7 +132,7 @@ jobs:
       - name: Download FreeBSD .pkg
         uses: actions/download-artifact@v4
         with:
-          name: freebsd-pkg
+          name: freebsd-reference-pkg
           path: dist/os/freebsd
 
       - name: Verify canonical artifact names + stage flat release assets

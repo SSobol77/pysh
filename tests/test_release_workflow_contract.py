@@ -318,6 +318,26 @@ def test_release_workflow_still_has_real_freebsd_vm_build() -> None:
     text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
     assert "vmactions/freebsd-vm" in text
     assert "sh scripts/build_freebsd_pkg.sh" in text
+
+
+def test_release_gate_downloads_only_the_reference_freebsd_package() -> None:
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    assert 'release: "14.4"' in text
+    assert "artifact: freebsd-reference-pkg" in text
+    assert "reference-pkg: true" in text
+    assert "artifact: freebsd-validation-15" in text
+    assert "name: freebsd-reference-pkg" in text
+    build_job = text[text.index("build-and-validate:") : text.index("\n  upload:")]
+    assert "name: freebsd-reference-pkg" in build_job
+    assert "freebsd-validation-15" not in build_job
+
+
+def test_reference_pkg_is_downloaded_before_release_artifact_gate() -> None:
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    build_job = text[text.index("build-and-validate:") : text.index("\n  upload:")]
+    assert build_job.index("Download FreeBSD .pkg") < build_job.index(
+        "check_release_artifacts.sh"
+    )
     assert 'release: "14.4"' in text
 
 

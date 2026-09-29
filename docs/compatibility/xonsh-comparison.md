@@ -42,7 +42,7 @@ expressions and subprocess commands.
 | Completions | PySH-native Completion Engine v1, with a planned Completion Engine 2.0 direction. | Mature completer ecosystem. | PySH completion is still evolving. |
 | Configuration | `.pyshrc.py` / PySH configuration model, plus documented startup files and plugin loading. | Xonsh RC and xontrib ecosystem. | Xonsh has a mature extension/configuration ecosystem. |
 | Dependencies | Stdlib-only default install; optional extras may add features such as syntax rendering. | Python package with optional ecosystem/extensions. | PySH intentionally keeps the default install minimal. |
-| Cross-platform support | Debian/Unix-like focus with FreeBSD validation; FreeBSD 14+ `.pkg` is a mandatory release artifact. | Broader cross-platform support. | PySH's current platform strategy is narrower. |
+| Cross-platform support | Named Debian, RPM, and FreeBSD families with CPython 3.13+; exact CI versions are reference evidence. | Broader cross-platform support. | PySH's current platform strategy is narrower. |
 | Extension model | Project-scoped plugins/configuration are still maturing. | Xontrib ecosystem. | Xonsh has a more mature extension model. |
 | Startup and complexity profile | Smaller shell-first project. | Larger parser/runtime ecosystem. | This is an architectural trade-off, not a quality judgment. |
 
@@ -89,4 +89,3 @@ PySH and does not require Pygments.
 - You need the more mature Xonsh job-control, completer, configuration, and
   xontrib ecosystems.
 - You need broader cross-platform support than PySH currently targets.
-

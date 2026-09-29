@@ -15,8 +15,8 @@ executor: only marked snippets are parsed, and only a narrow, portable
 subset of them (PyPI wheel/sdist install) is ever actually executed, into
 disposable temporary virtualenvs. Platform-native install commands
 (``apt``/``dnf``/``pkg``) are validated structurally only; their real
-execution is scripts/smoke_debian_package.sh's job (RQG-D) and future
-native RPM/FreeBSD companions, never duplicated here.
+execution belongs to the native Debian, RPM, and FreeBSD smoke scripts,
+never duplicated here.
 
 No network access is required or performed: the "PyPI install" contract
 validates package-name *structure* against pyproject.toml, and the
@@ -162,6 +162,31 @@ def check_os_package_name_pattern(label: str, text: str, pattern: re.Pattern[str
     return []
 
 
+def check_freebsd_package_name(label: str, text: str, expected_name: str) -> list[str]:
+    """Require exactly one distro-release-neutral FreeBSD package basename."""
+    candidates = {line.strip() for line in _fenced_body(text).splitlines() if line.strip()}
+    expected = {f"{expected_name}-X.Y.Z.pkg"}
+    if candidates != expected:
+        return [
+            f"{label}: {sorted(candidates)!r} does not match the canonical naming pattern; "
+            f"expected {sorted(expected)!r}"
+        ]
+    return []
+
+
+def check_freebsd_install_command(label: str, text: str, expected_name: str) -> list[str]:
+    """Require native local-package installation without compatibility bypasses."""
+    body = _fenced_body(text)
+    required = f'sudo pkg add "./{expected_name}-X.Y.Z.pkg"'
+    errors = []
+    if required not in body:
+        errors.append(f"{label}: missing canonical FreeBSD package install command: {required}")
+    for forbidden in ("pkg add -f", "IGNORE_OSVERSION"):
+        if forbidden in body:
+            errors.append(f"{label}: forbidden FreeBSD ABI bypass: {forbidden}")
+    return errors
+
+
 def check_referenced_scripts_exist(label: str, text: str) -> list[str]:
     errors: list[str] = []
     for rel in _SCRIPT_PATH_RE.findall(text):
@@ -235,7 +260,6 @@ def run_doc_contract(
 
     deb_name_re = re.compile(rf"^{re.escape(name)}_X\.Y\.Z-1_all\.deb$")
     rpm_name_re = re.compile(rf"^{re.escape(name)}-X\.Y\.Z-1\.noarch\.rpm$")
-    freebsd_name_re = re.compile(rf"^{re.escape(name)}-X\.Y\.Z\.pkg$")
 
     # --- README.md ---------------------------------------------------
     if "pypi" in readme_snippets:
@@ -307,17 +331,15 @@ def run_doc_contract(
         )
 
     if "freebsd-name" in install_snippets:
-        errors += check_os_package_name_pattern(
-            "docs/user/installation.md:freebsd-name",
-            install_snippets["freebsd-name"],
-            freebsd_name_re,
+        errors += check_freebsd_package_name(
+            "docs/user/installation.md:freebsd-name", install_snippets["freebsd-name"], name
         )
     if "freebsd" in install_snippets:
         errors += check_shell_syntax(
             "docs/user/installation.md:freebsd", install_snippets["freebsd"]
         )
-        errors += check_local_package_arg_matches(
-            "docs/user/installation.md:freebsd", install_snippets["freebsd"], freebsd_name_re
+        errors += check_freebsd_install_command(
+            "docs/user/installation.md:freebsd", install_snippets["freebsd"], name
         )
 
     if "freebsd-build" in install_snippets:

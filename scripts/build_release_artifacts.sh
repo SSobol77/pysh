@@ -31,7 +31,9 @@ if [ -f "${FREEBSD_PKG_PATH}" ]; then
 fi
 
 restore_freebsd_pkg() {
-    if [ -n "${PRESERVED_FREEBSD_PKG}" ] && [ -f "${PRESERVED_FREEBSD_PKG}" ]; then
+    if [ -n "${PRESERVED_FREEBSD_PKG}" ] && \
+        [ -f "${PRESERVED_FREEBSD_PKG}" ] && \
+        [ ! -e "${FREEBSD_PKG_PATH}" ]; then
         mkdir -p "${REPO_ROOT}/dist/os/freebsd"
         cp "${PRESERVED_FREEBSD_PKG}" "${FREEBSD_PKG_PATH}"
         echo "==> Restored prebuilt FreeBSD .pkg: ${FREEBSD_PKG_PATH}"
@@ -64,7 +66,7 @@ elif [ -f "${FREEBSD_PKG_PATH}" ]; then
     echo "==> Using prebuilt FreeBSD .pkg: ${FREEBSD_PKG_PATH}"
 else
     echo "build_release_artifacts.sh: FreeBSD .pkg is mandatory but ${FREEBSD_PKG_PATH} is missing." >&2
-    echo "build_release_artifacts.sh: build it on FreeBSD 14+ with scripts/build_freebsd_pkg.sh, then rerun this gate." >&2
+    echo "build_release_artifacts.sh: build it in a native FreeBSD-family pkg environment, then rerun this gate." >&2
     exit 1
 fi
 

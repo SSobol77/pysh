@@ -40,10 +40,13 @@ Debian package:
 
 ```sh
 /opt/pysh-shell/lib/pysh/    # Python package source tree
-/usr/bin/pysh                # POSIX wrapper invoking python3 -m pysh
+/usr/bin/pysh                # POSIX wrapper selecting compatible CPython
 ```
 
 `BuildArch: noarch` because PySH ships no compiled artifacts.
+The shared Debian/RPM wrapper validates actual interpreter versions, prefers a
+qualifying `python3`, and can select a compatible versioned `python3.N` from
+`PATH` without imposing an upper Python minor-version limit.
 
 ## Build
 

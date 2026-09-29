@@ -79,7 +79,7 @@ EXPECTED_FREEBSD_PKG="pysh-shell-${VERSION}.pkg"
 FREEBSD_PKG_PATH="${REPO_ROOT}/dist/os/freebsd/${EXPECTED_FREEBSD_PKG}"
 
 preserve_freebsd_pkg() {
-    if [ -f "${FREEBSD_PKG_PATH}" ]; then
+    if [ -z "${PRESERVED_FREEBSD_PKG}" ] && [ -f "${FREEBSD_PKG_PATH}" ]; then
         PRESERVED_FREEBSD_PKG="$(mktemp -t pysh-freebsd-pkg.XXXXXXXX)"
         cp "${FREEBSD_PKG_PATH}" "${PRESERVED_FREEBSD_PKG}"
         log "Preserved prebuilt FreeBSD .pkg: ${FREEBSD_PKG_PATH}"
@@ -87,7 +87,9 @@ preserve_freebsd_pkg() {
 }
 
 restore_freebsd_pkg() {
-    if [ -n "${PRESERVED_FREEBSD_PKG}" ] && [ -f "${PRESERVED_FREEBSD_PKG}" ]; then
+    if [ -n "${PRESERVED_FREEBSD_PKG}" ] && \
+        [ -f "${PRESERVED_FREEBSD_PKG}" ] && \
+        [ ! -e "${FREEBSD_PKG_PATH}" ]; then
         mkdir -p "${REPO_ROOT}/dist/os/freebsd"
         cp "${PRESERVED_FREEBSD_PKG}" "${FREEBSD_PKG_PATH}"
         log "Restored prebuilt FreeBSD .pkg: ${FREEBSD_PKG_PATH}"
@@ -167,7 +169,7 @@ if [ "${#rpms[@]}" -ne 1 ]; then
     fail "expected exactly one RPM artifact matching dist/os/rpm/pysh-shell-*-1.noarch.rpm, found ${#rpms[@]}"
 fi
 if [ "${#pkgs[@]}" -ne 1 ]; then
-    fail "expected exactly one FreeBSD artifact matching dist/os/freebsd/pysh-shell-*.pkg, found ${#pkgs[@]}; build it on FreeBSD 14+ with scripts/build_freebsd_pkg.sh before v0.8.0 release completion"
+    fail "expected exactly one FreeBSD reference artifact matching dist/os/freebsd/pysh-shell-*.pkg, found ${#pkgs[@]}; build it in a native FreeBSD-family pkg environment"
 fi
 require_file dist/SHA256SUMS
 require_file dist/release-assets/SHA256SUMS
