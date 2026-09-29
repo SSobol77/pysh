@@ -77,6 +77,10 @@ jobs:
           bash -n scripts/build_rpm.sh
           bash -n scripts/build_release_artifacts.sh
           bash -n scripts/check_release_artifacts.sh
+          sh -n packaging/wrappers/pysh.sh
+          sh -n scripts/_freebsd_python.sh
+          sh -n scripts/build_freebsd_pkg.sh
+          sh -n scripts/smoke_freebsd_package.sh
 
       - name: Build Debian .deb (if dpkg-deb available)
         run: |
@@ -118,7 +122,7 @@ jobs:
 
           # A real FreeBSD .pkg cannot be produced on this ubuntu-latest
           # runner. Native FreeBSD package validation happens for real in
-          # .github/workflows/release-artifacts.yml via a FreeBSD 14+ VM
+          # .github/workflows/release-artifacts.yml via native FreeBSD VMs
           # build. This is a clearly labeled, non-empty CONTRACT-ONLY
           # fixture used solely to exercise naming/presence/checksum
           # semantics here; it is never copied into dist/, never staged as
@@ -130,8 +134,119 @@ jobs:
           scripts/check_release_artifacts.sh --contract-only naming,
           presence, and checksum semantics in ordinary Linux CI, where a
           live FreeBSD builder is unavailable. Real FreeBSD .pkg validation
-          runs in .github/workflows/release-artifacts.yml via a FreeBSD 14+
-          VM build.
+          runs in .github/workflows/release-artifacts.yml via native FreeBSD
+          VM builds.
           FIXTURE
 
           bash scripts/check_release_artifacts.sh --contract-only "${CONTRACT_DIR}"
+
+  platform-debian:
+    name: platform reference (debian-13, amd64, python-3.13)
+    runs-on: ubuntu-latest
+    container:
+      image: debian:13-slim
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Debian reference tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            bash ca-certificates git python3.13 python3.13-venv
+
+      - name: Run platform-sensitive contracts in Debian 13
+        shell: bash
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          test "${ID}" = "debian"
+          test "${VERSION_ID}" = "13"
+          test "$(dpkg --print-architecture)" = "amd64"
+
+          python3.13 -m venv .venv-debian
+          . .venv-debian/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest pygments
+          export TERM=xterm-256color
+
+          python -m pytest -q \
+            tests/test_parser.py \
+            tests/test_parser_foundation.py \
+            tests/test_multiline_grammar.py \
+            tests/test_env_assignment.py \
+            tests/test_expansion_foundation.py \
+            tests/test_path_expansion.py \
+            tests/test_heredoc.py \
+            tests/test_substitution.py \
+            tests/test_shell.py \
+            tests/test_pty_integration.py \
+            tests/test_pty_smoke_helper.py \
+            tests/test_resize.py \
+            tests/test_secure_runner.py \
+            tests/test_signal_handling.py \
+            tests/test_job_control.py \
+            tests/test_redirection.py \
+            tests/test_isolated_plugin_runtime.py \
+            tests/test_safe_startup.py \
+            tests/test_platform_tier_contract.py
+
+  platform-freebsd:
+    name: platform reference (freebsd-14.4, amd64, python-3.13)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run platform-sensitive contracts in FreeBSD 14.4
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.4"
+          usesh: true
+          prepare: |
+            pkg update -f
+            pkg install -y bash python313 uv git
+          run: |
+            set -eu
+            test "$(uname -s)" = "FreeBSD"
+            test "$(freebsd-version -u | cut -d- -f1)" = "14.4"
+            test "$(uname -m)" = "amd64"
+            command -v bash
+
+            git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            uv venv --python python3.13 .venv-freebsd
+            uv pip install --python .venv-freebsd/bin/python -e . pytest pygments
+            export PATH="$PWD/.venv-freebsd/bin:/usr/local/bin:/usr/bin:/bin"
+            export TERM=xterm-256color
+
+            python -m pytest -q \
+              tests/test_parser.py \
+              tests/test_parser_foundation.py \
+              tests/test_multiline_grammar.py \
+              tests/test_env_assignment.py \
+              tests/test_expansion_foundation.py \
+              tests/test_path_expansion.py \
+              tests/test_heredoc.py \
+              tests/test_substitution.py \
+              tests/test_shell.py
+
+            echo "==> Native PTY, termios, signal, and job-control behavior"
+            python -m pytest -q \
+              tests/test_pty_integration.py \
+              tests/test_pty_smoke_helper.py \
+              tests/test_resize.py \
+              tests/test_secure_runner.py \
+              tests/test_signal_handling.py \
+              tests/test_job_control.py
+
+            python -m pytest -q \
+              tests/test_redirection.py \
+              tests/test_isolated_plugin_runtime.py \
+              tests/test_safe_startup.py \
+              tests/test_platform_tier_contract.py

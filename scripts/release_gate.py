@@ -330,7 +330,7 @@ def check_artifact_contract(log_dir: Path) -> CheckResult:
         fixture_pkg.write_text(
             "PYSH ARTIFACT-CONTRACT TEST FIXTURE - NOT A REAL FREEBSD PACKAGE.\n"
             "Real FreeBSD .pkg validation runs in "
-            ".github/workflows/release-artifacts.yml via a FreeBSD 14+ VM build.\n",
+            ".github/workflows/release-artifacts.yml via native FreeBSD VM builds.\n",
             encoding="utf-8",
         )
 
@@ -495,10 +495,10 @@ def check_freebsd_smoke(log_dir: Path) -> CheckResult:
             status=STATUS_PLATFORM_BLOCKED,
             diagnostic=(
                 f"this host is {platform.system()}, not FreeBSD; native FreeBSD "
-                ".pkg install/run smoke requires real FreeBSD 14+ and has no "
+                ".pkg install/run smoke requires real FreeBSD and has no "
                 "container/emulation fallback. The real smoke runs "
                 "unconditionally in .github/workflows/release-artifacts.yml's "
-                "FreeBSD 14.4 VM job via scripts/smoke_freebsd_package.sh."
+                "native VM jobs via scripts/smoke_freebsd_package.sh."
             ),
         )
 

@@ -62,6 +62,11 @@ def _visible(data: bytes) -> bytes:
     return bytes(cells).rstrip(b" ")
 
 
+def test_visible_applies_terminal_backspaces_to_freebsd_eof_echo() -> None:
+    """A FreeBSD PTY's echoed Ctrl+D is erased before child output renders."""
+    assert _visible(b"^D\x08\x08hi\n") == b"hi\n"
+
+
 def _read_available(fd: int, timeout: float = 1.0) -> bytes:
     out = bytearray()
     while True:
@@ -189,7 +194,7 @@ def test_secure_runner_simple_command_outputs_data() -> None:
             os.close(write_fd)
 
     assert status == 0
-    assert output.replace(b"\r\n", b"\n") == b"hi\n"
+    assert _visible(output.replace(b"\r\n", b"\n")) == b"hi\n"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="PTY tests require POSIX")

@@ -42,13 +42,15 @@ The `.deb` installs PySH under an application prefix:
 
 ```
 /opt/pysh-shell/lib/pysh/    # Python package source tree
-/usr/bin/pysh                # POSIX wrapper invoking python3 -m pysh
+/usr/bin/pysh                # POSIX wrapper selecting compatible CPython
 ```
 
-The wrapper sets `PYTHONPATH=/opt/pysh-shell/lib` and execs
-`/usr/bin/python3 -m pysh "$@"`. PySH is pure Python (standard
-library only), so no compiled artifacts are shipped and the package
-is architecture-independent (`Architecture: all`).
+The wrapper sets `PYTHONPATH=/opt/pysh-shell/lib`, prefers a qualifying
+`python3`, then probes versioned `python3.N` commands on `PATH`. Every
+candidate is validated as CPython 3.13 or newer by its actual runtime; an
+executable name alone is never trusted and there is no upper minor-version
+limit. PySH is pure Python (standard library only), so no compiled artifacts
+are shipped and the package is architecture-independent (`Architecture: all`).
 
 ## Build
 
