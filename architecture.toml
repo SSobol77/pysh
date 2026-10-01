@@ -29,6 +29,7 @@ versioned_external_protocols = [
   "trusted_plugin_api",
   "isolated_plugin_manifest",
   "isolated_plugin_ipc",
+  "diagnostic_event_schema",
 ]
 
 [[domains]]
@@ -76,7 +77,7 @@ module = "pysh.diagnostics"
 layer = "diagnostics"
 classification = "internal"
 owner = "Advisory planning, tracing, and redaction implementation"
-extension_status = "schemas_not_stable_until_issue_50"
+extension_status = "versioned_event_schema_v1"
 allowed_dependencies = ["pysh.parsing"]
 
 [[domains]]

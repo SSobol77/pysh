@@ -575,6 +575,7 @@ def test_architecture_policy_is_coherent() -> None:
         "trusted_plugin_api",
         "isolated_plugin_manifest",
         "isolated_plugin_ipc",
+        "diagnostic_event_schema",
     }
 
 
