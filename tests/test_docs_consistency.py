@@ -975,15 +975,18 @@ def test_freebsd_pkg_builder_script_exists_and_is_executable() -> None:
 
 
 def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg() -> None:
-    """On non-FreeBSD hosts, the builder must fail before creating fake .pkg bytes."""
+    """Non-FreeBSD builder failure must not alter prepared .pkg artifacts."""
     if os.uname().sysname == "FreeBSD":
         return
-    import tomllib
 
-    version = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
-    expected = REPO_ROOT / "dist" / "os" / "freebsd" / f"pysh-shell-{version}.pkg"
-    if expected.exists():
-        expected.unlink()
+    artifact_dir = REPO_ROOT / "dist" / "os" / "freebsd"
+    before = {
+        candidate.name: (
+            candidate.stat().st_size,
+            candidate.stat().st_mtime_ns,
+        )
+        for candidate in artifact_dir.glob("*.pkg")
+    }
 
     result = subprocess.run(
         ["bash", "scripts/build_freebsd_pkg.sh"],
@@ -994,12 +997,20 @@ def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg() -> None:
         timeout=10,
     )
 
+    after = {
+        candidate.name: (
+            candidate.stat().st_size,
+            candidate.stat().st_mtime_ns,
+        )
+        for candidate in artifact_dir.glob("*.pkg")
+    }
+
     assert result.returncode != 0
     assert (
         "FreeBSD .pkg must be built in a native FreeBSD-family pkg environment; "
         f"refusing to fake .pkg on {os.uname().sysname}."
     ) in result.stderr
-    assert not expected.exists()
+    assert after == before
 
 
 def test_docs_freebsd_pkg_is_mandatory_for_current_release() -> None:
