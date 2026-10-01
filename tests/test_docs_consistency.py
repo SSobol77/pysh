@@ -10,6 +10,7 @@ contracts without importing PySH runtime modules.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -984,6 +985,7 @@ def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg() -> None:
         candidate.name: (
             candidate.stat().st_size,
             candidate.stat().st_mtime_ns,
+            hashlib.sha256(candidate.read_bytes()).hexdigest(),
         )
         for candidate in artifact_dir.glob("*.pkg")
     }
@@ -1001,6 +1003,7 @@ def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg() -> None:
         candidate.name: (
             candidate.stat().st_size,
             candidate.stat().st_mtime_ns,
+            hashlib.sha256(candidate.read_bytes()).hexdigest(),
         )
         for candidate in artifact_dir.glob("*.pkg")
     }
