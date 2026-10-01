@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +26,16 @@ REPOSITORY_ROOT = Path(__file__).parent.parent
 POLICY_PATH = REPOSITORY_ROOT / "performance.toml"
 HARNESS_PATH = REPOSITORY_ROOT / "scripts" / "benchmark_performance.py"
 CI_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
+
+
+def _workflow_job(workflow: str, job_name: str) -> str:
+    """Return one top-level CI job for job-local contract assertions."""
+    match = re.search(
+        rf"(?ms)^  {re.escape(job_name)}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9-]*:\n|\Z)",
+        workflow,
+    )
+    assert match is not None, f"workflow job not found: {job_name}"
+    return match.group(0)
 
 
 def _load_harness() -> ModuleType:
@@ -345,18 +356,28 @@ def test_printable_key_does_not_call_completion_provider() -> None:
 
 
 def test_ci_has_gating_linux_and_freebsd_performance_jobs() -> None:
-    """Pull-request CI executes both platform gates and preserves JSON evidence."""
-    text = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "performance-linux:" in text
-    assert "performance-freebsd:" in text
-    assert text.count("scripts/benchmark_performance.py") == 2
-    assert "--profile linux-python3-13" in text
-    assert "--profile freebsd-14-4-python3-13" in text
-    assert 'release: "14.4"' in text
-    assert "pkg install -y python313" in text
-    assert "python3.13 scripts/benchmark_performance.py" in text
-    assert "artifacts/performance/linux-python3-13.json" in text
-    assert "artifacts/performance/freebsd-14.4-python3-13.json" in text
-    assert text.count("if: ${{ always() }}") >= 2
-    assert "continue-on-error" not in text
-    assert "timeout-minutes:" in text
+    """Each performance profile is gated by its own scoped CI job."""
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    linux_job = _workflow_job(workflow, "performance-linux")
+    freebsd_job = _workflow_job(workflow, "performance-freebsd")
+    platform_freebsd = _workflow_job(workflow, "platform-freebsd")
+
+    assert linux_job.count("scripts/benchmark_performance.py") == 1
+    assert "--profile linux-python3-13" in linux_job
+    assert "artifacts/performance/linux-python3-13.json" in linux_job
+    assert 'python-version: "3.13"' in linux_job
+    assert "if: ${{ always() }}" in linux_job
+    assert "continue-on-error" not in linux_job
+    assert "timeout-minutes: 10" in linux_job
+
+    assert freebsd_job.count("scripts/benchmark_performance.py") == 1
+    assert "--profile freebsd-14-4-python3-13" in freebsd_job
+    assert "artifacts/performance/freebsd-14.4-python3-13.json" in freebsd_job
+    assert 'release: "14.4"' in freebsd_job
+    assert "pkg install -y python313" in freebsd_job
+    assert "python3.13 scripts/benchmark_performance.py" in freebsd_job
+    assert "if: ${{ always() }}" in freebsd_job
+    assert "continue-on-error" not in freebsd_job
+    assert "timeout-minutes: 20" in freebsd_job
+
+    assert "scripts/benchmark_performance.py" not in platform_freebsd

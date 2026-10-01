@@ -31,6 +31,12 @@ compatibility boundary is separate from release-independent FreeBSD/GhostBSD
 runtime support; use Python packaging or build the `.pkg` on another
 compatible host when the reference ABI does not match.
 
+Normative runtime-family support, platform validation tiers, and reference
+environments are defined by
+[`platform-tiers.md`](../compatibility/platform-tiers.md). This release
+procedure consumes that contract; it does not independently broaden or narrow
+platform support.
+
 PySH is published to PyPI as **`pysh-shell`** through GitHub Actions and
 **PyPI Trusted Publishing**. The workflow lives at
 [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) and
@@ -180,7 +186,7 @@ reviewed against the normative
 - `twine check dist/*.whl dist/*.tar.gz` passes.
 - `pysh --version` and `python -m pysh --version` print the target version.
 - Native FreeBSD package and smoke validation follows
-  [`packaging.md`](packaging.md#freebsd-validation-and-package-build-for-v080).
+  [`packaging.md`](packaging.md#freebsd-validation-and-package-build-for-v091).
   The release is incomplete without `dist/os/freebsd/pysh-shell-X.Y.Z.pkg`.
 
 ## Cutting the release
