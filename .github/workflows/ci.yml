@@ -177,6 +177,10 @@ jobs:
           python -m pip install -e . pytest pygments
           export TERM=xterm-256color
 
+          echo "==> Language conformance"
+          python scripts/run_language_conformance.py
+          python -m pytest -q tests/test_language_conformance.py
+
           python -m pytest -q \
             tests/test_parser.py \
             tests/test_parser_foundation.py \
@@ -196,6 +200,8 @@ jobs:
             tests/test_redirection.py \
             tests/test_isolated_plugin_runtime.py \
             tests/test_safe_startup.py \
+            tests/test_rc.py \
+            tests/test_pyshrc_py.py \
             tests/test_platform_tier_contract.py
 
   platform-freebsd:
@@ -228,6 +234,10 @@ jobs:
             export PATH="$PWD/.venv-freebsd/bin:/usr/local/bin:/usr/bin:/bin"
             export TERM=xterm-256color
 
+            echo "==> Language conformance"
+            python scripts/run_language_conformance.py
+            python -m pytest -q tests/test_language_conformance.py
+
             python -m pytest -q \
               tests/test_parser.py \
               tests/test_parser_foundation.py \
@@ -252,7 +262,10 @@ jobs:
               tests/test_redirection.py \
               tests/test_isolated_plugin_runtime.py \
               tests/test_safe_startup.py \
+              tests/test_rc.py \
+              tests/test_pyshrc_py.py \
               tests/test_platform_tier_contract.py
+
   performance-linux:
     name: performance (linux, python-3.13)
     runs-on: ubuntu-latest
