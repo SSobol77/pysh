@@ -115,8 +115,11 @@ requested_capabilities = [
 resource_class = "small"
 ```
 
-`resource_class` is optional metadata reserved for Issue #53. It does not
-activate resource enforcement. The executable must resolve to an absolute,
+`resource_class` is optional metadata consumed by the Issue #53 resource
+governor (see [resource-governor.md](resource-governor.md)). The manifest
+parser accepts any bounded identifier; profile resolution happens in the
+governor, and an unknown class fails closed when a budget is requested. It does
+not activate resource enforcement. The executable must resolve to an absolute,
 executable regular file. Arguments are bounded strings. Plugin names use the
 existing strict Plugin API identifier grammar. Unknown and duplicate
 capabilities are rejected.
@@ -279,11 +282,16 @@ granted capabilities, denial, failure, and stop. Events contain no child
 payload or returned secret values. Issue #50 owns integration with structured
 diagnostics and persistent audit policy.
 
-`IsolatedResourceLimits` names CPU, memory, wall-clock, descriptor, and process
-limits. Configuring any limit currently fails closed before spawn. Issue #53
-owns CPU, memory, file-descriptor, process-count, and wall-clock limits plus
-watchdog and hard-kill enforcement. Issue #44 supplies integration seams only
-and does not silently accept unenforced budgets.
+Issue #53 Slice 1 defines the resource-budget contract in
+`pysh.plugins.isolated.resources` (see [resource-governor.md](resource-governor.md)):
+CPU, memory, wall-clock, descriptor, process, message-size, and concurrency
+budgets, production profiles, and immutable hard ceilings.
+`IsolatedResourceLimits` remains importable from the runtime as an alias of the
+canonical `ResourceBudget`. Enforcement is not implemented: configuring any
+budget resolves the policy and then still fails closed before spawn. Issue #53
+Slice 2 owns CPU, memory, file-descriptor, process-count, and wall-clock
+enforcement plus watchdog and hard-kill. Issue #44 supplies integration seams
+only and does not silently accept unenforced budgets.
 
 Issue #52 owns platform-tier guarantees, optional Linux hardening, FreeBSD
 Capsicum integration, behavior when a hardening primitive is unavailable, and

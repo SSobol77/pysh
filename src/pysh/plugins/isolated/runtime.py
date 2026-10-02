@@ -11,14 +11,13 @@ import signal
 import subprocess
 import tempfile
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 
 from pysh.plugins.isolated.broker import BrokerResult, CommandHandler, PrivilegedRequestBroker
 from pysh.plugins.isolated.capabilities import Capability, CapabilityGrant, format_capability
-from pysh.plugins.isolated.errors import LifecycleError, ProtocolError
+from pysh.plugins.isolated.errors import LifecycleError, ProtocolError, ResourcePolicyError
 from pysh.plugins.isolated.events import IsolatedPluginEvent, IsolatedPluginEventKind
 from pysh.plugins.isolated.manifest import IsolatedPluginManifest
 from pysh.plugins.isolated.protocol import (
@@ -39,6 +38,21 @@ from pysh.plugins.isolated.protocol import (
     read_message,
     write_message,
 )
+from pysh.plugins.isolated.resources import (
+    DEFAULT_RESOURCE_PROFILES,
+    IsolatedResourceLimits,
+    ResourceBudget,
+    ResourceProfile,
+    resolve_resource_budget,
+)
+
+__all__ = [
+    "BASELINE_CHILD_ENVIRONMENT",
+    "EventSink",
+    "IsolatedPluginRuntime",
+    "IsolatedPluginState",
+    "IsolatedResourceLimits",
+]
 
 BASELINE_CHILD_ENVIRONMENT: Mapping[str, str] = MappingProxyType(
     {
@@ -67,44 +81,6 @@ class IsolatedPluginState(StrEnum):
     FAILED = "failed"
 
 
-@dataclass(frozen=True, slots=True)
-class IsolatedResourceLimits:
-    """Fail-closed Issue #53 integration seam; enforcement is not implemented here."""
-
-    cpu_seconds: int | None = None
-    memory_bytes: int | None = None
-    wall_clock_seconds: int | None = None
-    file_descriptors: int | None = None
-    processes: int | None = None
-
-    def __post_init__(self) -> None:
-        for value in (
-            self.cpu_seconds,
-            self.memory_bytes,
-            self.wall_clock_seconds,
-            self.file_descriptors,
-            self.processes,
-        ):
-            if value is not None and (
-                isinstance(value, bool) or not isinstance(value, int) or value <= 0
-            ):
-                raise ValueError("resource limits must be positive integers or None")
-
-    @property
-    def configured(self) -> bool:
-        """Return whether any Issue #53 limit was requested."""
-        return any(
-            value is not None
-            for value in (
-                self.cpu_seconds,
-                self.memory_bytes,
-                self.wall_clock_seconds,
-                self.file_descriptors,
-                self.processes,
-            )
-        )
-
-
 class IsolatedPluginRuntime:
     """Spawn, authenticate, serve, and contain one isolated-plugin child."""
 
@@ -119,7 +95,8 @@ class IsolatedPluginRuntime:
         handshake_timeout: float = 2.0,
         request_timeout: float = 2.0,
         shutdown_timeout: float = 1.0,
-        resource_limits: IsolatedResourceLimits | None = None,
+        resource_limits: ResourceBudget | None = None,
+        resource_catalog: Mapping[str, ResourceProfile] = DEFAULT_RESOURCE_PROFILES,
     ) -> None:
         self.manifest = manifest
         self.grant = CapabilityGrant.create(
@@ -131,7 +108,8 @@ class IsolatedPluginRuntime:
         self._handshake_timeout = _positive_timeout(handshake_timeout, "handshake_timeout")
         self._request_timeout = _positive_timeout(request_timeout, "request_timeout")
         self._shutdown_timeout = _positive_timeout(shutdown_timeout, "shutdown_timeout")
-        self._resource_limits = resource_limits or IsolatedResourceLimits()
+        self._resource_limits = resource_limits or ResourceBudget()
+        self._resource_catalog = resource_catalog
         self._broker = PrivilegedRequestBroker(
             self.grant,
             environment=broker_environment,
@@ -164,6 +142,17 @@ class IsolatedPluginRuntime:
         if self._state is not IsolatedPluginState.NEW:
             raise LifecycleError("isolated plugin can only be started once")
         if self._resource_limits.configured:
+            # Slice 1: policy resolves (fail closed on bad policy) but nothing
+            # enforces it yet, so a requested budget must never reach spawn.
+            # Slice 2 replaces this refusal with the enforcing launcher.
+            try:
+                resolve_resource_budget(
+                    self.manifest.resource_class,
+                    self._resource_limits,
+                    catalog=self._resource_catalog,
+                )
+            except ResourcePolicyError as exc:
+                raise LifecycleError(f"resource policy rejected: {exc}") from exc
             raise LifecycleError("resource-limit enforcement requires the Issue #53 launcher")
 
         self._working_directory = tempfile.TemporaryDirectory(prefix="pysh-isolated-")

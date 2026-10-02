@@ -96,6 +96,7 @@ src/pysh/
 │       ├── protocol.py      ← bounded framed UTF-8 JSON IPC
 │       ├── broker.py        ← parent-owned privileged request dispatcher
 │       ├── events.py        ← secret-free audit integration seam
+│       ├── resources.py     ← resource budgets, profiles, hard ceilings (policy only)
 │       └── runtime.py       ← subprocess handshake, lifecycle and containment
 │
 ├── python_layer/
@@ -230,6 +231,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.diagnostics.emitter` | `DiagnosticEmitter`: validate, redact, and convert events to payloads |
 | `pysh.diagnostics.jsonl` | `encode_jsonl_line`, `JsonlDiagnosticSink`, trace-to-structured adapter (`--diagnostics-json`) |
 | `pysh.diagnostics.audit` | `AuditLogSink`, `AuditLogError`: opt-in persistent audit file (`--audit-log`) |
+| `pysh.plugins.isolated.resources` | `ResourceBudget`, `ResourceProfile`, `HARD_RESOURCE_CEILINGS`, `resolve_resource_budget`, `ResourceViolation`: Issue #53 Slice 1 policy contract (stdlib-only; no enforcement) |
 | `pysh.plugins.isolated.diagnostics` | Adapter from isolated-plugin events to schema v1 and `make_structured_plugin_event_sink` (`pysh.plugins.isolated → pysh.diagnostics` only) |
 | `pysh.script_runner` | `ScriptRunner`, `ScriptType`, `ScriptExit`: shebang dispatch and native logical-line execution |
 

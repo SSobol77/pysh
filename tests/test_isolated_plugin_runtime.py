@@ -22,6 +22,11 @@ from pysh.plugins.isolated.manifest import (
     IsolatedPluginManifest,
     validate_isolated_plugin_manifest,
 )
+from pysh.plugins.isolated.resources import (
+    SMALL_PROFILE,
+    ResourceProfile,
+    build_profile_catalog,
+)
 from pysh.plugins.isolated.runtime import (
     BASELINE_CHILD_ENVIRONMENT,
     IsolatedPluginRuntime,
@@ -452,9 +457,13 @@ def test_granted_event_is_not_emitted_when_hello_validation_fails(mode: str) -> 
 
 
 def test_resource_limit_seam_fails_closed_until_issue_53() -> None:
+    # Slice 1: the budget contract resolves, but enforcement is pending Slice 2,
+    # so a configured budget must still refuse to spawn.
+    catalog = build_profile_catalog((ResourceProfile("test", SMALL_PROFILE.budget),))
     runtime = IsolatedPluginRuntime(
         _manifest(),
         resource_limits=IsolatedResourceLimits(memory_bytes=1024),
+        resource_catalog=catalog,
     )
 
     with pytest.raises(LifecycleError, match="Issue #53"):
