@@ -126,14 +126,17 @@ def _allocate_until_refused(chunk_mebibytes: int, max_chunks: int) -> dict[str, 
 
 
 def _fork_attempts(attempts: int) -> dict[str, object]:
-    """Try a bounded number of forks; children exit immediately and are reaped."""
+    """Fork up to a bound until the OS refuses with EAGAIN; children exit and are reaped."""
     forked = 0
     failures: list[int] = []
     for _ in range(attempts):
         try:
             pid = os.fork()
         except OSError as exc:
-            failures.append(exc.errno or 0)
+            code = exc.errno or 0
+            failures.append(code)
+            if code == errno.EAGAIN:
+                break  # the OS governor refused creation; hammering it proves nothing more
             continue
         if pid == 0:
             os._exit(0)

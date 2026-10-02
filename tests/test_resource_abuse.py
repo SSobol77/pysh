@@ -209,13 +209,45 @@ def test_fork_loop_is_blocked_by_the_opt_in_per_uid_process_limit() -> None:
     runtime = _runtime(PROBE, "fork_loop", "16", reports=reports,
                        process_limit_mode=ProcessLimitMode.OS_PER_UID,
                        resource_limits=ResourceBudget(processes=1))
-    runtime.start()
-    runtime.serve_once()
-    result = json.loads(reports[0])
-    assert result["forked"] == 0
-    assert result["failures"] == [result["eagain"]] * 16
-    runtime.close()
+    try:
+        runtime.start()
+        runtime.serve_once()
+        result = json.loads(reports[0])
+        # No descendant escaped, and the first attempt was refused with the
+        # resource-limit errno, which ends the bounded spawn storm.
+        assert result["forked"] == 0
+        assert result["failures"] == [result["eagain"]]
+    finally:
+        runtime.close()
     _assert_session_healthy()
+
+
+def test_fork_helper_stops_at_the_first_eagain_without_real_processes(monkeypatch) -> None:
+    import errno
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("resource_probe_under_test", PROBE)
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+    attempts: list[int] = []
+
+    def refuse() -> int:
+        attempts.append(1)
+        raise OSError(errno.EAGAIN, "Resource temporarily unavailable")
+
+    monkeypatch.setattr(probe.os, "fork", refuse)
+    result = probe._fork_attempts(16)
+    assert len(attempts) == 1
+    assert result["forked"] == 0
+    assert result["failures"] == [errno.EAGAIN]
+
+    # A non-EAGAIN error is recorded but does not end the bounded loop.
+    attempts.clear()
+    monkeypatch.setattr(
+        probe.os, "fork", lambda: attempts.append(1) or (_ for _ in ()).throw(OSError(errno.ENOMEM, "x"))
+    )
+    result = probe._fork_attempts(3)
+    assert len(attempts) == 3 and result["failures"] == [errno.ENOMEM] * 3
 
 
 def test_descendants_are_killed_with_the_plugin_process_group() -> None:
