@@ -282,16 +282,17 @@ granted capabilities, denial, failure, and stop. Events contain no child
 payload or returned secret values. Issue #50 owns integration with structured
 diagnostics and persistent audit policy.
 
-Issue #53 Slice 1 defines the resource-budget contract in
-`pysh.plugins.isolated.resources` (see [resource-governor.md](resource-governor.md)):
-CPU, memory, wall-clock, descriptor, process, message-size, and concurrency
-budgets, production profiles, and immutable hard ceilings.
-`IsolatedResourceLimits` remains importable from the runtime as an alias of the
-canonical `ResourceBudget`. Enforcement is not implemented: configuring any
-budget resolves the policy and then still fails closed before spawn. Issue #53
-Slice 2 owns CPU, memory, file-descriptor, process-count, and wall-clock
-enforcement plus watchdog and hard-kill. Issue #44 supplies integration seams
-only and does not silently accept unenforced budgets.
+Issue #53 defines the resource-budget contract in
+`pysh.plugins.isolated.resources` (see [resource-governor.md](resource-governor.md)).
+When a `ResourceBudget` is supplied, the runtime spawns the plugin through the
+internal `pysh.plugins.isolated.launcher`, which applies `RLIMIT_CPU`,
+`RLIMIT_AS`/`RLIMIT_VMEM` (virtual address space, not RSS) and `RLIMIT_NOFILE`
+before `execve`, and the parent bounds every IPC frame to the effective
+`message_bytes`. `processes` (process-count) is not enforced per plugin
+(`RLIMIT_NPROC` is per-UID; opt-in only). `wall_clock_seconds` and `concurrency` are not
+enforced yet, and violations are not reported as structured events yet. No
+cgroup or jail is used. Without a budget the runtime spawns directly as in
+Issue #44. `IsolatedResourceLimits` remains an alias of `ResourceBudget`.
 
 Issue #52 owns platform-tier guarantees, optional Linux hardening, FreeBSD
 Capsicum integration, behavior when a hardening primitive is unavailable, and

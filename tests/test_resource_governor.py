@@ -272,17 +272,6 @@ def no_spawn(monkeypatch: pytest.MonkeyPatch) -> list[object]:
     return calls
 
 
-def test_runtime_refuses_spawn_when_valid_budget_configured(no_spawn: list[object]) -> None:
-    rt = IsolatedPluginRuntime(
-        _manifest("small"), resource_limits=ResourceBudget(memory_bytes=1024)
-    )
-    with pytest.raises(LifecycleError, match="Issue #53"):
-        rt.start()
-    assert rt.state is IsolatedPluginState.NEW
-    assert rt.process_id is None
-    assert no_spawn == []
-
-
 def test_runtime_unknown_resource_class_fails_closed_without_spawn(no_spawn: list[object]) -> None:
     rt = IsolatedPluginRuntime(
         _manifest("test"), resource_limits=ResourceBudget(memory_bytes=1024)
@@ -309,6 +298,11 @@ def test_runtime_override_above_profile_fails_closed_without_spawn(no_spawn: lis
     with pytest.raises(LifecycleError, match="profile budget"):
         rt.start()
     assert no_spawn == []
+
+
+def test_runtime_enforcement_plan_is_only_resolved_at_start() -> None:
+    rt = IsolatedPluginRuntime(_manifest("small"), resource_limits=ResourceBudget(cpu_seconds=1))
+    assert rt.enforcement is None  # resolved only at start()
 
 
 def test_runtime_without_budget_still_spawns_and_resource_class_is_inert() -> None:

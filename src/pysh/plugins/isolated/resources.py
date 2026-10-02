@@ -6,8 +6,9 @@
 """Resource-budget contract, profiles, hard ceilings, and resolution policy.
 
 This module is the canonical Issue #53 policy layer for isolated plugins. It
-only *describes* and *resolves* budgets. It performs no OS enforcement: no
-``setrlimit``, no watchdog, no process control. It is stdlib-only, free of
+only *describes*, *resolves*, and *plans* budgets. It performs no OS
+enforcement: ``setrlimit`` is applied by the separate launcher boundary
+(``pysh.plugins.isolated.launcher``). It is stdlib-only, free of
 platform-specific imports, and never reads environment variables, so no
 ambient state can raise a ceiling.
 
@@ -267,3 +268,96 @@ def violation_for_field(field_name: str) -> ResourceViolation:
         return _VIOLATION_FOR_FIELD[field_name]
     except KeyError:
         raise ResourcePolicyError(f"unknown resource budget field {field_name!r}") from None
+
+
+# --- Enforcement planning (Slice 2) ----------------------------------------
+# Floors below which a budget is structurally unable to run a CPython plugin.
+# They are rejected deterministically; a lower request is never raised silently.
+
+#: Descriptors 0-2 plus the interpreter's startup needs.
+MIN_ENFORCED_FILE_DESCRIPTORS: Final = 8
+#: Virtual address space (``RLIMIT_AS``) below this cannot map a CPython image.
+MIN_ENFORCED_MEMORY_BYTES: Final = 32 * _MIB
+#: A handshake frame must be able to fit.
+MIN_ENFORCED_MESSAGE_BYTES: Final = 1024
+
+#: Fields applied by the OS-backed launcher (``setrlimit``).
+OS_ENFORCED_FIELDS: Final = ("cpu_seconds", "memory_bytes", "file_descriptors")
+#: Fields enforced by the parent at the IPC boundary.
+PROTOCOL_ENFORCED_FIELDS: Final = ("message_bytes",)
+#: Fields with no independent enforcement yet (later Issue #53 slices).
+UNENFORCED_FIELDS: Final = ("wall_clock_seconds", "concurrency")
+
+_MINIMUMS: Final[Mapping[str, int]] = MappingProxyType({
+    "file_descriptors": MIN_ENFORCED_FILE_DESCRIPTORS,
+    "memory_bytes": MIN_ENFORCED_MEMORY_BYTES,
+    "message_bytes": MIN_ENFORCED_MESSAGE_BYTES,
+})
+
+
+class ProcessLimitMode(StrEnum):
+    """How the ``processes`` budget is treated.
+
+    ``RLIMIT_NPROC`` is a per-real-UID process count, not a per-plugin
+    descendant count, so it cannot truthfully enforce a plugin-tree budget.
+
+    * ``DEFERRED`` (default): ``processes`` is not enforced; it is reported as
+      deferred. An *explicit* process override is refused (fail closed).
+    * ``OS_PER_UID``: opt in to applying the value to ``RLIMIT_NPROC`` with its
+      real per-UID semantics.
+    """
+
+    DEFERRED = "deferred"
+    OS_PER_UID = "os_per_uid"
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceEnforcementPlan:
+    """What is enforced, how, and what is knowingly not enforced."""
+
+    effective: ResourceBudget
+    os_limits: Mapping[str, int]
+    message_bytes: int
+    deferred_fields: tuple[str, ...]
+
+
+def plan_enforcement(
+    effective: ResourceBudget,
+    requested: ResourceBudget | None = None,
+    *,
+    process_mode: ProcessLimitMode = ProcessLimitMode.DEFERRED,
+) -> ResourceEnforcementPlan:
+    """Turn a resolved budget into an enforcement plan, failing closed.
+
+    Rejects budgets below the enforceable floors and *explicit* requests for
+    fields that no layer enforces yet. Profile defaults for such fields are
+    reported in ``deferred_fields`` instead of being silently ignored.
+    """
+    if not isinstance(effective, ResourceBudget) or not effective.is_complete:
+        raise ResourcePolicyError("an enforcement plan requires a complete effective budget")
+    if not isinstance(process_mode, ProcessLimitMode):
+        raise ResourcePolicyError("process_mode must be a ProcessLimitMode")
+    explicit = requested if requested is not None else ResourceBudget()
+    for name, floor in _MINIMUMS.items():
+        if getattr(effective, name) < floor:
+            raise ResourcePolicyError(f"{name} is below the enforceable minimum of {floor}")
+    for name in UNENFORCED_FIELDS:
+        if getattr(explicit, name) is not None:
+            raise ResourcePolicyError(f"{name} is not enforced yet; refusing to pretend it is")
+    deferred = list(UNENFORCED_FIELDS)
+    os_limits = {name: getattr(effective, name) for name in OS_ENFORCED_FIELDS}
+    if process_mode is ProcessLimitMode.OS_PER_UID:
+        os_limits["processes"] = effective.processes
+    else:
+        if explicit.processes is not None:
+            raise ResourcePolicyError(
+                "processes cannot be enforced per plugin; use ProcessLimitMode.OS_PER_UID "
+                "to apply the per-UID RLIMIT_NPROC primitive"
+            )
+        deferred.append("processes")
+    return ResourceEnforcementPlan(
+        effective=effective,
+        os_limits=MappingProxyType(os_limits),
+        message_bytes=effective.message_bytes,
+        deferred_fields=tuple(sorted(deferred)),
+    )

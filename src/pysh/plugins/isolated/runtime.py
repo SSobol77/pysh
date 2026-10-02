@@ -19,6 +19,11 @@ from pysh.plugins.isolated.broker import BrokerResult, CommandHandler, Privilege
 from pysh.plugins.isolated.capabilities import Capability, CapabilityGrant, format_capability
 from pysh.plugins.isolated.errors import LifecycleError, ProtocolError, ResourcePolicyError
 from pysh.plugins.isolated.events import IsolatedPluginEvent, IsolatedPluginEventKind
+from pysh.plugins.isolated.launcher import (
+    EXIT_APPLY_FAILED,
+    EXIT_POLICY_REJECTED,
+    build_launcher_argv,
+)
 from pysh.plugins.isolated.manifest import IsolatedPluginManifest
 from pysh.plugins.isolated.protocol import (
     HANDSHAKE_GRANT,
@@ -26,6 +31,7 @@ from pysh.plugins.isolated.protocol import (
     HANDSHAKE_READY,
     LIFECYCLE_SHUTDOWN,
     LIFECYCLE_SHUTDOWN_ACK,
+    MAX_FRAME_BYTES,
     REQUEST_COMMAND,
     REQUEST_ENVIRONMENT,
     REQUEST_FILESYSTEM_READ,
@@ -41,8 +47,11 @@ from pysh.plugins.isolated.protocol import (
 from pysh.plugins.isolated.resources import (
     DEFAULT_RESOURCE_PROFILES,
     IsolatedResourceLimits,
+    ProcessLimitMode,
     ResourceBudget,
+    ResourceEnforcementPlan,
     ResourceProfile,
+    plan_enforcement,
     resolve_resource_budget,
 )
 
@@ -97,6 +106,7 @@ class IsolatedPluginRuntime:
         shutdown_timeout: float = 1.0,
         resource_limits: ResourceBudget | None = None,
         resource_catalog: Mapping[str, ResourceProfile] = DEFAULT_RESOURCE_PROFILES,
+        process_limit_mode: ProcessLimitMode = ProcessLimitMode.DEFERRED,
     ) -> None:
         self.manifest = manifest
         self.grant = CapabilityGrant.create(
@@ -108,8 +118,12 @@ class IsolatedPluginRuntime:
         self._handshake_timeout = _positive_timeout(handshake_timeout, "handshake_timeout")
         self._request_timeout = _positive_timeout(request_timeout, "request_timeout")
         self._shutdown_timeout = _positive_timeout(shutdown_timeout, "shutdown_timeout")
-        self._resource_limits = resource_limits or ResourceBudget()
+        # ``None`` means no resource governance; any budget (even an empty
+        # override of a profile) activates OS enforcement through the launcher.
+        self._resource_limits = resource_limits
         self._resource_catalog = resource_catalog
+        self._process_limit_mode = process_limit_mode
+        self._enforcement: ResourceEnforcementPlan | None = None
         self._broker = PrivilegedRequestBroker(
             self.grant,
             environment=broker_environment,
@@ -131,6 +145,11 @@ class IsolatedPluginRuntime:
         return self._process.pid if self._process is not None else None
 
     @property
+    def enforcement(self) -> ResourceEnforcementPlan | None:
+        """Return the active enforcement plan, or ``None`` when ungoverned."""
+        return self._enforcement
+
+    @property
     def working_directory(self) -> Path | None:
         """Return the dedicated temporary cwd while it is active."""
         if self._working_directory is None:
@@ -141,24 +160,27 @@ class IsolatedPluginRuntime:
         """Spawn the child and complete the identity/capability handshake."""
         if self._state is not IsolatedPluginState.NEW:
             raise LifecycleError("isolated plugin can only be started once")
-        if self._resource_limits.configured:
-            # Slice 1: policy resolves (fail closed on bad policy) but nothing
-            # enforces it yet, so a requested budget must never reach spawn.
-            # Slice 2 replaces this refusal with the enforcing launcher.
+        argv = list(self.manifest.entrypoint)
+        if self._resource_limits is not None:
+            # Resolve and plan before any spawn: bad policy never reaches exec.
             try:
-                resolve_resource_budget(
+                effective = resolve_resource_budget(
                     self.manifest.resource_class,
                     self._resource_limits,
                     catalog=self._resource_catalog,
                 )
+                plan = plan_enforcement(
+                    effective, self._resource_limits, process_mode=self._process_limit_mode
+                )
+                argv = build_launcher_argv(plan.os_limits, self.manifest.entrypoint)
             except ResourcePolicyError as exc:
                 raise LifecycleError(f"resource policy rejected: {exc}") from exc
-            raise LifecycleError("resource-limit enforcement requires the Issue #53 launcher")
+            self._enforcement = plan
 
         self._working_directory = tempfile.TemporaryDirectory(prefix="pysh-isolated-")
         try:
             self._process = subprocess.Popen(  # noqa: S603 - validated explicit argv
-                list(self.manifest.entrypoint),
+                argv,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
@@ -198,7 +220,10 @@ class IsolatedPluginRuntime:
             self._emit(IsolatedPluginEventKind.HANDSHAKE)
             self._emit(IsolatedPluginEventKind.RUNNING)
         except Exception as exc:
+            refusal = self._launcher_refusal()
             self._fail("handshake_failed")
+            if refusal is not None:
+                raise LifecycleError(refusal) from exc
             if isinstance(exc, LifecycleError):
                 raise
             raise LifecycleError("isolated-plugin handshake failed") from exc
@@ -304,17 +329,40 @@ class IsolatedPluginRuntime:
         ):
             raise ProtocolError("isolated-plugin ready acknowledgement is invalid")
 
+    def _launcher_refusal(self) -> str | None:
+        """Classify a launcher exit (policy rejected / cannot apply) after a failed start."""
+        process = self._process
+        if self._enforcement is None or process is None:
+            return None
+        try:
+            returncode = process.wait(timeout=self._shutdown_timeout)
+        except subprocess.TimeoutExpired:
+            return None
+        if returncode == EXIT_POLICY_REJECTED:
+            return "resource launcher rejected the policy before plugin exec"
+        if returncode == EXIT_APPLY_FAILED:
+            return "resource launcher could not apply limits or exec the plugin"
+        return None
+
+    @property
+    def _message_limit(self) -> int:
+        return self._enforcement.message_bytes if self._enforcement else MAX_FRAME_BYTES
+
     def _read(self, timeout: float) -> IPCMessage:
         process = self._require_process()
         if process.stdout is None:
             raise LifecycleError("isolated-plugin stdout pipe is unavailable")
-        return read_message(process.stdout.fileno(), timeout=timeout)
+        return read_message(
+            process.stdout.fileno(), timeout=timeout, max_bytes=self._message_limit
+        )
 
     def _write(self, message: IPCMessage, *, timeout: float) -> None:
         process = self._require_process()
         if process.stdin is None:
             raise LifecycleError("isolated-plugin stdin pipe is unavailable")
-        write_message(process.stdin.fileno(), message, timeout=timeout)
+        write_message(
+            process.stdin.fileno(), message, timeout=timeout, max_bytes=self._message_limit
+        )
 
     def _require_process(self) -> subprocess.Popen[bytes]:
         if self._process is None:

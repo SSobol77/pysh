@@ -456,9 +456,23 @@ def test_granted_event_is_not_emitted_when_hello_validation_fails(mode: str) -> 
     assert IsolatedPluginEventKind.FAILURE in kinds
 
 
-def test_resource_limit_seam_fails_closed_until_issue_53() -> None:
-    # Slice 1: the budget contract resolves, but enforcement is pending Slice 2,
-    # so a configured budget must still refuse to spawn.
+def test_resource_budget_is_enforced_through_launcher_after_issue_53_slice_2() -> None:
+    catalog = build_profile_catalog((ResourceProfile("test", SMALL_PROFILE.budget),))
+    runtime = IsolatedPluginRuntime(
+        _manifest(),
+        resource_limits=IsolatedResourceLimits(memory_bytes=64 * 1024 * 1024),
+        resource_catalog=catalog,
+    )
+    try:
+        runtime.start()
+        assert runtime.state is IsolatedPluginState.RUNNING
+        assert runtime.enforcement is not None
+        assert runtime.enforcement.os_limits["memory_bytes"] == 64 * 1024 * 1024
+    finally:
+        runtime.close()
+
+
+def test_unenforceable_resource_budget_still_fails_closed_before_spawn() -> None:
     catalog = build_profile_catalog((ResourceProfile("test", SMALL_PROFILE.budget),))
     runtime = IsolatedPluginRuntime(
         _manifest(),
@@ -466,7 +480,7 @@ def test_resource_limit_seam_fails_closed_until_issue_53() -> None:
         resource_catalog=catalog,
     )
 
-    with pytest.raises(LifecycleError, match="Issue #53"):
+    with pytest.raises(LifecycleError, match="resource policy rejected"):
         runtime.start()
 
     assert runtime.state is IsolatedPluginState.NEW
