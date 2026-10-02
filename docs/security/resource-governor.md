@@ -79,10 +79,10 @@ effective  = requested if present else profile budget
 ```
 
 Equivalently `effective = min(profile, requested, ceiling)`, but raising
-overrides are **rejected**, never silently clamped. A missing or unknown
-`resource_class` fails closed; there is no fallback profile. The manifest
-parser still accepts any bounded identifier; resolution belongs to the
-governor.
+overrides are **rejected**, never silently clamped. A missing
+`resource_class` resolves to `standard`; an unknown non-empty `resource_class`
+fails closed and is never mapped to `standard`. The manifest parser still
+accepts any bounded identifier; resolution belongs to the governor.
 
 ### Violation vocabulary
 
@@ -92,14 +92,15 @@ governor.
 ### Runtime seam
 
 `IsolatedPluginRuntime(resource_limits=..., resource_catalog=...,
-process_limit_mode=...)`. `resource_limits=None` means ungoverned (the
-pre-Issue-#53 direct spawn, protocol limit only). Any `ResourceBudget`, even an
-empty override, activates enforcement: the budget is resolved against the
-manifest `resource_class`, planned (`plan_enforcement`), and spawned through
-the launcher. Any policy failure raises
-`LifecycleError("resource policy rejected: ...")` before a subprocess exists.
-`runtime.enforcement` exposes the active `ResourceEnforcementPlan`, including
-`deferred_fields`. `IsolatedResourceLimits` remains an alias of `ResourceBudget`.
+process_limit_mode=...)`. `resource_limits` is an optional *override*;
+`None` means an empty override, not "ungoverned". Every normal runtime startup
+is governed and no direct-spawn bypass remains: the budget is resolved against
+the manifest `resource_class` (missing -> `standard`, unknown -> fail closed),
+planned (`plan_enforcement`), and spawned through the launcher. Any policy
+failure raises `LifecycleError("resource policy rejected: ...")` before a
+subprocess exists. `runtime.enforcement` exposes the active
+`ResourceEnforcementPlan`, including `deferred_fields`. `IsolatedResourceLimits`
+remains an alias of `ResourceBudget`.
 
 ## Slice 2: enforcement (implemented)
 
@@ -120,8 +121,19 @@ the plugin via `os.execve` (same PID, no shell, no `preexec_fn`). The plugin's
 first instruction therefore already runs under the limits and no supervisor
 process remains. Limits come only from the parent-owned argv; each is set
 soft == hard and never above an inherited lower hard limit. A launcher failure
-exits `78` (policy rejected) or `71` (cannot apply/exec); the runtime reports a
-deterministic `LifecycleError` and cleans up.
+exits `78` (policy rejected) or `71` (cannot apply, limit relaxable, or exec
+failed); the runtime reports a deterministic `LifecycleError` and cleans up.
+
+**Privilege rule.** `soft == hard` is irreversible only for a process that lacks
+the privilege to raise hard limits. After applying each limit the launcher
+therefore *probes* it (a finite raise by one, no uid, capability or `/proc`
+inspection). OS-backed hard limits are accepted only when the OS rejects that
+raise. If the current execution privilege can relax a limit, the launcher
+restores it and fails closed (exit `71`) before the plugin is exec'd, so a
+plugin can never run with limits it could lift itself. No Capsicum or jail
+confinement is claimed. Tier-1 FreeBSD governor success evidence is
+intentionally executed under a dedicated unprivileged CI account (`pyshci`);
+a privileged account correctly fails closed.
 
 ### Exact mappings
 

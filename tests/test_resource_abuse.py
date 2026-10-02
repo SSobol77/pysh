@@ -55,17 +55,22 @@ def _manifest(script, mode, *arguments, name="abuse-plugin", resource_class="sta
     })
 
 
+_CREATED: list[IsolatedPluginRuntime] = []
+
+
 def _runtime(script, mode, *arguments, reports=None, events=None, **options):
     sink = (lambda event: events.append(event)) if events is not None else None
     handlers = {"report": lambda argv: (reports.extend(argv) if reports is not None else None) or 0}
     options.setdefault("shutdown_timeout", 0.3)
     options.setdefault("handshake_timeout", 3.0)
     options.setdefault("request_timeout", 5.0)
-    return IsolatedPluginRuntime(
+    runtime = IsolatedPluginRuntime(
         _manifest(script, mode, *arguments),
         granted_capabilities=frozenset({parse_capability("command:report")}),
         command_handlers=handlers, event_sink=sink, **options,
     )
+    _CREATED.append(runtime)
+    return runtime
 
 
 def _wait_until(predicate, timeout=6.0):
@@ -105,14 +110,20 @@ def _assert_session_healthy() -> None:
             "requested_capabilities": [], "resource_class": "standard",
         })
     )
-    runtime.start()
-    assert runtime.state is IsolatedPluginState.RUNNING
-    assert runtime.shutdown() is True
+    try:
+        runtime.start()
+        assert runtime.state is IsolatedPluginState.RUNNING
+        assert runtime.shutdown() is True
+    finally:
+        runtime.close()
 
 
 @pytest.fixture(autouse=True)
 def _no_leaks():
     yield
+    # A failed assertion must never leave a permit, watchdog or child behind.
+    while _CREATED:
+        _CREATED.pop().close()
     assert DEFAULT_CONCURRENCY_GOVERNOR.total_active() == 0
     assert _wait_until(
         lambda: not [t for t in __import__("threading").enumerate()
@@ -302,7 +313,9 @@ def test_a_runtime_override_cannot_raise_its_profile_even_below_the_ceiling() ->
 def test_the_plugin_cannot_raise_its_own_limits() -> None:
     reports: list[str] = []
     runtime = _runtime(PROBE, "raise_limits", reports=reports)
-    runtime.start()
-    runtime.serve_once()
-    assert set(json.loads(reports[0]).values()) == {"denied"}
-    runtime.close()
+    try:
+        runtime.start()
+        runtime.serve_once()
+        assert set(json.loads(reports[0]).values()) == {"denied"}
+    finally:
+        runtime.close()

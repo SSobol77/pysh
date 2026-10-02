@@ -304,7 +304,11 @@ def test_runtime_enforcement_plan_is_only_resolved_at_start() -> None:
     assert rt.enforcement is None  # resolved only at start()
 
 
-def test_runtime_without_budget_still_spawns_and_resource_class_is_inert() -> None:
+def test_unknown_resource_class_is_not_inert_and_never_spawns(no_spawn: list[object]) -> None:
     rt = IsolatedPluginRuntime(_manifest("anything-goes"))
+    with pytest.raises(LifecycleError, match="unknown resource class"):
+        rt.start()
+    assert no_spawn == []
     assert rt.state is IsolatedPluginState.NEW
-    assert rt.shutdown() is True
+    assert "anything-goes" not in DEFAULT_RESOURCE_PROFILES
+    assert rt.shutdown() is True  # safe on a never-started runtime

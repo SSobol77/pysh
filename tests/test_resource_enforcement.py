@@ -477,3 +477,99 @@ def test_runtime_without_explicit_budget_is_still_governed_by_the_default_profil
         assert limits["nofile"][0] == runtime.enforcement.effective.file_descriptors
     finally:
         runtime.close()
+
+
+# --- irrevocability of applied hard limits ---------------------------------
+
+
+class _FakeResource:
+    """Narrow stand-in for the ``resource`` module used by the launcher helpers."""
+
+    RLIM_INFINITY = -1
+    RLIMIT_CPU, RLIMIT_AS, RLIMIT_NOFILE, RLIMIT_NPROC = 0, 9, 7, 6
+
+    def __init__(self, *, relaxable=(), inherited_hard=None):
+        self.relaxable = set(relaxable)
+        self.limits = {
+            which: [self.RLIM_INFINITY, (inherited_hard or {}).get(which, self.RLIM_INFINITY)]
+            for which in (self.RLIMIT_CPU, self.RLIMIT_AS, self.RLIMIT_NOFILE, self.RLIMIT_NPROC)
+        }
+
+    def getrlimit(self, which):
+        return tuple(self.limits[which])
+
+    def setrlimit(self, which, pair):
+        soft, hard = pair
+        current_hard = self.limits[which][1]
+        raising = current_hard != self.RLIM_INFINITY and hard > current_hard
+        if raising and which not in self.relaxable:
+            raise PermissionError("not permitted")  # what an unprivileged process sees
+        if soft > hard:
+            raise ValueError("current limit exceeds maximum limit")
+        self.limits[which] = [soft, hard]
+
+
+def _plan(**overrides):
+    values = {"cpu_seconds": 3, "memory_bytes": 64 * MIB, "file_descriptors": 20,
+              "processes": None, "entrypoint": ("/never/run",)}
+    values.update(overrides)
+    return launcher.LaunchPlan(**values)
+
+
+def test_rejected_raise_means_the_limit_is_irrevocable_and_enforcement_proceeds(monkeypatch):
+    fake = _FakeResource()
+    monkeypatch.setattr(launcher, "resource", fake)
+    launcher.apply_limits(_plan())
+    assert fake.limits[fake.RLIMIT_CPU] == [3, 3]
+    assert fake.limits[fake.RLIMIT_AS] == [64 * MIB, 64 * MIB]
+    assert fake.limits[fake.RLIMIT_NOFILE] == [20, 20]
+
+
+@pytest.mark.parametrize("field", ["RLIMIT_CPU", "RLIMIT_AS", "RLIMIT_NOFILE", "RLIMIT_NPROC"])
+def test_a_relaxable_hard_limit_fails_closed_for_every_enforced_field(monkeypatch, field) -> None:
+    fake = _FakeResource()
+    fake.relaxable = {getattr(fake, field)}
+    monkeypatch.setattr(launcher, "resource", fake)
+    with pytest.raises(ResourcePolicyError, match="relaxable"):
+        launcher.apply_limits(_plan(processes=4))
+    soft, hard = fake.limits[getattr(fake, field)]
+    assert soft == hard  # the probe's raise was reverted before failing closed
+
+
+def test_launcher_main_never_reaches_exec_when_a_limit_is_relaxable(monkeypatch, tmp_path) -> None:
+    fake = _FakeResource()
+    fake.relaxable = {fake.RLIMIT_NOFILE}
+    monkeypatch.setattr(launcher, "resource", fake)
+    executed: list[object] = []
+    monkeypatch.setattr(launcher.os, "execve", lambda *a, **k: executed.append(a))
+    marker = tmp_path / "ran"
+    argv = [*GOOD, "--", PY, "-c", f"open({str(marker)!r}, 'w').close()"]
+    assert launcher.main(argv) == EXIT_APPLY_FAILED
+    assert executed == []
+    assert not marker.exists()
+
+
+def test_launcher_main_execs_only_after_all_limits_are_proven_irrevocable(monkeypatch) -> None:
+    fake = _FakeResource()
+    monkeypatch.setattr(launcher, "resource", fake)
+    executed: list[tuple] = []
+    monkeypatch.setattr(launcher.os, "execve", lambda *a, **k: executed.append(a))
+    launcher.main([*GOOD, "--", "/bin/true"])
+    assert [call[0] for call in executed] == ["/bin/true"]
+
+
+def test_inherited_lower_hard_limit_is_never_relaxed(monkeypatch) -> None:
+    fake = _FakeResource(inherited_hard={_FakeResource.RLIMIT_NOFILE: 12})
+    monkeypatch.setattr(launcher, "resource", fake)
+    launcher.apply_limits(_plan(file_descriptors=64))
+    assert fake.limits[fake.RLIMIT_NOFILE] == [12, 12]
+
+
+def test_probe_never_uses_an_infinite_limit(monkeypatch) -> None:
+    seen: list[tuple] = []
+    fake = _FakeResource()
+    real = fake.setrlimit
+    fake.setrlimit = lambda which, pair: (seen.append(pair), real(which, pair))[1]
+    monkeypatch.setattr(launcher, "resource", fake)
+    launcher.apply_limits(_plan())
+    assert all(fake.RLIM_INFINITY not in pair for pair in seen)

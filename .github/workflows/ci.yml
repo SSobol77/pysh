@@ -275,9 +275,24 @@ jobs:
               tests/test_pyshrc_py.py \
               tests/test_platform_tier_contract.py
 
-            echo "==> Resource governor evidence"
+            echo "==> Resource governor evidence (unprivileged pyshci account)"
+            # The launcher fails closed for any account that could raise its
+            # own hard rlimits, so the success evidence runs unprivileged.
+            pw useradd pyshci -m -s /bin/sh -c "PySH CI"
+            d="$PWD"
+            while [ "$d" != "/" ]; do chmod a+x "$d"; d="$(dirname "$d")"; done
+            chown -R pyshci "$PWD"
+            cat > /tmp/pyshci-evidence.sh <<'PYSHCI'
+            set -eu
+            cd "$1"
+            export PATH="$1/.venv-freebsd/bin:/usr/local/bin:/usr/bin:/bin"
+            export TERM=xterm-256color
+            export PYSH_EVIDENCE_REQUIRE_UNPRIVILEGED=1
             PYSH_PYTEST="python -m pytest" \
               sh scripts/check_resource_governor_evidence.sh
+            PYSHCI
+            chmod 755 /tmp/pyshci-evidence.sh
+            su -l pyshci -c "sh /tmp/pyshci-evidence.sh '$PWD'"
 
   performance-linux:
     name: performance (linux, python-3.13)

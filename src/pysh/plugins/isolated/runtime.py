@@ -548,9 +548,13 @@ class IsolatedPluginRuntime:
     def _terminate_process(self) -> None:
         """SIGTERM the owned group, wait a bounded grace, SIGKILL, then reap.
 
-        Only the child's own session/process group (``pid == pgid`` because of
-        ``start_new_session=True``) is ever signalled, and never again once the
-        sequence has completed, so a recycled PID cannot be hit.
+        Only the child's own session/process group is targeted: ``process.pid``
+        is used as the PGID because ``start_new_session=True`` makes the child
+        its group leader. The sequence is single-owner (``_term_lock``) and runs
+        once; it is never repeated afterwards. Residual limitation: if the
+        leader was already reaped and no group member remains, reuse of that
+        PID/PGID by an unrelated process before the first signal is not
+        prevented by this implementation.
         """
         with self._term_lock:
             process = self._process

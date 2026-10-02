@@ -17,8 +17,8 @@ cannot execute before its limits are in force. Limits are only ever lowered:
 an inherited hard limit is never relaxed. The plugin cannot choose its limits;
 they come from the parent-owned argv only.
 
-Exit codes: ``78`` policy rejected, ``71`` platform cannot apply it or exec
-failed. Nothing is written to stdout (it is the IPC pipe).
+Exit codes: ``78`` policy rejected, ``71`` platform cannot apply it, the
+applied hard limit is relaxable by the current privilege, or exec failed. Nothing is written to stdout (it is the IPC pipe).
 """
 from __future__ import annotations
 
@@ -150,8 +150,34 @@ def parse_launcher_argv(argv: list[str]) -> LaunchPlan:
     )
 
 
+def _ensure_irrevocable(field: str, which: int, applied: int) -> None:
+    """Fail closed unless the OS refuses to raise the hard limit just applied.
+
+    ``soft == hard`` is only irreversible for a process that lacks the
+    privilege to raise hard limits. This probes the actual behaviour (no
+    uid/capability inspection): a finite raise by one must be rejected. If the
+    OS accepts it, the limit is restored and enforcement fails before the
+    plugin is exec'd, because the plugin would inherit the same ability.
+    """
+    assert resource is not None  # established by check_platform_support
+    try:
+        resource.setrlimit(which, (applied, applied + 1))
+    except (ValueError, OSError):
+        return  # rejected: the limit cannot be relaxed from this process
+    try:
+        resource.setrlimit(which, (applied, applied))
+    except (ValueError, OSError):
+        pass  # best effort; the launcher exits without exec either way
+    raise ResourcePolicyError(f"{field} hard limit is relaxable by this process")
+
+
 def apply_limits(plan: LaunchPlan) -> None:
-    """Apply the plan with ``setrlimit``; soft == hard, never above the inherited hard."""
+    """Apply the plan with ``setrlimit``; soft == hard, never above the inherited hard.
+
+    After each limit is applied it is proven irrevocable (see
+    :func:`_ensure_irrevocable`); a relaxable limit raises ``ResourcePolicyError``
+    so the launcher exits before exec.
+    """
     wanted = {
         "cpu_seconds": plan.cpu_seconds,
         "memory_bytes": plan.memory_bytes,
@@ -171,6 +197,7 @@ def apply_limits(plan: LaunchPlan) -> None:
             resource.setrlimit(which, (limit, limit))
         except (ValueError, OSError) as exc:
             raise ResourcePolicyError(f"cannot apply {field}: {exc}") from exc
+        _ensure_irrevocable(field, which, limit)
 
 
 def main(argv: list[str]) -> int:

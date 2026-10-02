@@ -12,6 +12,14 @@ set -eu
 echo "PySH resource-governor evidence"
 echo "uname=$(uname -srm)"
 echo "python=$(python3 -c 'import sys; print(sys.version.split()[0])' 2>/dev/null || echo unknown)"
+echo "uid=$(id -u) user=$(id -un)"
+
+# Platforms whose privilege can relax rlimits must run this suite unprivileged:
+# the launcher fails closed for a privileged account by design.
+if [ "${PYSH_EVIDENCE_REQUIRE_UNPRIVILEGED:-0}" = "1" ] && [ "$(id -u)" = "0" ]; then
+    echo "error: resource governor evidence must not run as uid 0" >&2
+    exit 1
+fi
 
 PYTEST="${PYSH_PYTEST:-python3 -m pytest}"
 # shellcheck disable=SC2086

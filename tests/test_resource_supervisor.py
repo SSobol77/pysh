@@ -93,6 +93,9 @@ def _isolated_tempdirs() -> set[str]:
 def _no_leaks():
     before_dirs = _isolated_tempdirs()
     yield
+    # A failed assertion must never leave a permit, watchdog or child behind.
+    while _CREATED:
+        _CREATED.pop().close()
     assert DEFAULT_CONCURRENCY_GOVERNOR.total_active() == 0
     assert _wait_until(lambda: not _watchdog_threads(), 3.0), "watchdog thread leaked"
     assert _isolated_tempdirs() <= before_dirs, "temporary cwd leaked"
@@ -130,13 +133,18 @@ def rec(monkeypatch) -> Recorder:
     return Recorder(monkeypatch)
 
 
+_CREATED: list[IsolatedPluginRuntime] = []
+
+
 def _runtime(manifest, rec=None, **options):
     if rec is not None:
         options.setdefault("event_sink", rec.events.append)
     options.setdefault("shutdown_timeout", 0.3)
     options.setdefault("handshake_timeout", 3.0)
     options.setdefault("request_timeout", 5.0)
-    return IsolatedPluginRuntime(manifest, **options)
+    runtime = IsolatedPluginRuntime(manifest, **options)
+    _CREATED.append(runtime)
+    return runtime
 
 
 def _assert_reaped(runtime, pid):

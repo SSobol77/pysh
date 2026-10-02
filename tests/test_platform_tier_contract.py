@@ -207,6 +207,15 @@ def test_freebsd_reference_gate_covers_platform_sensitive_contract() -> None:
     missing = [item for item in required if item not in job]
     assert not missing, f"FreeBSD reference gate is missing: {missing!r}"
     _assert_resource_governor_evidence_entrypoint(job, ".venv-freebsd")
+    # Governor success evidence runs as a dedicated unprivileged account because
+    # the launcher fails closed for any account able to raise its own rlimits.
+    assert "pw useradd pyshci" in job
+    assert "PYSH_EVIDENCE_REQUIRE_UNPRIVILEGED=1" in job
+    assert (
+        job.index("pw useradd pyshci")
+        < job.index(EVIDENCE_ENTRYPOINT)
+        < job.index("su -l pyshci")
+    )
 
 
 def test_native_freebsd_package_keeps_one_reference_release_asset() -> None:

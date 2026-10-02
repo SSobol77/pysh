@@ -119,3 +119,28 @@ def test_tier_1_platform_exposes_the_required_rlimit_primitives() -> None:
     for field in ("cpu_seconds", "memory_bytes", "file_descriptors"):
         assert names[field] is not None, f"{field} has no rlimit primitive on {sys.platform}"
     launcher.check_platform_support(("cpu_seconds", "memory_bytes", "file_descriptors"))
+
+
+def test_documentation_states_the_governed_by_default_contract() -> None:
+    text = _text()
+    assert "missing `resource_class` resolves to `standard`" in text
+    assert "unknown non-empty `resource_class` fails closed" in text
+    assert "Every normal runtime startup is governed" in text
+    assert "no direct-spawn bypass remains" in text
+    assert "means ungoverned" not in text
+
+
+def test_documentation_states_the_irrevocable_hard_limit_privilege_rule() -> None:
+    text = _text()
+    assert "accepted only when the OS rejects that raise" in text
+    assert "fails closed (exit `71`) before the plugin is exec'd" in text
+    assert "unprivileged CI account" in text
+    assert "No Capsicum or jail confinement is claimed" in text
+
+
+def test_evidence_script_can_refuse_privileged_execution() -> None:
+    script = (DOC.parents[2] / "scripts" / "check_resource_governor_evidence.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "PYSH_EVIDENCE_REQUIRE_UNPRIVILEGED" in script
+    assert 'id -u' in script
