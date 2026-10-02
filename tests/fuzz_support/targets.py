@@ -13,6 +13,7 @@ broad ``except Exception`` here.
 from __future__ import annotations
 
 import contextlib
+import glob
 import os
 import re
 import time
@@ -72,6 +73,37 @@ class Outcome:
     message: str | None = None
 
 
+class ConfinedGlob:
+    """Stand-in for the ``glob`` module that never leaves ``root``.
+
+    The tokenizer composes patterns from untrusted text, so an absolute pattern
+    (``/**/``) or ``..`` traversal would walk the host filesystem (observed:
+    an unbounded hang from ``/**/``). Every pattern is therefore normalized and,
+    if it falls outside ``root``, re-rooted under it. Production control flow
+    (magic detection, no-match policy) still runs unchanged; only the directory
+    tree it can see is the empty fixture.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.root = os.path.normpath(str(root))
+        self.patterns: list[str] = []
+
+    def confine(self, pattern: str) -> str:
+        joined = pattern if os.path.isabs(pattern) else os.path.join(self.root, pattern)
+        candidate = os.path.normpath(joined)
+        if candidate != self.root and not candidate.startswith(self.root + os.sep):
+            parts = [p for p in candidate.split(os.sep) if p not in ("", ".", "..")]
+            candidate = os.path.join(self.root, *parts)
+        if pattern.endswith(os.sep) and not candidate.endswith(os.sep):
+            candidate += os.sep
+        return candidate
+
+    def glob(self, pattern: str, *, recursive: bool = False) -> list[str]:
+        confined = self.confine(pattern)
+        self.patterns.append(confined)
+        return glob.glob(confined, recursive=recursive)
+
+
 class FakeSubstitutionRunner:
     """Deterministic, non-spawning command-substitution runner with call log."""
 
@@ -94,7 +126,7 @@ class TargetContext:
 
 @contextlib.contextmanager
 def hermetic(ctx: TargetContext) -> Iterator[TargetContext]:
-    """Activate isolation: cleared env + pinned HOME, fake substitution, tripwires.
+    """Activate isolation: cleared env + pinned HOME, confined glob, fake substitution, tripwires.
 
     ``expansion._default_runner`` (reached by heredoc expansion, which cannot be
     given a runner) is replaced by the fake, and every route to a real process in
@@ -105,7 +137,10 @@ def hermetic(ctx: TargetContext) -> Iterator[TargetContext]:
         raise HarnessError("a real subprocess was reached from the fuzz harness")
 
     with contextlib.ExitStack() as stack:
-        stack.enter_context(mock.patch.dict(os.environ, {"HOME": str(ctx.cwd.parent)}, clear=True))
+        stack.enter_context(mock.patch.dict(os.environ, {"HOME": str(ctx.cwd)}, clear=True))
+        stack.enter_context(
+            mock.patch.object(path_expansion, "_glob_module", ConfinedGlob(ctx.cwd))
+        )
         stack.enter_context(mock.patch.object(expansion, "_default_runner", ctx.runner))
         stack.enter_context(mock.patch.object(expansion.subprocess, "run", _tripwire))
         stack.enter_context(mock.patch.object(expansion.subprocess, "Popen", _tripwire))
@@ -266,7 +301,9 @@ TARGETS: tuple[Target, ...] = (
            rejections=(
                Rejection(ValueError, _UNTERMINATED_QUOTE),
                # OS/stdlib boundary: tilde/glob hand the word to pwd/os.scandir.
-               Rejection(ValueError, _rx(r"^embedded null byte$"), boundary=True),
+               # (``pwd`` lookup says "byte"; ``os.scandir`` via glob says "character in path".)
+               Rejection(ValueError, _rx(
+                   r"^(?:scandir: )?embedded null (?:byte|character(?: in path)?)$"), boundary=True),
                Rejection(UnicodeEncodeError, boundary=True),
            ),
            needs_cwd=True, nul_input="os_boundary", surrogate_input="os_boundary"),

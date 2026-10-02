@@ -151,7 +151,7 @@ def test_guarded_targets_refuse_to_run_outside_the_hermetic_context(tmp_path: Pa
 def test_tokenizer_runs_in_an_empty_cwd_with_pinned_home_and_cleared_environment(ctx) -> None:
     import os
 
-    assert os.environ["HOME"] == str(ctx.cwd.parent)
+    assert os.environ["HOME"] == str(ctx.cwd)
     assert set(os.environ) <= {"HOME", "PYTEST_CURRENT_TEST"}  # host environment is cleared
     assert list(ctx.cwd.iterdir()) == []
     tokenizer = T.TARGETS_BY_NAME["path_expansion.tokenize_and_glob_expand"]
@@ -159,6 +159,24 @@ def test_tokenizer_runs_in_an_empty_cwd_with_pinned_home_and_cleared_environment
     (ctx.cwd / "zqfile").write_text("")
     assert path_expansion.tokenize_and_glob_expand("zq*", cwd=ctx.cwd) == ["zqfile"]  # fixed fixture glob
     (ctx.cwd / "zqfile").unlink()
+
+
+def test_tokenizer_cannot_reach_the_host_filesystem_through_glob(ctx) -> None:
+    # Found by the Atheris smoke: ``/**/`` walked the whole host filesystem (unbounded hang).
+    tokenizer = T.TARGETS_BY_NAME["path_expansion.tokenize_and_glob_expand"]
+    shim = path_expansion._glob_module
+    assert isinstance(shim, T.ConfinedGlob)
+    for text in ("/**/", "echo /**/ ../../**/ ~/**/ /etc/*", "../../../../*", "~root/**"):
+        shim.patterns.clear()
+        assert T.evaluate(tokenizer, text, ctx).kind == "ok", text
+        assert shim.patterns and all(p.startswith(shim.root) for p in shim.patterns), shim.patterns
+
+
+def test_nul_reaching_scandir_through_glob_is_a_classified_boundary_outcome(ctx) -> None:
+    # Found by the Atheris smoke: NUL in a glob directory component -> os.scandir ValueError.
+    tokenizer = T.TARGETS_BY_NAME["path_expansion.tokenize_and_glob_expand"]
+    outcome = T.evaluate(tokenizer, "ei\x00\x00rn/t\x00cfixt\"\"*.txure-echo", ctx)
+    assert outcome.kind == "boundary" and "embedded null character" in outcome.message
 
 
 # --- generator --------------------------------------------------------------

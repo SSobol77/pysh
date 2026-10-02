@@ -25,7 +25,7 @@ from pysh.parsing.ast import ChainElement
 from pysh.parsing.errors import ParseError
 from tests.fuzz_support import engines
 from tests.fuzz_support.corpus import CorpusSeed
-from tests.fuzz_support.repro import PropertyFailure, Reproduction
+from tests.fuzz_support.repro import PropertyFailure, Reproduction, traceback_fingerprint
 from tests.fuzz_support.targets import (
     TARGETS_BY_NAME,
     HarnessError,
@@ -79,6 +79,8 @@ def run(
     ctx: TargetContext,
     *,
     target: str = "-",
+    engine: str = "stdlib",
+    replay_command: str | None = None,
 ) -> int:
     """Apply ``check`` to every case; any violation becomes a reproducible failure.
 
@@ -103,6 +105,11 @@ def run(
                     iteration=case.iteration,
                     generator_version=engines.GENERATOR_VERSION,
                     detail=f"{type(error).__name__}: {error}",
+                    engine=engine,
+                    exception_type=type(error).__name__,
+                    exception_message=str(error),
+                    traceback_fingerprint=traceback_fingerprint(error),
+                    replay_command=replay_command,
                 )
             ) from error
     return count
