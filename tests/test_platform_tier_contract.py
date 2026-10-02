@@ -21,6 +21,7 @@ OS_WRAPPER = REPO_ROOT / "packaging" / "wrappers" / "pysh.sh"
 RPM_SMOKE = REPO_ROOT / "scripts" / "smoke_rpm_package.sh"
 FREEBSD_CONFIG = REPO_ROOT / "scripts" / "_freebsd_python.sh"
 FREEBSD_BUILDER = REPO_ROOT / "scripts" / "build_freebsd_pkg.sh"
+EVIDENCE_SCRIPT = REPO_ROOT / "scripts" / "check_resource_governor_evidence.sh"
 FREEBSD_SMOKE = REPO_ROOT / "scripts" / "smoke_freebsd_package.sh"
 
 
@@ -197,7 +198,6 @@ def test_freebsd_reference_gate_covers_platform_sensitive_contract() -> None:
         "tests/test_signal_handling.py",
         "tests/test_job_control.py",
         "tests/test_redirection.py",
-        "tests/test_isolated_plugin_runtime.py",
         "tests/test_safe_startup.py",
         "tests/test_rc.py",
         "tests/test_pyshrc_py.py",
@@ -216,6 +216,15 @@ def test_freebsd_reference_gate_covers_platform_sensitive_contract() -> None:
         < job.index(EVIDENCE_ENTRYPOINT)
         < job.index("su -l pyshci")
     )
+    # Governed isolated-runtime tests must never run in the privileged portion:
+    # a privileged account can relax hard rlimits, so the launcher fails closed.
+    privileged = job[: job.index("pw useradd pyshci")]
+    assert "tests/test_isolated_plugin_runtime.py" not in privileged
+    assert "tests/test_platform_tier_contract.py" in privileged
+    # The unprivileged evidence entrypoint owns the isolated-runtime evidence.
+    evidence_script = EVIDENCE_SCRIPT.read_text(encoding="utf-8")
+    assert "tests/test_isolated_plugin_runtime.py" in evidence_script
+    assert "tests/test_isolated_plugin_diagnostics.py" in evidence_script
 
 
 def test_native_freebsd_package_keeps_one_reference_release_asset() -> None:

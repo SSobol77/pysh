@@ -133,7 +133,10 @@ restores it and fails closed (exit `71`) before the plugin is exec'd, so a
 plugin can never run with limits it could lift itself. No Capsicum or jail
 confinement is claimed. Tier-1 FreeBSD governor success evidence is
 intentionally executed under a dedicated unprivileged CI account (`pyshci`);
-a privileged account correctly fails closed.
+a privileged account correctly fails closed. In the FreeBSD CI job the general
+platform tests run in the VM's normal (privileged) context, while the governed
+isolated-runtime, diagnostics and resource tests run only through the
+evidence script under `pyshci`.
 
 ### Exact mappings
 

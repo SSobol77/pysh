@@ -269,7 +269,6 @@ jobs:
 
             python -m pytest -q \
               tests/test_redirection.py \
-              tests/test_isolated_plugin_runtime.py \
               tests/test_safe_startup.py \
               tests/test_rc.py \
               tests/test_pyshrc_py.py \
