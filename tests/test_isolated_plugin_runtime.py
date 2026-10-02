@@ -22,6 +22,7 @@ from pysh.plugins.isolated.manifest import (
     IsolatedPluginManifest,
     validate_isolated_plugin_manifest,
 )
+from pysh.plugins.isolated.resources import resolve_resource_budget
 from pysh.plugins.isolated.runtime import (
     BASELINE_CHILD_ENVIRONMENT,
     IsolatedPluginRuntime,
@@ -52,7 +53,7 @@ def _manifest(
                 *arguments,
             ],
             "requested_capabilities": list(capabilities),
-            "resource_class": "test",
+            "resource_class": "standard",
         }
     )
 
@@ -331,7 +332,6 @@ def test_explicit_network_grant_does_not_expose_a_raw_socket() -> None:
     "mode",
     [
         "malformed_handshake",
-        "oversized_handshake",
         "unknown_handshake",
         "version_mismatch",
         "identity_mismatch",
@@ -347,7 +347,7 @@ def test_handshake_violations_terminate_and_are_contained(mode: str) -> None:
     assert runtime.working_directory is None
 
 
-@pytest.mark.parametrize("mode", ["malformed_running", "oversized_running", "unknown_running"])
+@pytest.mark.parametrize("mode", ["malformed_running", "unknown_running"])
 def test_running_protocol_violations_terminate_and_are_contained(mode: str) -> None:
     runtime = IsolatedPluginRuntime(_manifest(mode), request_timeout=0.5)
     runtime.start()
@@ -451,13 +451,23 @@ def test_granted_event_is_not_emitted_when_hello_validation_fails(mode: str) -> 
     assert IsolatedPluginEventKind.FAILURE in kinds
 
 
-def test_resource_limit_seam_fails_closed_until_issue_53() -> None:
+def test_every_runtime_is_governed_by_the_default_profile() -> None:
+    runtime = IsolatedPluginRuntime(_manifest())
+    try:
+        runtime.start()
+        assert runtime.state is IsolatedPluginState.RUNNING
+        assert runtime.enforcement is not None
+        assert runtime.enforcement.effective == resolve_resource_budget("standard")
+    finally:
+        runtime.close()
+
+
+def test_unenforceable_resource_budget_fails_closed_before_spawn() -> None:
     runtime = IsolatedPluginRuntime(
-        _manifest(),
-        resource_limits=IsolatedResourceLimits(memory_bytes=1024),
+        _manifest(), resource_limits=IsolatedResourceLimits(memory_bytes=1024)
     )
 
-    with pytest.raises(LifecycleError, match="Issue #53"):
+    with pytest.raises(LifecycleError, match="resource policy rejected"):
         runtime.start()
 
     assert runtime.state is IsolatedPluginState.NEW

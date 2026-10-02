@@ -72,8 +72,18 @@ class IPCMessage:
     protocol_version: int = IPC_PROTOCOL_VERSION
 
 
+def _validate_max_bytes(max_bytes: int) -> int:
+    """Return ``max_bytes`` if it is a positive int not above the protocol maximum."""
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int):
+        raise ValueError("max_bytes must be an integer")
+    if not 0 < max_bytes <= MAX_FRAME_BYTES:
+        raise ValueError(f"max_bytes must be between 1 and {MAX_FRAME_BYTES}")
+    return max_bytes
+
+
 def encode_message(message: IPCMessage, *, max_bytes: int = MAX_FRAME_BYTES) -> bytes:
     """Validate and encode one message with a four-byte network-order length."""
+    _validate_max_bytes(max_bytes)
     validated = validate_message({
         "protocol_version": message.protocol_version,
         "message_type": message.message_type,
@@ -102,6 +112,7 @@ def encode_message(message: IPCMessage, *, max_bytes: int = MAX_FRAME_BYTES) -> 
 
 def decode_message(frame: bytes, *, max_bytes: int = MAX_FRAME_BYTES) -> IPCMessage:
     """Decode exactly one complete framed message and reject trailing bytes."""
+    _validate_max_bytes(max_bytes)
     if len(frame) < _FRAME_HEADER.size:
         raise ProtocolError("IPC frame header is incomplete")
     (size,) = _FRAME_HEADER.unpack(frame[: _FRAME_HEADER.size])
@@ -119,6 +130,7 @@ def read_message(
     max_bytes: int = MAX_FRAME_BYTES,
 ) -> IPCMessage:
     """Read one bounded frame from a descriptor before a monotonic deadline."""
+    _validate_max_bytes(max_bytes)
     _validate_timeout(timeout)
     deadline = time.monotonic() + timeout
     header = _read_exact(file_descriptor, _FRAME_HEADER.size, deadline)
@@ -134,10 +146,11 @@ def write_message(
     message: IPCMessage,
     *,
     timeout: float = 2.0,
+    max_bytes: int = MAX_FRAME_BYTES,
 ) -> None:
     """Write one validated frame without buffering or an unbounded pipe wait."""
     _validate_timeout(timeout)
-    frame = encode_message(message)
+    frame = encode_message(message, max_bytes=max_bytes)
     view = memoryview(frame)
     deadline = time.monotonic() + timeout
     try:

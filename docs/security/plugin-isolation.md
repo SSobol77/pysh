@@ -115,8 +115,11 @@ requested_capabilities = [
 resource_class = "small"
 ```
 
-`resource_class` is optional metadata reserved for Issue #53. It does not
-activate resource enforcement. The executable must resolve to an absolute,
+`resource_class` is optional metadata consumed by the Issue #53 resource
+governor (see [resource-governor.md](resource-governor.md)). The manifest
+parser accepts any bounded identifier; profile resolution happens in the
+governor, and an unknown class fails closed when a budget is requested. It does
+not activate resource enforcement. The executable must resolve to an absolute,
 executable regular file. Arguments are bounded strings. Plugin names use the
 existing strict Plugin API identifier grammar. Unknown and duplicate
 capabilities are rejected.
@@ -279,14 +282,23 @@ granted capabilities, denial, failure, and stop. Events contain no child
 payload or returned secret values. Issue #50 owns integration with structured
 diagnostics and persistent audit policy.
 
-`IsolatedResourceLimits` names CPU, memory, wall-clock, descriptor, and process
-limits. Configuring any limit currently fails closed before spawn. Issue #53
-owns CPU, memory, file-descriptor, process-count, and wall-clock limits plus
-watchdog and hard-kill enforcement. Issue #44 supplies integration seams only
-and does not silently accept unenforced budgets.
+Issue #53 governs every isolated runtime; there is no ungoverned production
+startup. The effective budget comes from the manifest `resource_class`
+(`small`, `standard`, `large`; `standard` when absent; an unknown class fails
+closed before spawn). See [resource-governor.md](resource-governor.md). The
+plugin is spawned through the internal `pysh.plugins.isolated.launcher`, which
+applies `RLIMIT_CPU`, `RLIMIT_AS`/`RLIMIT_VMEM` (virtual address space, not
+RSS) and `RLIMIT_NOFILE` before `execve`; the parent bounds every IPC frame to
+`message_bytes`, enforces the total wall-clock lifetime with an independent
+watchdog (SIGTERM, bounded grace, SIGKILL on the owned process group), limits
+simultaneously active runtimes per plugin, and reports violations as one
+`resource.limit_exceeded` structured event. `processes` (process-count) is not
+enforced per plugin (`RLIMIT_NPROC` is per-UID; opt-in only), and abnormal OS deaths (CPU,
+memory, descriptors) are not attributed to a specific resource. No cgroup or
+jail is used. `IsolatedResourceLimits` remains an alias of `ResourceBudget`.
 
-Issue #52 owns platform-tier guarantees, optional Linux hardening, FreeBSD
-Capsicum integration, behavior when a hardening primitive is unavailable, and
+Issue #52 defines the platform-tier contract and owns platform-tier guarantees,
+optional Linux hardening, FreeBSD Capsicum integration, behavior when a hardening primitive is unavailable, and
 any future decision to require hardening for a platform tier. Such hardening
 may strengthen this baseline but is not part of the portable Issue #44
 contract.

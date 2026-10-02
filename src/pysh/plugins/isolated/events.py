@@ -20,6 +20,7 @@ class IsolatedPluginEventKind(StrEnum):
     DENIED = "denied"
     FAILURE = "failure"
     STOPPED = "stopped"
+    RESOURCE_VIOLATION = "resource_violation"
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,3 +33,6 @@ class IsolatedPluginEvent:
     granted_capabilities: tuple[str, ...] = ()
     operation: str | None = None
     reason_code: str | None = None
+    resource: str | None = None
+    configured_limit: int | None = None
+    enforcement: str | None = None

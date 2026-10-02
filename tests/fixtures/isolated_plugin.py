@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import struct
 import sys
 import time
@@ -125,6 +126,12 @@ def main() -> int:
 
     if mode == "crash":
         os._exit(23)
+    if mode == "exit_clean":
+        return 0
+    if mode == "ignore_sigterm":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        while True:
+            time.sleep(1)
     if mode == "hang_after_ready":
         time.sleep(60)
     elif mode == "malformed_running":

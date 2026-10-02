@@ -70,6 +70,24 @@ def structured_event_from_isolated_plugin_event(
     if kind in _ALWAYS_WITH_CAPABILITIES or event.granted_capabilities:
         fields["granted_capabilities"] = tuple(event.granted_capabilities)
 
+    if kind is IsolatedPluginEventKind.RESOURCE_VIOLATION:
+        # Bounded metadata only: never argv, environment, payload, or output.
+        return StructuredDiagnosticEvent(
+            schema_version=DIAGNOSTIC_EVENT_SCHEMA_VERSION,
+            event_class=DiagnosticEventClass.RESOURCE,
+            event="resource.limit_exceeded",
+            severity=DiagnosticSeverity.ERROR,
+            actor=event.plugin_name,
+            action=event.operation,
+            result=DiagnosticResult.FAILURE,
+            reason_code=event.reason_code,
+            fields={
+                "plugin_name": event.plugin_name,
+                "resource": event.resource,
+                "configured_limit": event.configured_limit,
+                "enforcement": event.enforcement,
+            },
+        )
     if kind is IsolatedPluginEventKind.DENIED:
         return StructuredDiagnosticEvent(
             schema_version=DIAGNOSTIC_EVENT_SCHEMA_VERSION,
