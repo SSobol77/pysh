@@ -210,6 +210,11 @@ def test_freebsd_reference_gate_covers_platform_sensitive_contract() -> None:
     # Governor success evidence runs as a dedicated unprivileged account because
     # the launcher fails closed for any account able to raise its own rlimits.
     assert "pw useradd pyshci" in job
+    # Administrative tools must stay resolvable for the account setup.
+    path_line = next(line for line in job.splitlines() if "export PATH=" in line)
+    assert path_line.split('"')[1].startswith("$PWD/.venv-freebsd/bin:")
+    assert "/usr/sbin" in path_line and "/sbin" in path_line
+    assert job.index("command -v pw") < job.index("pw useradd pyshci")
     assert "PYSH_EVIDENCE_REQUIRE_UNPRIVILEGED=1" in job
     assert (
         job.index("pw useradd pyshci")

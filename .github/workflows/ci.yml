@@ -240,7 +240,7 @@ jobs:
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
             uv venv --python python3.13 .venv-freebsd
             uv pip install --python .venv-freebsd/bin/python -e . pytest pygments
-            export PATH="$PWD/.venv-freebsd/bin:/usr/local/bin:/usr/bin:/bin"
+            export PATH="$PWD/.venv-freebsd/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin"
             export TERM=xterm-256color
 
             echo "==> Language conformance"
@@ -277,6 +277,9 @@ jobs:
             echo "==> Resource governor evidence (unprivileged pyshci account)"
             # The launcher fails closed for any account that could raise its
             # own hard rlimits, so the success evidence runs unprivileged.
+            command -v pw
+            command -v su
+            command -v chown
             pw useradd pyshci -m -s /bin/sh -c "PySH CI"
             d="$PWD"
             while [ "$d" != "/" ]; do chmod a+x "$d"; d="$(dirname "$d")"; done
