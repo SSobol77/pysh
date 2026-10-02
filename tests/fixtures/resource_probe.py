@@ -113,6 +113,49 @@ def _allocate(mebibytes: int) -> str:
     return f"ok:{len(block)}"
 
 
+def _allocate_until_refused(chunk_mebibytes: int, max_chunks: int) -> dict[str, object]:
+    """Allocate bounded chunks until MemoryError; never more than ``max_chunks`` chunks."""
+    held: list[bytearray] = []
+    refused = False
+    try:
+        for _ in range(max_chunks):
+            held.append(bytearray(chunk_mebibytes * 1024 * 1024))
+    except MemoryError:
+        refused = True
+    return {"chunks": len(held), "chunk_mib": chunk_mebibytes, "refused": refused}
+
+
+def _fork_attempts(attempts: int) -> dict[str, object]:
+    """Try a bounded number of forks; children exit immediately and are reaped."""
+    forked = 0
+    failures: list[int] = []
+    for _ in range(attempts):
+        try:
+            pid = os.fork()
+        except OSError as exc:
+            failures.append(exc.errno or 0)
+            continue
+        if pid == 0:
+            os._exit(0)
+        os.waitpid(pid, 0)
+        forked += 1
+    return {"forked": forked, "failures": failures, "eagain": errno.EAGAIN}
+
+
+def _spawn_sleepers(count: int) -> list[int]:
+    """Fork a few idle descendants in the plugin's own process group."""
+    pids: list[int] = []
+    for _ in range(count):
+        pid = os.fork()
+        if pid == 0:
+            import time
+
+            time.sleep(60)
+            os._exit(0)
+        pids.append(pid)
+    return pids
+
+
 def main() -> int:
     name, version, mode, *arguments = sys.argv[1:]
     _send("handshake.hello", "hello", {
@@ -131,6 +174,18 @@ def main() -> int:
     elif mode == "spin":
         while True:
             pass
+    elif mode == "alloc_loop":
+        _report(_allocate_until_refused(int(arguments[0]), min(int(arguments[1]), 64)))
+    elif mode == "fork_loop":
+        _report(_fork_attempts(min(int(arguments[0]), 16)))
+    elif mode == "spawn_sleepers":
+        _report(_spawn_sleepers(min(int(arguments[0]), 3)))
+        while True:
+            _read()
+    elif mode == "flood":
+        while True:
+            _send("request.command", "request-1", {"name": "report", "argv": ["x"]})
+            _read()
     elif mode == "fork":
         _report(_fork_once())
     elif mode == "big_request":

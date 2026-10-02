@@ -12,10 +12,12 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Resource Governor Contract (Issue #53)
 
-Status: **Slices 1-3 implemented** (policy contract; POSIX rlimit and IPC-size
-enforcement; default governance, total wall-clock watchdog, concurrency permits
-and `RESOURCE` diagnostic events). The final abuse/evidence suite (Slice 4) and
-FreeBSD execution evidence are NOT done. Issue #53 is not complete.
+Status: **Slices 1-4 implemented and audited** (policy contract; POSIX rlimit
+and IPC-size enforcement; default governance, total wall-clock watchdog,
+concurrency permits and `RESOURCE` diagnostic events; bounded abuse evidence and
+this audit). FreeBSD execution evidence is pending. Issue #53 is not complete:
+it is not closed until the maintainer accepts the audit and the FreeBSD lane
+evidence below.
 
 ## Slice 1: policy contract (implemented)
 
@@ -142,7 +144,7 @@ required primitive fails closed before exec.
 ### Semantics and caveats
 
 * Memory is a **virtual address-space** limit, not a resident-memory meter. It
-  does not account physical RAM and is not a cgroup or jail.
+  does not account physical RAM. There is no cgroup or jail: no cgroup or jail claim is made.
 * `RLIMIT_NPROC` counts processes of the whole real UID, not a plugin
   descendant tree, so it is not exact per-plugin containment. In opt-in mode an
   absolute value below the user's current process count blocks every `fork` of
@@ -240,10 +242,82 @@ no child-tree counting, no `/proc`.
 
 Linux (Debian) execution evidence exists in `tests/test_resource_supervisor.py`
 and `tests/test_resource_enforcement.py`. The code uses no `/proc`, cgroups,
-systemd or root, but **FreeBSD execution evidence is pending**; nothing here
+systemd or root, but FreeBSD execution evidence is pending; nothing here
 claims it ran on FreeBSD.
+
+## Slice 4: controlled abuse evidence
+
+`tests/test_resource_abuse.py` forces each hostile behaviour in isolation and
+asserts containment plus a healthy session afterwards (a normal governed plugin
+still starts, serves and shuts down gracefully). Every scenario is bounded so it
+cannot harm the host even if enforcement failed: allocation is capped at 40
+chunks of 4 MiB under a 64 MiB budget, fork attempts at 16 with immediately
+exiting children, descendants at three idle sleepers.
+
+| Abuse | Result |
+| --- | --- |
+| Hung plugin | Stopped by the wall-clock watchdog; one `RESOURCE` event |
+| CPU-bound busy loop | Stopped by the watchdog (needs no child cooperation) |
+| Request flood | Served until the total lifetime ends, then contained; the caller is told `wall_clock` |
+| Unbounded allocation | `MemoryError` inside the plugin under `RLIMIT_AS`; host untouched |
+| Fork loop | Blocked by opt-in per-UID `RLIMIT_NPROC` (non-root only) |
+| Idle descendants | Killed with the plugin's process group |
+| Descriptor exhaustion | `EMFILE` inside the plugin; parent descriptors unchanged |
+| Oversized message | One `message_size` event; plugin contained |
+| Spawn storm of one plugin | Capped by the concurrency permit; no leaked permit |
+| Raising limits | Configuration above a ceiling or profile is rejected; the plugin cannot raise its own limits |
+
+## Platform and CI evidence
+
+Run the same command on each Tier 1 platform:
+
+```sh
+PYSH_PYTEST="python3 -m pytest" scripts/check_resource_governor_evidence.sh
+# in this repository's uv environment: PYSH_PYTEST="uv run python -m pytest"
+```
+
+It needs no root, `/proc`, cgroups or systemd. The repository's
+`platform-debian` and `platform-freebsd` CI jobs in `.github/workflows/ci.yml`
+invoke this script (`PYSH_PYTEST="python -m pytest" sh
+scripts/check_resource_governor_evidence.sh`); the script owns the resource
+test list, so the workflow does not duplicate it, and
+`tests/test_platform_tier_contract.py` pins the entrypoint in both jobs.
+
+| Platform | State |
+| --- | --- |
+| Debian 13 / amd64 / CPython 3.13 | Implementation tested locally; Tier-1 CI wired; PR CI execution pending. |
+| FreeBSD 14.4 / amd64 / CPython 3.13 | Implementation ready; Tier-1 CI wired; FreeBSD execution evidence is pending. The code has never run on FreeBSD (`RLIMIT_VMEM` alias detection, no `/proc`), and no native evidence is claimed until GitHub CI runs it successfully. |
+
+Issue #52 defines the platform-tier contract; Issue #53 owns the resource
+governor execution evidence.
+
+## Definition-of-Done audit
+
+Roadmap acceptance criteria for Issue #53, with evidence:
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| Task exceeding budget is stopped without taking down the session | Met on Linux | `test_resource_abuse.py` (session-healthy check after each scenario) |
+| Tests force timeout / OOM / fork-bomb in isolation and verify containment | Met on Linux, bounded | Hang and busy loop (watchdog), allocation (`RLIMIT_AS`), fork loop (per-UID `RLIMIT_NPROC`, opt-in) |
+| Limits documented and versioned; hard ceilings enforced over user config | Met | Contract version `1`; `test_resource_governor_contract.py` pins this document to the constants |
+| Budget violations are contained and reported through Issue #50 | Met for wall clock, message size, concurrency | `resource.limit_exceeded`, schema version 1; OS deaths deliberately unattributed |
+| Default budgets per task class | Met | `small`, `standard`, `large`; `standard` default; unknown fails closed |
+| Wall-clock enforcement independent of the child | Met | Parent watchdog, TERM -> grace -> KILL on the owned process group |
+
+Known limitations (not hidden):
+
+* Memory is a virtual address-space limit, not a resident-memory meter.
+* `processes` is not a per-plugin tree count: `RLIMIT_NPROC` is per-real-UID and
+  opt-in, so a fork bomb is only blocked when that mode is chosen. Without it,
+  descendants are still bounded by the wall-clock deadline and killed with the
+  process group.
+* CPU, memory, descriptor and fork deaths are not attributed to a resource.
+* `concurrency` counts runtimes of one plugin in one parent process; it is not a
+  cross-process or system-wide limit.
+* FreeBSD execution evidence is pending PR CI; the Tier-1 CI jobs are wired but
+  have not yet run.
 
 ## Remaining (NOT implemented)
 
-Final abuse/DoS evidence suite, FreeBSD execution evidence, and per-plugin
-process-tree containment.
+FreeBSD (and Debian CI) execution evidence from a successful PR CI run, and
+per-plugin process-tree containment.

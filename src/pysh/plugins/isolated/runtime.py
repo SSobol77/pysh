@@ -282,6 +282,9 @@ class IsolatedPluginRuntime:
     def serve_once(self, *, timeout: float | None = None) -> BrokerResult:
         """Serve exactly one child request and return its sanitized broker result."""
         if self._state is not IsolatedPluginState.RUNNING:
+            violation = self._violation
+            if violation is not None:  # a watchdog stopped it between calls: say why
+                raise _violation_error(violation)
             raise LifecycleError("isolated plugin is not running")
         effective_timeout = (
             self._request_timeout if timeout is None else _positive_timeout(timeout, "timeout")

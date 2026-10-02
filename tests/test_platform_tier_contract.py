@@ -121,6 +121,21 @@ def test_python_runtime_policy_has_floor_without_upper_bound() -> None:
     assert "There is no upper Python-version bound" in contract
 
 
+EVIDENCE_ENTRYPOINT = "scripts/check_resource_governor_evidence.sh"
+
+
+def _assert_resource_governor_evidence_entrypoint(job: str, venv: str) -> None:
+    """Pin the evidence ENTRYPOINT (the script owns the suite list), not its contents."""
+    assert EVIDENCE_ENTRYPOINT in job
+    assert 'PYSH_PYTEST="python -m pytest"' in job
+    assert "Run resource governor evidence" in job or "Resource governor evidence" in job
+    assert job.count(EVIDENCE_ENTRYPOINT) == 1
+    assert "continue-on-error" not in job
+    assert job.index(venv) < job.index(EVIDENCE_ENTRYPOINT)
+    # The script, not the workflow, owns the resource test list.
+    assert "tests/test_resource_" not in job
+
+
 def test_debian_reference_gate_covers_platform_sensitive_contract() -> None:
     """Debian 13 is an exact evidence lane, not a runtime allowlist."""
     workflow = CI.read_text(encoding="utf-8")
@@ -154,6 +169,7 @@ def test_debian_reference_gate_covers_platform_sensitive_contract() -> None:
 
     missing = [item for item in required if item not in job]
     assert not missing, f"Debian reference gate is missing: {missing!r}"
+    _assert_resource_governor_evidence_entrypoint(job, ".venv-debian")
 
 
 def test_freebsd_reference_gate_covers_platform_sensitive_contract() -> None:
@@ -190,6 +206,7 @@ def test_freebsd_reference_gate_covers_platform_sensitive_contract() -> None:
 
     missing = [item for item in required if item not in job]
     assert not missing, f"FreeBSD reference gate is missing: {missing!r}"
+    _assert_resource_governor_evidence_entrypoint(job, ".venv-freebsd")
 
 
 def test_native_freebsd_package_keeps_one_reference_release_asset() -> None:

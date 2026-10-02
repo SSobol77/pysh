@@ -204,6 +204,15 @@ jobs:
             tests/test_pyshrc_py.py \
             tests/test_platform_tier_contract.py
 
+      - name: Run resource governor evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          . .venv-debian/bin/activate
+          export TERM=xterm-256color
+          PYSH_PYTEST="python -m pytest" \
+            sh scripts/check_resource_governor_evidence.sh
+
   platform-freebsd:
     name: platform reference (freebsd-14.4, amd64, python-3.13)
     runs-on: ubuntu-latest
@@ -265,6 +274,10 @@ jobs:
               tests/test_rc.py \
               tests/test_pyshrc_py.py \
               tests/test_platform_tier_contract.py
+
+            echo "==> Resource governor evidence"
+            PYSH_PYTEST="python -m pytest" \
+              sh scripts/check_resource_governor_evidence.sh
 
   performance-linux:
     name: performance (linux, python-3.13)
