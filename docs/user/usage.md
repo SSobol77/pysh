@@ -23,6 +23,8 @@ python -m pysh              # equivalent module entry point
 pysh -c "echo hi"           # run a single command line and exit
 pysh script.pysh arg1 arg2  # run a PySH-native script file
 pysh --debug -c "echo hi"   # run command and write redacted trace to stderr
+pysh --diagnostics-json -c "echo hi"   # structured schema-v1 JSON Lines on stderr
+pysh --audit-log ~/.local/state/pysh-audit.jsonl -c "echo hi"   # opt-in audit file
 pysh --no-rc                # recovery startup with user configuration disabled
 pysh --no-rc -c "echo hi"   # explicit no-user-config policy for one command
 pysh --version              # print version and exit
@@ -44,6 +46,20 @@ back to a clean prompt.
 `--debug` and `--trace` are explicit diagnostics modes. They write
 `[PYSH_DEBUG]` trace lines to stderr, never to normal command stdout, and do
 not change command execution or exit status.
+
+`--diagnostics-json` emits the same trace as deterministic schema-version-1
+JSON Lines on stderr instead of `[PYSH_DEBUG]` text. `--debug`/`--trace` and
+`--diagnostics-json` are mutually exclusive (usage error, status 2).
+
+`--audit-log PATH` appends redacted schema-v1 JSON Lines to `PATH`. It is off
+unless you pass it, can be combined with either of the modes above, and does not
+change stderr output. PySH creates the file with mode `0600` but does not create
+parent directories, so pick a directory that already exists and that you own. If
+the file cannot be opened safely (symlink, special file, wrong owner, group/other
+permissions, missing directory) PySH prints `pysh: audit-log: ...` and exits
+with status 1 without running the command. Command stdout/stderr and
+password/passphrase input are never written to the audit file. See
+[Observability and Diagnostics Contract](../architecture/observability-diagnostics-contract.md).
 
 `--no-rc` is an explicit recovery/security mode. It starts from built-in
 configuration defaults without reading or creating user rc, TOML, plugin

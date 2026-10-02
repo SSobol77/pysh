@@ -9,17 +9,47 @@ This module is intentionally leaf-like: it imports no shell runtime modules,
 performs no I/O at import time, and never executes subprocesses. Runtime
 callers may attach a :class:`DiagnosticTrace` to write deterministic trace
 events to stderr or another explicit stream.
+
+The canonical redaction implementation lives in
+:mod:`pysh.diagnostics.redaction`. The names below are re-exported here so
+that existing imports (``from pysh.diagnostics.trace import RedactionPolicy``,
+``DEFAULT_REDACTION_POLICY``, ``REDACTED_PLACEHOLDER``) continue to work
+unchanged.
 """
 from __future__ import annotations
 
-import os
-import re
 import shlex
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import IO
+
+from pysh.diagnostics.redaction import (
+    DEFAULT_REDACTION_POLICY,
+    REDACTED_PLACEHOLDER,
+    SENSITIVE_NAME_TOKENS,
+    RedactionPolicy,
+    redact_env_mapping,
+    redact_value,
+)
+
+__all__ = [
+    "DEFAULT_REDACTION_POLICY",
+    "REDACTED_PLACEHOLDER",
+    "SENSITIVE_NAME_TOKENS",
+    "RedactionPolicy",
+    "redact_env_mapping",
+    "redact_value",
+    "DiagnosticLevel",
+    "DiagnosticStage",
+    "TraceOptions",
+    "DiagnosticEvent",
+    "DiagnosticSink",
+    "DiagnosticTrace",
+    "StructuredSinkFanOut",
+    "format_trace_event",
+]
 
 
 class DiagnosticLevel(StrEnum):
@@ -46,70 +76,20 @@ class DiagnosticStage(StrEnum):
     ERROR = "ERROR"
 
 
-SENSITIVE_NAME_TOKENS: tuple[str, ...] = (
-    "PASSWORD",
-    "PASSWD",
-    "PASS",
-    "TOKEN",
-    "SECRET",
-    "KEY",
-    "PRIVATE",
-    "CREDENTIAL",
-    "AUTH",
-    "COOKIE",
-    "SESSION",
-    "API_KEY",
-    "ACCESS_TOKEN",
-    "REFRESH_TOKEN",
-)
-
-REDACTED_PLACEHOLDER = "<redacted>"
-
-
-@dataclass(frozen=True)
-class RedactionPolicy:
-    """Name-based environment and diagnostic redaction policy."""
-
-    sensitive_tokens: tuple[str, ...] = SENSITIVE_NAME_TOKENS
-    placeholder: str = REDACTED_PLACEHOLDER
-    redact_sensitive_env_values_in_text: bool = True
-
-    def is_sensitive_name(self, name: str) -> bool:
-        """Return True when *name* is classified as sensitive."""
-        upper = name.upper()
-        return any(token in upper for token in self.sensitive_tokens)
-
-    def redact_value(self, name: str, value: object) -> str:
-        """Return a display-safe value for *name*."""
-        if self.is_sensitive_name(name):
-            return self.placeholder
-        return str(value)
-
-    def redact_env_mapping(self, env: Mapping[str, str]) -> dict[str, str]:
-        """Return a copy of *env* with sensitive values replaced."""
-        return {name: self.redact_value(name, value) for name, value in env.items()}
-
-    def redact_text(self, text: str, env: Mapping[str, str] | None = None) -> str:
-        """Redact sensitive assignments and known sensitive env values in *text*."""
-        redacted = _redact_assignment_tokens(text, self)
-        if not self.redact_sensitive_env_values_in_text:
-            return redacted
-        source = env if env is not None else os.environ
-        for name, value in source.items():
-            if not value or not self.is_sensitive_name(name):
-                continue
-            redacted = _redact_value_at_word_boundaries(redacted, value, self.placeholder)
-        return redacted
-
-
-DEFAULT_REDACTION_POLICY = RedactionPolicy()
-
-
 @dataclass(frozen=True)
 class TraceOptions:
-    """Options for opt-in diagnostic tracing."""
+    """Options for opt-in diagnostic tracing.
+
+    ``enabled`` gates the pre-existing human-readable ``[PYSH_DEBUG]`` text
+    trace. ``structured_enabled`` independently gates structured (schema v1)
+    dispatch to ``structured_sink`` (stderr JSONL and/or the persistent
+    audit log; see :mod:`pysh.diagnostics.jsonl` and
+    :mod:`pysh.diagnostics.audit`). Either, both, or neither may be set; a
+    trace call becomes a no-op only when both are False.
+    """
 
     enabled: bool = False
+    structured_enabled: bool = False
     prefix: str = "[PYSH_DEBUG]"
     redaction: RedactionPolicy = DEFAULT_REDACTION_POLICY
 
@@ -135,21 +115,87 @@ class DiagnosticSink:
         print(line, file=self.stream)
 
 
+#: Exception classes a structured_sink failure is expected to raise: schema
+#: validation errors from a malformed event (TypeError/ValueError, see
+#: pysh.diagnostics.schema), and serialization/stream I/O failures
+#: (TypeError/ValueError from json.dumps, OSError from a closed or broken
+#: stream). Diagnostics are observational (Issue #50): a failure in this set
+#: must never alter command execution. Anything outside this set is treated
+#: as a genuine programming error and is allowed to propagate.
+_STRUCTURED_SINK_FAILURE_EXCEPTIONS: tuple[type[Exception], ...] = (
+    TypeError,
+    ValueError,
+    OSError,
+)
+
+
+class StructuredSinkFanOut:
+    """Deterministic, ordered fan-out of one trace event to several sinks.
+
+    Sinks are invoked in construction order. A failure (see
+    ``_STRUCTURED_SINK_FAILURE_EXCEPTIONS``) in one sink is contained here
+    and never prevents later sinks from receiving this or subsequent
+    events. Failures are not re-logged, so no recursive emission occurs.
+    The sink tuple is fixed at construction; there is no global registry.
+    """
+
+    def __init__(self, *sinks: Callable[[DiagnosticEvent], None]) -> None:
+        self._sinks: tuple[Callable[[DiagnosticEvent], None], ...] = sinks
+
+    def __call__(self, event: DiagnosticEvent) -> None:
+        for sink in self._sinks:
+            try:
+                sink(event)
+            except _STRUCTURED_SINK_FAILURE_EXCEPTIONS:
+                continue
+
+
 class DiagnosticTrace:
-    """Runtime trace writer. Disabled traces are no-ops."""
+    """Runtime trace writer. Disabled traces are no-ops.
+
+    ``structured_sink``, when supplied, is invoked with the raw
+    :class:`DiagnosticEvent` whenever ``options.structured_enabled`` is True. This
+    class deliberately knows nothing about the structured (schema v1)
+    event model: the adapter from :class:`DiagnosticEvent` to a
+    ``StructuredDiagnosticEvent`` lives in :mod:`pysh.diagnostics.jsonl`,
+    and callers (``pysh.cli``) wire the two together. This keeps the
+    pre-existing text-trace path fully decoupled from the newer structured
+    contract.
+
+    Structured diagnostics are observational only (Issue #50): a failure
+    raised by ``structured_sink`` (malformed event construction, JSON
+    serialization, or sink I/O) is contained at this boundary and never
+    propagates into the caller's command execution. It is not re-logged
+    through this same trace (doing so could recurse or fail identically)
+    and produces no secondary output. The pre-existing human-readable text
+    sink is unaffected by this containment and keeps its original behavior.
+    """
 
     def __init__(
         self,
         options: TraceOptions | None = None,
         sink: DiagnosticSink | None = None,
+        structured_sink: Callable[[DiagnosticEvent], None] | None = None,
     ) -> None:
         self.options = options if options is not None else TraceOptions()
         self.sink = sink if sink is not None else DiagnosticSink()
+        self.structured_sink = structured_sink
 
     @property
     def enabled(self) -> bool:
-        """Return True when trace emission is enabled."""
-        return self.options.enabled
+        """Return True when any trace emission (text or structured) is enabled."""
+        return self.options.enabled or self.options.structured_enabled
+
+    def _dispatch(self, event: DiagnosticEvent) -> None:
+        if self.options.enabled:
+            self.sink.write_event(format_trace_event(event, self.options))
+        if self.options.structured_enabled and self.structured_sink is not None:
+            try:
+                self.structured_sink(event)
+            except _STRUCTURED_SINK_FAILURE_EXCEPTIONS:
+                # Observational only: never let a diagnostics-sink failure
+                # affect command execution, and never re-attempt to log it.
+                pass
 
     def emit(
         self,
@@ -161,7 +207,7 @@ class DiagnosticTrace:
         if not self.enabled:
             return
         event = DiagnosticEvent(stage=stage, message=message, fields=fields)
-        self.sink.write_event(format_trace_event(event, self.options))
+        self._dispatch(event)
 
     def error(self, message: str, **fields: object) -> None:
         """Emit an error event if tracing is enabled."""
@@ -173,20 +219,7 @@ class DiagnosticTrace:
             level=DiagnosticLevel.ERROR,
             fields=fields,
         )
-        self.sink.write_event(format_trace_event(event, self.options))
-
-
-def redact_value(name: str, value: object, policy: RedactionPolicy | None = None) -> str:
-    """Return a display-safe value for *name* using *policy*."""
-    return (policy or DEFAULT_REDACTION_POLICY).redact_value(name, value)
-
-
-def redact_env_mapping(
-    env: Mapping[str, str],
-    policy: RedactionPolicy | None = None,
-) -> dict[str, str]:
-    """Return *env* with sensitive values redacted."""
-    return (policy or DEFAULT_REDACTION_POLICY).redact_env_mapping(env)
+        self._dispatch(event)
 
 
 def format_trace_event(event: DiagnosticEvent, options: TraceOptions | None = None) -> str:
@@ -205,32 +238,3 @@ def format_trace_event(event: DiagnosticEvent, options: TraceOptions | None = No
 
 def _quote(value: str) -> str:
     return shlex.quote(value)
-
-
-def _redact_assignment_tokens(text: str, policy: RedactionPolicy) -> str:
-    try:
-        tokens = shlex.split(text, posix=True)
-    except ValueError:
-        return text
-    redacted = text
-    for token in tokens:
-        name, sep, _value = token.partition("=")
-        if not sep or not name or not policy.is_sensitive_name(name):
-            continue
-        redacted = redacted.replace(token, f"{name}={policy.placeholder}")
-    return redacted
-
-
-def _redact_value_at_word_boundaries(text: str, value: str, placeholder: str) -> str:
-    """Replace *value* with *placeholder* only where it forms a whole token.
-
-    A naive ``text.replace(value, ...)`` corrupts unrelated diagnostic text
-    (file paths, line numbers, counters) whenever a short sensitive value
-    happens to be a substring of something else, e.g. value ``"1"`` inside
-    path segment ``pytest-19``. Requiring a word boundary on both sides of
-    the match keeps that unrelated text byte-for-byte unchanged while still
-    redacting the value wherever it is genuinely exposed as its own token
-    (e.g. surrounded by spaces, quotes, or the ends of the string).
-    """
-    pattern = rf"\b{re.escape(value)}\b"
-    return re.sub(pattern, placeholder, text)

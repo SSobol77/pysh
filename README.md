@@ -98,8 +98,10 @@ reference CI environments, not installation allowlists.
   `python -m pysh script.pysh [args...]` execute explicit local PySH scripts
   with `$0`, `$1`, `$#`, `$@`, heredocs, glob expansion and `py { ... }`
   blocks. PySH scripts are not POSIX sh scripts.
-- **Observability and diagnostics**: `--debug` and `--trace` emit structured,
-  redacted stderr diagnostics without changing command stdout.
+- **Observability and diagnostics**: `--debug` and `--trace` emit a
+  human-readable redacted trace on stderr; `--diagnostics-json` emits
+  structured schema-v1 JSON Lines on stderr; opt-in `--audit-log PATH` appends
+  redacted JSON Lines to a private local file. None changes command stdout.
 - **Debian/system profile helpers**: `sys_info`, `env_audit`, `path_audit`,
   `which_all`, `apt_check`, `apt_search` — non-mutating, never call `sudo`.
 - **Command planning**: `plan <command...>` previews how PySH would classify

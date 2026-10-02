@@ -69,6 +69,8 @@ shell feature area in the current PySH release. Category definitions are in
 | Builtins | `zsh_fallback` | Supported | Delegated | `tests/test_zsh_transition.py` | — |
 | Diagnostics | `--debug`, `--trace` stderr trace | Supported | Native | `tests/test_observability_diagnostics.py` | #13 |
 | Diagnostics | Diagnostic redaction policy | Supported | Native | `tests/test_observability_diagnostics.py`, `tests/test_security_trust_model.py` | #13 |
+| Diagnostics | Structured diagnostics JSONL (`--diagnostics-json`, schema v1) | Supported | Native | `tests/test_structured_diagnostics.py`, `tests/test_diagnostics_jsonl.py` | #50 |
+| Diagnostics | Opt-in persistent audit log (`--audit-log PATH`) | Supported | Native | `tests/test_audit_log.py` | #50 |
 
 ## Aliases
 
@@ -331,7 +333,9 @@ shell feature area in the current PySH release. Category definitions are in
 | Security | Strict safe startup (`--no-rc`) | Supported | Native | `tests/test_safe_startup.py`, `docs/security/threat-model.md` | #43 |
 | Security | Isolated-plugin process and parent capability broker | Supported | Native | `tests/test_isolated_plugin_manifest.py`, `tests/test_isolated_plugin_protocol.py`, `tests/test_isolated_plugin_runtime.py` | #44 |
 | Security | Direct-syscall confinement for hostile plugin code | Planned | Planned | `docs/security/plugin-isolation.md` | #52 |
-| Security | Centralized redaction across all egress seams | Partial | Native | `tests/test_observability_diagnostics.py`, `docs/security/threat-model.md` | #50 |
+| Security | Centralized diagnostic/audit redaction before serialization/persistence | Supported | Native | `tests/test_structured_diagnostics.py`, `tests/test_diagnostics_jsonl.py`, `tests/test_audit_log.py`, `tests/test_observability_diagnostics.py`, `docs/security/threat-model.md` | #50 |
+| Security | Redaction of future AI, remote, and package egress | Planned | Planned | `docs/security/threat-model.md` | Future issues (reserved) |
+| Security | Isolated-plugin lifecycle and capability grant/deny decision events | Supported | Native | `tests/test_isolated_plugin_diagnostics.py`, `tests/test_isolated_plugin_runtime.py` | #50 |
 
 ## Signal handling
 

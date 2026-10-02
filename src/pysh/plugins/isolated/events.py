@@ -14,6 +14,7 @@ class IsolatedPluginEventKind(StrEnum):
     """Lifecycle and authorization decisions exposed to Issue #50."""
 
     SPAWN = "spawn"
+    GRANTED = "granted"
     HANDSHAKE = "handshake"
     RUNNING = "running"
     DENIED = "denied"

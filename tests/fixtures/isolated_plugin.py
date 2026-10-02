@@ -156,6 +156,8 @@ def main() -> int:
         )
     elif mode == "environment_probe":
         _report([json.dumps(dict(os.environ), sort_keys=True)])
+    elif mode == "report_args":
+        _report(list(arguments))
     elif mode == "cwd_probe":
         _report([os.getcwd()])
     elif mode == "fd_probe":

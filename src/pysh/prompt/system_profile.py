@@ -23,22 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
-REDACTED_TOKENS: tuple[str, ...] = (
-    "PASSWORD",
-    "PASSWD",
-    "PASS",
-    "TOKEN",
-    "SECRET",
-    "KEY",
-    "PRIVATE",
-    "CREDENTIAL",
-    "AUTH",
-    "COOKIE",
-    "SESSION",
-    "API_KEY",
-    "ACCESS_TOKEN",
-    "REFRESH_TOKEN",
-)
+from pysh.diagnostics.redaction import DEFAULT_REDACTION_POLICY, REDACTED_PLACEHOLDER
 
 SAFE_ENV_KEYS: tuple[str, ...] = (
     "SHELL",
@@ -51,8 +36,6 @@ SAFE_ENV_KEYS: tuple[str, ...] = (
     "VIRTUAL_ENV",
     "PYTHONPATH",
 )
-
-REDACTED_PLACEHOLDER = "<redacted>"
 
 
 @dataclass(frozen=True)
@@ -96,8 +79,8 @@ def sys_info(stream: IO[str] | None = None) -> int:
 
 
 def _redact_key(key: str) -> bool:
-    upper = key.upper()
-    return any(token in upper for token in REDACTED_TOKENS)
+    """Return whether *key* is sensitive, per the canonical redaction policy."""
+    return DEFAULT_REDACTION_POLICY.is_sensitive_name(key)
 
 
 def env_audit(

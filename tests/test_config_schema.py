@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pysh.config.diagnostics import SECRET_KEY_MARKERS, is_secret_like
 from pysh.config.schema import load_plugin_config, merge_toml_documents, validate_plugin_name
 from pysh.core.shell import PyShell
+from pysh.diagnostics.redaction import DEFAULT_REDACTION_POLICY, SENSITIVE_NAME_TOKENS
 
 
 def test_unknown_section_and_key_are_diagnostics(tmp_path: Path) -> None:
@@ -107,3 +109,20 @@ def test_no_execution_from_toml_alias_values(tmp_path: Path) -> None:
     apply_config(shell, config)
     assert shell.aliases["boom"] == f"touch {marker}"
     assert not marker.exists()
+
+
+def test_config_diagnostics_secret_markers_match_canonical_redaction_policy() -> None:
+    """Issue #50: config diagnostics must use the single canonical sensitive-name list."""
+    assert SECRET_KEY_MARKERS == SENSITIVE_NAME_TOKENS
+
+
+def test_config_diagnostics_is_secret_like_delegates_to_canonical_policy() -> None:
+    for name in ("API_TOKEN", "db_password", "SESSION_ID", "OAUTH_HEADER", "plain_name"):
+        assert is_secret_like(name) == DEFAULT_REDACTION_POLICY.is_sensitive_name(name)
+
+
+def test_config_diagnostics_classification_was_strengthened_not_weakened() -> None:
+    """Names the old, narrower marker list missed must now be classified sensitive."""
+    assert is_secret_like("SESSION_ID") is True
+    assert is_secret_like("OAUTH_HEADER") is True
+    assert is_secret_like("color_scheme") is False

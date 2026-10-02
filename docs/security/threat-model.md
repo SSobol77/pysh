@@ -228,10 +228,13 @@ plugin-related builtins remain user actions after startup and are not disabled.
 
 ## Redaction and diagnostic emission policy
 
-`pysh.diagnostics.trace.RedactionPolicy` is the canonical policy for diagnostic
-and trace emission today. Its default policy classifies secret-like names,
-redacts sensitive assignments, and replaces known sensitive environment values
-before trace text reaches stderr. The protected classes include passwords and
+`pysh.diagnostics.redaction.RedactionPolicy` (default instance
+`DEFAULT_REDACTION_POLICY`) is the single canonical policy for diagnostic,
+trace, structured-JSONL, and audit emission (Issue #50; `pysh.diagnostics.trace`
+re-exports it for compatibility). Its default policy classifies secret-like
+names, redacts sensitive assignments, and replaces known sensitive environment
+values before trace text reaches stderr or an event is serialized or
+persisted. The protected classes include passwords and
 passphrases, authentication tokens, API keys, private-key/credential names,
 cookies, sessions, and authorization material.
 
@@ -247,12 +250,40 @@ Required invariants:
 7. providers and plugins may add stricter filtering but cannot own or bypass the
    minimum core policy.
 
-Current legitimate seams are narrower implementations: `env_audit` maintains a
-curated output and name filter, configuration diagnostics use
-`safe_value_repr`, and history uses configurable ignore patterns. These are
-implemented controls but not independent normative policies. Issue #50 owns
-their later consolidation behind the canonical policy. No consolidation is
-claimed by Issue #43.
+Issue #50 implements this boundary for diagnostic and audit emission:
+
+- structured events pass `validation -> canonical redaction -> serialization ->
+  sink` (`DiagnosticEmitter`), so nothing is persisted before redaction;
+- `--audit-log PATH` is opt-in, append-only, private (`0600`), refuses symlinks
+  and special files, and fails closed at startup if it cannot be opened safely;
+  a later write failure is contained and does not change the command's exit
+  status;
+- isolated-plugin capability grant and denial decisions, and plugin lifecycle
+  events, are auditable as bounded structured events carrying the plugin name,
+  canonical capability declarations (authorization metadata that may itself
+  name a filesystem root, environment-variable name, command name, or network
+  endpoint), an operation name, and a reason code; environment values, file
+  contents, command argv/output, raw IPC payloads, and protected PTY bytes are
+  excluded;
+- the configuration-diagnostic, prompt system-profile, and `plan` redaction
+  seams delegate to the canonical policy.
+
+Boundaries that Issue #50 does **not** change:
+
+- shell history keeps its separately documented ignore policy (space-prefix and
+  configurable patterns). Audit logging does not filter or rewrite history, and
+  history persistence is not claimed to use the diagnostic redaction policy;
+- protected PTY/password/passphrase bytes are never part of the diagnostic or
+  audit event pipeline;
+- command stdout/stderr is not automatically copied into audit storage;
+- redaction is name- and known-value-based, so a secret with an unclassified
+  name and unknown value cannot be guaranteed absent from an event;
+- AI, remote, and package egress remain reserved/future. The `ai`, `remote`,
+  `package`, and `resource` event classes are namespaces only and do not imply
+  those features exist.
+
+The `env_audit` curated output and name filter remains its own presentation
+surface. No broader consolidation is claimed beyond the seams listed above.
 
 ## Component security contracts
 
@@ -310,13 +341,13 @@ visible user intent.
 | TM-EXEC-001 | External execution | Elevation, information disclosure | Attacker-controlled argv/env or descriptor inheritance | User authority, secrets | Explicit argv; no `shell=True`; controlled redirections | Validate boundaries and close unintended descriptors | Child retains invoking user's authority and inherited environment | Current runtime contract |
 | TM-PIPE-001 | Pipelines/redirections | Tampering, information disclosure | Redirection targets overwrite files or descriptors route data unexpectedly | Files, command output | Explicit ordered redirection model | Preserve validation, restoration, and failure cleanup | User-requested overwrite remains possible | Current redirection contract |
 | TM-RUNTIME-001 | `py`, blocks, `#py` | Elevation of privilege relative to false expectations | Untrusted Python is executed in-process | All user-level assets | Explicit not-sandboxed policy and predicate | Keep warnings/contracts accurate; never accept untrusted code implicitly | Full user-level code execution by design | Current model; Issue #44 only for extensions |
-| TM-RUNTIME-002 | Persistent namespace | Information disclosure | Secret remains reachable by later code/plugin | Session secrets | Session-scoped namespace | Do not emit namespace values without redaction/intent | Trusted code can inspect all process memory | Issue #50 for egress consolidation |
+| TM-RUNTIME-002 | Persistent namespace | Information disclosure | Secret remains reachable by later code/plugin | Session secrets | Session-scoped namespace | Do not emit namespace values without redaction/intent | Trusted code can inspect all process memory | Diagnostic/audit emission redaction implemented in #50; namespace values are not emitted |
 | TM-RC-001 | Executable rc | Tampering, elevation | Attacker can write user startup files | User account/session | Treated as trusted local code; failure containment | `--no-rc` deterministic bypass; no mutation in safe mode | Normal startup executes compromised user files | Implemented here; filesystem controls external |
-| TM-CONFIG-001 | Declarative TOML | Tampering | Malicious/malformed data changes environment, aliases, or project-plugin policy | Shell state/trust posture | Schema validation and diagnostics | Strict `--no-rc` skips all TOML; keep parsing non-executing | Valid configuration can intentionally alter behavior | Implemented here; #50 for diagnostic seam |
+| TM-CONFIG-001 | Declarative TOML | Tampering | Malicious/malformed data changes environment, aliases, or project-plugin policy | Shell state/trust posture | Schema validation and diagnostics | Strict `--no-rc` skips all TOML; keep parsing non-executing | Valid configuration can intentionally alter behavior | Implemented here; diagnostic seam redaction implemented in #50 |
 | TM-PLUGIN-001 | Current plugins | Elevation, information disclosure | Trusted plugin is malicious or compromised | All process/user assets | Explicit enablement, project opt-in, transactional registration | Continue describing current plugins as trusted code | Full ambient authority by design | Current trusted model; Issue #44 does not convert it |
 | TM-PLUGIN-002 | Isolated plugin | Spoofing, elevation, DoS | Extension forges identity, requests excess parent authority, or floods IPC | Core state and parent-mediated assets | Separate process; identity handshake; bounded protocol; immutable default-deny broker grant; scrubbed env/cwd/fds | Define optional platform syscall hardening and unified resource budgets | Same-UID child retains direct OS filesystem/network syscalls; no kernel sandbox | #44 implemented portable broker; #52 OS tier; #53 resource limits |
-| TM-HISTORY-001 | History | Information disclosure | Secret embedded in command text is persisted | Credentials/session data | Space-prefix and pattern filters; no terminal-byte capture | Document limits; central classification before future exports | Novel secret names may bypass substring filters | #50 |
-| TM-DIAG-001 | Debug/trace/audit | Information disclosure | Secret enters command/field/environment diagnostic text | Credentials | `RedactionPolicy`; redacted stderr; stdout separation | Core-owned redaction before every diagnostic/future egress | Unknown secret values without classified names may remain | #50 |
+| TM-HISTORY-001 | History | Information disclosure | Secret embedded in command text is persisted | Credentials/session data | Space-prefix and pattern filters; no terminal-byte capture | Document limits; central classification before future exports. Audit logging neither captures PTY bytes nor changes history semantics | Novel secret names may bypass substring filters; history filtering is separate from diagnostic redaction | History policy (current); future exports reserved |
+| TM-DIAG-001 | Debug/trace/audit | Information disclosure | Secret enters command/field/environment diagnostic text | Credentials | Implemented (#50): canonical `RedactionPolicy` applied by `DiagnosticEmitter` before serialization/persistence; opt-in private append-only `--audit-log`; stdout separation; protected PTY bytes excluded; plugin events carry capability declarations but no payload values | Keep every diagnostic/audit sink behind the emitter; future AI/remote/package egress (reserved) must use it before transmission | Unknown secret values without classified names may remain; history uses its own ignore policy | #50 implemented; future egress reserved |
 | TM-DIAG-002 | Diagnostic tools | Repudiation/tampering | Advisory output is mistaken for enforcement | User decision integrity | Non-mutating contract; explicit risk labels | Never claim `plan` enforces execution policy | User may ignore advisory output | Current diagnostics contract |
 | TM-PTY-001 | Ordinary terminal input | Information disclosure | Shell intercepts authentication bytes | Passwords/passphrases | Child inherits terminal; PySH is outside keystroke path | Preserve direct ownership and never log protected bytes | Child/terminal may have independent vulnerabilities | Current sensitive-input contract |
 | TM-PTY-002 | `secure <cmd>` | Information disclosure, spoofing | PTY bridge or indicator is mistaken for containment/authentication | Credentials/user trust | Explicit invocation; transparent forwarding; fixed indicator | Preserve no-sandbox wording and no history/logging of PTY bytes | Bridge observes transport bytes by design | Current secure-runner contract |
@@ -329,7 +360,7 @@ No unresolved high-severity risk is hidden: current in-process Python, rc, and
 plugin authority is an explicit trusted-code design constraint. Issue #44
 isolates parent memory/failure and enforces broker grants but does not provide
 portable kernel syscall confinement. OS reinforcement is assigned to #52,
-redaction convergence to #50, resource limits to #53, and network/package
+resource limits to #53, and network/package
 boundaries remain disabled until their named requirements are implemented.
 
 ### Isolated-plugin host OS authority boundary
@@ -357,7 +388,9 @@ Issue #44 must implement, not merely document:
 - least privilege and no ambient PySH parent-mediated filesystem, command,
   network, environment, terminal, or other privileged capability;
 - capability checks owned by PySH core, never self-asserted by a plugin;
-- auditable grant and denial decisions with redaction before emission;
+- auditable grant and denial decisions with redaction before emission
+  (implemented by Issue #50 as `security.capability_granted` /
+  `security.capability_denied` structured events);
 - bounded, versioned IPC messages and deterministic failure handling;
 - no `pickle` or equivalent object deserialization across an untrusted process
   boundary;
@@ -418,6 +451,10 @@ Implemented controls are exercised by:
   `tests/test_isolated_plugin_protocol.py`, and
   `tests/test_isolated_plugin_runtime.py` for the Issue #44 process/broker
   boundary;
+- `tests/test_structured_diagnostics.py`, `tests/test_diagnostics_jsonl.py`,
+  `tests/test_audit_log.py`, and `tests/test_isolated_plugin_diagnostics.py`
+  for the Issue #50 schema, canonical redaction, JSONL, audit-log, and
+  plugin-event controls;
 - parser, pipeline, redirection, history, secure-runner, architecture, and
   public API suites for their respective boundaries.
 

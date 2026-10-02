@@ -57,7 +57,7 @@ not listed is forbidden, except for the five exact temporary exceptions.
 | `pysh.contracts` | Contracts; compatibility public | Dependency-light protocols and shared immutable contract data | None | `api`, `parsing`, `editor`, `python_layer`, `plugins`, `core` | No implementation imports, initialization, I/O, config loading, subprocess, or network activity; supported compatibility path |
 | `pysh.parsing` | Syntax/parsing; internal | Parser, syntax, expansion, heredoc, and redirection primitives | `contracts` | `script_runner`, `diagnostics`, `editor`, `core`, `cli` | No runtime, UI, prompt, config, plugin, diagnostics, security, Python runtime, or script-runner dependency; shared low-level leaf |
 | `pysh.script_runner` | Script runner; internal | Native script sequencing and explicit interpreter delegation | `parsing` | `core` | No interactive REPL ownership; no extension seam |
-| `pysh.diagnostics` | Diagnostics; internal | Advisory planning, tracing, and redaction implementation | `parsing` | `core`, `cli` | No command execution, policy enforcement, or reverse dependency into runtime; schemas remain internal pending Issue #50 |
+| `pysh.diagnostics` | Diagnostics; internal | Advisory planning, tracing, and redaction implementation | `parsing` | `core`, `cli`, `plugins.isolated` | No command execution, policy enforcement, or reverse dependency into runtime or isolated plugins; structured event schema v1 is versioned (Issue #50) |
 | `pysh.editor` | Interactive editor; internal | Editing, completion integration, history, and highlighting | `contracts`, `parsing` | `core` | No shell state, runtime dispatch, config, prompt, or extension ownership; no stable extension seam |
 | `pysh.prompt` | Interactive presentation; internal | Prompt colors, terminal presentation, and system-profile rendering | None | `core` | No shell state or config parsing; no stable extension seam |
 | `pysh.python_layer` | Python execution; internal | Persistent Python execution and Python command mode | `pysh`, `contracts` | `core` | No general shell dispatch or configuration ownership; no stable extension seam |
@@ -66,7 +66,7 @@ not listed is forbidden, except for the five exact temporary exceptions.
 | `pysh.services` | Services; internal | Service client and PyInit metadata implementation | None | `core` | No REPL or command-dispatch ownership; no stable extension seam |
 | `pysh.security` | Security; internal | Security policy and explicit sensitive-input PTY runner | None | `core` | No general UI/runtime dumping ground; preserves the Issue #43 boundary |
 | `pysh.plugins` | Plugins; compatibility public | Trusted in-process Plugin API 1.0, registry, loader, manager, and core integration boundary | `contracts` | `plugins.isolated`, `core` | No isolated process lifecycle or sandbox claim; trusted Plugin API 1.0 is versioned |
-| `pysh.plugins.isolated` | Isolated plugin boundary; internal | Issue #44 manifest, IPC, broker, capabilities, and isolated subprocess lifecycle | `plugins` | None | No trusted-plugin discovery or core/runtime ownership; manifest and IPC are external contracts, Python objects are internal |
+| `pysh.plugins.isolated` | Isolated plugin boundary; internal | Issue #44 manifest, IPC, broker, capabilities, and isolated subprocess lifecycle | `diagnostics`, `plugins` | None | No trusted-plugin discovery or core/runtime ownership; manifest and IPC are external contracts, Python objects are internal |
 | `pysh.migration` | Migration analysis; internal | Static migration analysis and reporting | None | `core` | No execution or compatibility bridge; no stable extension seam |
 | `pysh.core` | Runtime composition; internal | Application composition, shell state, dispatch, jobs, and execution | `pysh`, `compat`, `config`, `contracts`, `diagnostics`, `editor`, `migration`, `parsing`, `plugins`, `prompt`, `python_layer`, `script_runner`, `security`, `services` | `api`, `cli`, `shell` | Not a low-level leaf and not public embedding API; no isolated-plugin implementation dependency |
 | `pysh.cli` | CLI entrypoints; internal Python module | Console parsing and top-level error/status conversion | `pysh`, `config`, `core`, `diagnostics`, `parsing` | `__main__` | No shell implementation ownership; documented CLI behavior is external, module objects are internal |
@@ -156,7 +156,7 @@ pysh.diagnostics -> pysh.parsing
 pysh.editor -> pysh.contracts, pysh.parsing
 pysh.parsing -> pysh.contracts
 pysh.plugins -> pysh.contracts
-pysh.plugins.isolated -> pysh.plugins
+pysh.plugins.isolated -> pysh.diagnostics, pysh.plugins
 pysh.python_layer -> pysh, pysh.contracts, pysh.editor
 pysh.script_runner -> pysh.parsing
 pysh.security -> pysh.prompt

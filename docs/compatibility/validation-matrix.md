@@ -91,6 +91,20 @@ Current release line: **PySH 0.9.1**.
 | `--no-rc` does not create `~/.pyshrc.py` or default TOML | Unit/integration test | `tests/test_safe_startup.py` | None | #43 |
 | Console and `python -m pysh` accept `--no-rc` with `-c` | Unit/subprocess test | `tests/test_safe_startup.py` | None | #43 |
 | Debug trace redacts stderr while command stdout remains unchanged | Unit test | `tests/test_observability_diagnostics.py` | None | #43 / #50 |
+| Structured event schema v1 has an explicit version; malformed events fail closed | Unit test | `tests/test_structured_diagnostics.py` | None | #50 |
+| Structured JSONL is deterministic (sorted keys, one object per line, no NaN) | Unit test | `tests/test_diagnostics_jsonl.py` | None | #50 |
+| `--diagnostics-json` writes schema-v1 JSONL to stderr and is exclusive with `--debug`/`--trace` | Unit/CLI test | `tests/test_diagnostics_jsonl.py` | None | #50 |
+| Structured diagnostics keep command stdout separate and unchanged | Unit/CLI test | `tests/test_diagnostics_jsonl.py` | None | #50 |
+| Audit logging is off by default (no file opened or created without `--audit-log`) | Unit/CLI test | `tests/test_audit_log.py` | None | #50 |
+| Audit log is created private (`0600`); symlink, FIFO, device, directory and insecure files are rejected | Unit/CLI test | `tests/test_audit_log.py` | None | #50 |
+| Audit log appends and never truncates an existing file | Unit/CLI test | `tests/test_audit_log.py` | None | #50 |
+| Audit initialization failure prevents execution (fail closed) | Unit/CLI test | `tests/test_audit_log.py` | None | #50 |
+| Audit mid-run write failure is contained and preserves the command exit status | Unit/CLI test | `tests/test_audit_log.py` | None | #50 |
+| Secrets and nested fields are redacted on disk before persistence | Unit/CLI test | `tests/test_audit_log.py`, `tests/test_structured_diagnostics.py` | None | #50 |
+| Isolated-plugin lifecycle events map to structured `plugin.*` events and reach JSONL/audit via the real runtime | Subprocess test | `tests/test_isolated_plugin_diagnostics.py` | None | #50 |
+| Capability grant and denial decisions emit `security.capability_granted`/`security.capability_denied` with bounded capability declarations as metadata, excluding environment values, file contents, command argv/output, and IPC payloads | Subprocess test | `tests/test_isolated_plugin_diagnostics.py`, `tests/test_isolated_plugin_runtime.py` | None | #50 |
+| Diagnostics sink failure does not replace the isolated runtime result | Subprocess test | `tests/test_isolated_plugin_diagnostics.py` | None | #50 |
+| Protected PTY bytes have no route into audit events | Unit/CLI test | `tests/test_audit_log.py`, `tests/test_security_trust_model.py` | None | #50 |
 | Isolated manifest and typed capabilities fail closed | Unit test | `tests/test_isolated_plugin_manifest.py` | None | #44 |
 | Isolated IPC rejects malformed, oversized, unknown and incompatible messages | Unit test | `tests/test_isolated_plugin_protocol.py`, `tests/test_isolated_plugin_runtime.py` | None | #44 |
 | Isolated child receives scrubbed env, private cwd and no unrelated parent fd | Subprocess test | `tests/test_isolated_plugin_runtime.py` | FreeBSD 14.4 CI/VM evidence pending | #44 / #52 |

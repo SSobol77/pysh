@@ -186,6 +186,31 @@ trace events to stderr and preserve normal command stdout and exit status.
 Trace output is not a security audit log and cannot prove arbitrary command
 output is non-secret.
 
+`--diagnostics-json` and the opt-in `--audit-log PATH` (Issue #50) have these
+limits:
+
+- The audit log is a local, redacted event record. It is not a sandbox, a
+  policy engine, or a tamper-proof security monitor; anyone with your account's
+  file access can alter it.
+- Redaction is name- and known-value-based. A secret with an unclassified name
+  and an unknown value cannot be guaranteed absent from an event.
+- Isolated-plugin audit events include canonical capability declarations as
+  authorization metadata; a declaration may name a filesystem root,
+  environment-variable name, command name, or network endpoint. File contents,
+  environment values, command argv/output, and IPC payloads are not copied.
+- Command stdout/stderr is not automatically audited, and protected
+  password/passphrase terminal input is never part of the event pipeline.
+- Audit storage is local only: no rotation, compression, or remote upload, and
+  PySH does not create the log's parent directory.
+- Structured stderr can contain ordinary runtime error text (for example a
+  parse error) between JSON lines where existing shell semantics require it.
+- A write failure after startup disables the audit sink without changing the
+  command's exit status; failure to open the log at startup aborts instead.
+- The event classes `resource`, `package`, `ai`, and `remote` are reserved
+  names; their presence does not mean those features exist.
+- Shell history keeps its own ignore policy and is not governed by audit
+  redaction.
+
 ## Command planning
 
 `plan <command...>` is advisory only:

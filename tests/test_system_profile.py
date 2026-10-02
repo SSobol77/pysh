@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 
 from pysh.core.shell import PyShell
+from pysh.diagnostics.redaction import DEFAULT_REDACTION_POLICY
+from pysh.diagnostics.redaction import REDACTED_PLACEHOLDER as CANONICAL_REDACTED_PLACEHOLDER
 from pysh.prompt.system_profile import (
     REDACTED_PLACEHOLDER,
     apt_check,
@@ -23,6 +25,23 @@ from pysh.prompt.system_profile import (
     sys_info,
     which_all,
 )
+
+
+def test_system_profile_redacted_placeholder_matches_canonical_policy() -> None:
+    """Issue #50: system_profile must re-export the canonical redaction placeholder."""
+    assert REDACTED_PLACEHOLDER == CANONICAL_REDACTED_PLACEHOLDER
+
+
+def test_system_profile_env_audit_classification_matches_canonical_policy() -> None:
+    for name in ("API_KEY", "MY_TOKEN", "OAUTH_PASSWORD", "GOOGLE_CREDENTIAL_FILE", "PATH", "HOME"):
+        env = {name: "value"}
+        buf = io.StringIO()
+        env_audit(env=env, stream=buf)
+        text = buf.getvalue()
+        if DEFAULT_REDACTION_POLICY.is_sensitive_name(name):
+            assert f"{name}={REDACTED_PLACEHOLDER}" in text
+        else:
+            assert f"{name}=value" in text
 
 
 def test_sys_info_prints_expected_fields(
