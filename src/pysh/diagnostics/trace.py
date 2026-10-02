@@ -47,6 +47,7 @@ __all__ = [
     "DiagnosticEvent",
     "DiagnosticSink",
     "DiagnosticTrace",
+    "StructuredSinkFanOut",
     "format_trace_event",
 ]
 
@@ -80,14 +81,15 @@ class TraceOptions:
     """Options for opt-in diagnostic tracing.
 
     ``enabled`` gates the pre-existing human-readable ``[PYSH_DEBUG]`` text
-    trace. ``json_enabled`` independently gates the structured (schema v1)
-    trace adapter (Issue #50 slice 2, see :mod:`pysh.diagnostics.jsonl`).
-    Either, both, or neither may be set; a trace call becomes a no-op only
-    when both are False.
+    trace. ``structured_enabled`` independently gates structured (schema v1)
+    dispatch to ``structured_sink`` (stderr JSONL and/or the persistent
+    audit log; see :mod:`pysh.diagnostics.jsonl` and
+    :mod:`pysh.diagnostics.audit`). Either, both, or neither may be set; a
+    trace call becomes a no-op only when both are False.
     """
 
     enabled: bool = False
-    json_enabled: bool = False
+    structured_enabled: bool = False
     prefix: str = "[PYSH_DEBUG]"
     redaction: RedactionPolicy = DEFAULT_REDACTION_POLICY
 
@@ -127,11 +129,32 @@ _STRUCTURED_SINK_FAILURE_EXCEPTIONS: tuple[type[Exception], ...] = (
 )
 
 
+class StructuredSinkFanOut:
+    """Deterministic, ordered fan-out of one trace event to several sinks.
+
+    Sinks are invoked in construction order. A failure (see
+    ``_STRUCTURED_SINK_FAILURE_EXCEPTIONS``) in one sink is contained here
+    and never prevents later sinks from receiving this or subsequent
+    events. Failures are not re-logged, so no recursive emission occurs.
+    The sink tuple is fixed at construction; there is no global registry.
+    """
+
+    def __init__(self, *sinks: Callable[[DiagnosticEvent], None]) -> None:
+        self._sinks: tuple[Callable[[DiagnosticEvent], None], ...] = sinks
+
+    def __call__(self, event: DiagnosticEvent) -> None:
+        for sink in self._sinks:
+            try:
+                sink(event)
+            except _STRUCTURED_SINK_FAILURE_EXCEPTIONS:
+                continue
+
+
 class DiagnosticTrace:
     """Runtime trace writer. Disabled traces are no-ops.
 
     ``structured_sink``, when supplied, is invoked with the raw
-    :class:`DiagnosticEvent` whenever ``options.json_enabled`` is True. This
+    :class:`DiagnosticEvent` whenever ``options.structured_enabled`` is True. This
     class deliberately knows nothing about the structured (schema v1)
     event model: the adapter from :class:`DiagnosticEvent` to a
     ``StructuredDiagnosticEvent`` lives in :mod:`pysh.diagnostics.jsonl`,
@@ -161,12 +184,12 @@ class DiagnosticTrace:
     @property
     def enabled(self) -> bool:
         """Return True when any trace emission (text or structured) is enabled."""
-        return self.options.enabled or self.options.json_enabled
+        return self.options.enabled or self.options.structured_enabled
 
     def _dispatch(self, event: DiagnosticEvent) -> None:
         if self.options.enabled:
             self.sink.write_event(format_trace_event(event, self.options))
-        if self.options.json_enabled and self.structured_sink is not None:
+        if self.options.structured_enabled and self.structured_sink is not None:
             try:
                 self.structured_sink(event)
             except _STRUCTURED_SINK_FAILURE_EXCEPTIONS:

@@ -102,6 +102,36 @@ def structured_event_from_trace(event: DiagnosticEvent) -> StructuredDiagnosticE
     )
 
 
+def encode_jsonl_line(
+    emitter: DiagnosticEmitter,
+    event: StructuredDiagnosticEvent,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """Validate, redact, and encode *event* as one deterministic JSON line.
+
+    This is the single serializer shared by every structured sink (stderr
+    JSONL and the persistent audit log). The returned text is exactly one
+    JSON object followed by exactly one newline.
+
+    ``sort_keys=True`` makes the key order deterministic across runs.
+    ``allow_nan=False`` makes the encoder itself fail closed (raising
+    ``ValueError``, contained by the caller) rather than ever emitting a
+    non-standard ``NaN``/``Infinity`` token, even though schema v1
+    construction already rejects non-finite floats before this point.
+    """
+    payload = emitter.sanitize_to_payload(event, env=env)
+    return (
+        json.dumps(
+            payload,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        + "\n"
+    )
+
+
 class JsonlDiagnosticSink:
     """Writes sanitized schema v1 structured events as one JSON object per line."""
 
@@ -118,20 +148,5 @@ class JsonlDiagnosticSink:
         event: StructuredDiagnosticEvent,
         env: Mapping[str, str] | None = None,
     ) -> None:
-        """Validate, redact, and write *event* as one deterministic JSON line.
-
-        ``sort_keys=True`` makes the key order deterministic across runs.
-        ``allow_nan=False`` makes the encoder itself fail closed (raising
-        ``ValueError``, contained by the caller) rather than ever emitting a
-        non-standard ``NaN``/``Infinity`` token, even though schema v1
-        construction already rejects non-finite floats before this point.
-        """
-        payload = self.emitter.sanitize_to_payload(event, env=env)
-        line = json.dumps(
-            payload,
-            sort_keys=True,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            allow_nan=False,
-        )
-        print(line, file=self.stream)
+        """Validate, redact, and write *event* as one deterministic JSON line."""
+        self.stream.write(encode_jsonl_line(self.emitter, event, env=env))

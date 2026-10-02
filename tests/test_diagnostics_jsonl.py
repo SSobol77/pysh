@@ -346,7 +346,7 @@ def test_structured_sink_os_error_does_not_break_command_execution(
 
     shell = PyShell(
         trace=DiagnosticTrace(
-            TraceOptions(json_enabled=True),
+            TraceOptions(structured_enabled=True),
             structured_sink=_failing_sink,
         )
     )
@@ -371,7 +371,7 @@ def test_structured_sink_failing_stream_does_not_break_command_execution(
     sink = JsonlDiagnosticSink(stream=_BrokenStream())
     shell = PyShell(
         trace=DiagnosticTrace(
-            TraceOptions(json_enabled=True),
+            TraceOptions(structured_enabled=True),
             structured_sink=lambda event: sink.write_structured_event(
                 structured_event_from_trace(event)
             ),
@@ -402,7 +402,7 @@ def test_structured_sink_schema_violation_does_not_break_command_execution(
 
     shell = PyShell(
         trace=DiagnosticTrace(
-            TraceOptions(json_enabled=True),
+            TraceOptions(structured_enabled=True),
             structured_sink=_schema_violating_sink,
         )
     )
@@ -428,7 +428,7 @@ def test_structured_sink_unsupported_field_type_does_not_break_command_execution
 
     shell = PyShell(
         trace=DiagnosticTrace(
-            TraceOptions(json_enabled=True),
+            TraceOptions(structured_enabled=True),
             structured_sink=_unsupported_field_sink,
         )
     )
@@ -451,7 +451,7 @@ def test_structured_sink_unrelated_programming_error_is_not_swallowed() -> None:
 
     shell = PyShell(
         trace=DiagnosticTrace(
-            TraceOptions(json_enabled=True),
+            TraceOptions(structured_enabled=True),
             structured_sink=_buggy_sink,
         )
     )
@@ -478,7 +478,7 @@ def test_structured_sink_does_not_recursively_attempt_to_log_its_own_failure(
 
     shell = PyShell(
         trace=DiagnosticTrace(
-            TraceOptions(json_enabled=True),
+            TraceOptions(structured_enabled=True),
             structured_sink=_failing_sink,
         )
     )
