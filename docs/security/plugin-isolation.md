@@ -282,20 +282,23 @@ granted capabilities, denial, failure, and stop. Events contain no child
 payload or returned secret values. Issue #50 owns integration with structured
 diagnostics and persistent audit policy.
 
-Issue #53 defines the resource-budget contract in
-`pysh.plugins.isolated.resources` (see [resource-governor.md](resource-governor.md)).
-When a `ResourceBudget` is supplied, the runtime spawns the plugin through the
-internal `pysh.plugins.isolated.launcher`, which applies `RLIMIT_CPU`,
-`RLIMIT_AS`/`RLIMIT_VMEM` (virtual address space, not RSS) and `RLIMIT_NOFILE`
-before `execve`, and the parent bounds every IPC frame to the effective
-`message_bytes`. `processes` (process-count) is not enforced per plugin
-(`RLIMIT_NPROC` is per-UID; opt-in only). `wall_clock_seconds` and `concurrency` are not
-enforced yet, and violations are not reported as structured events yet. No
-cgroup or jail is used. Without a budget the runtime spawns directly as in
-Issue #44. `IsolatedResourceLimits` remains an alias of `ResourceBudget`.
+Issue #53 governs every isolated runtime; there is no ungoverned production
+startup. The effective budget comes from the manifest `resource_class`
+(`small`, `standard`, `large`; `standard` when absent; an unknown class fails
+closed before spawn). See [resource-governor.md](resource-governor.md). The
+plugin is spawned through the internal `pysh.plugins.isolated.launcher`, which
+applies `RLIMIT_CPU`, `RLIMIT_AS`/`RLIMIT_VMEM` (virtual address space, not
+RSS) and `RLIMIT_NOFILE` before `execve`; the parent bounds every IPC frame to
+`message_bytes`, enforces the total wall-clock lifetime with an independent
+watchdog (SIGTERM, bounded grace, SIGKILL on the owned process group), limits
+simultaneously active runtimes per plugin, and reports violations as one
+`resource.limit_exceeded` structured event. `processes` (process-count) is not
+enforced per plugin (`RLIMIT_NPROC` is per-UID; opt-in only), and abnormal OS deaths (CPU,
+memory, descriptors) are not attributed to a specific resource. No cgroup or
+jail is used. `IsolatedResourceLimits` remains an alias of `ResourceBudget`.
 
-Issue #52 owns platform-tier guarantees, optional Linux hardening, FreeBSD
-Capsicum integration, behavior when a hardening primitive is unavailable, and
+Issue #52 defines the platform-tier contract and owns platform-tier guarantees,
+optional Linux hardening, FreeBSD Capsicum integration, behavior when a hardening primitive is unavailable, and
 any future decision to require hardening for a platform tier. Such hardening
 may strengthen this baseline but is not part of the portable Issue #44
 contract.

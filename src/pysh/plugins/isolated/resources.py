@@ -59,8 +59,12 @@ HARD_CEILING_FILE_DESCRIPTORS: Final = 256
 HARD_CEILING_PROCESSES: Final = 32
 #: Bytes of one IPC message/output. Never above the wire-protocol frame limit.
 HARD_CEILING_MESSAGE_BYTES: Final = MAX_FRAME_BYTES
-#: Simultaneous in-flight requests per plugin (count).
+#: Simultaneously active runtimes of one plugin in this process (count).
 HARD_CEILING_CONCURRENCY: Final = 8
+
+#: Profile used when a manifest declares no ``resource_class``. An unknown,
+#: non-empty class is never mapped to this default; it fails closed.
+DEFAULT_RESOURCE_CLASS: Final = "standard"
 
 _RESOURCE_CLASS_RE: Final = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 
@@ -115,7 +119,8 @@ class ResourceBudget:
     * ``processes``: simultaneous process/thread count in the plugin group.
     * ``message_bytes``: bytes per IPC message/output; never above
       ``MAX_FRAME_BYTES``.
-    * ``concurrency``: simultaneous in-flight requests.
+    * ``concurrency``: maximum simultaneously active governed runtimes of the
+      same plugin (keyed by manifest name) in this parent process.
 
     Every present value must be ``<=`` its hard ceiling. A partial budget is a
     valid *override*; a complete budget (see :attr:`is_complete`) is a profile
@@ -236,12 +241,14 @@ def resolve_resource_budget(
 ) -> ResourceBudget:
     """Resolve the complete effective budget for ``resource_class``.
 
-    Fails closed with :class:`ResourcePolicyError` when the class is missing or
-    unknown, or when ``requested`` would raise any profile value. There is no
-    fallback profile and nothing is read from the environment.
+    A missing class (``None``) resolves to :data:`DEFAULT_RESOURCE_CLASS`.
+    Fails closed with :class:`ResourcePolicyError` when a given class is
+    unknown (including when the default is absent from an injected catalog),
+    or when ``requested`` would raise any profile value. An unknown class is
+    never mapped to the default and nothing is read from the environment.
     """
     if resource_class is None:
-        raise ResourcePolicyError("a resource class is required to resolve a resource budget")
+        resource_class = DEFAULT_RESOURCE_CLASS
     if not isinstance(resource_class, str):
         raise ResourcePolicyError("resource class must be a string")
     profile = catalog.get(resource_class)
@@ -285,8 +292,10 @@ MIN_ENFORCED_MESSAGE_BYTES: Final = 1024
 OS_ENFORCED_FIELDS: Final = ("cpu_seconds", "memory_bytes", "file_descriptors")
 #: Fields enforced by the parent at the IPC boundary.
 PROTOCOL_ENFORCED_FIELDS: Final = ("message_bytes",)
-#: Fields with no independent enforcement yet (later Issue #53 slices).
-UNENFORCED_FIELDS: Final = ("wall_clock_seconds", "concurrency")
+#: Fields enforced by the parent-side total-lifetime wall-clock watchdog.
+WATCHDOG_ENFORCED_FIELDS: Final = ("wall_clock_seconds",)
+#: Fields enforced by the parent-side per-plugin concurrency permit.
+PERMIT_ENFORCED_FIELDS: Final = ("concurrency",)
 
 _MINIMUMS: Final[Mapping[str, int]] = MappingProxyType({
     "file_descriptors": MIN_ENFORCED_FILE_DESCRIPTORS,
@@ -329,9 +338,9 @@ def plan_enforcement(
 ) -> ResourceEnforcementPlan:
     """Turn a resolved budget into an enforcement plan, failing closed.
 
-    Rejects budgets below the enforceable floors and *explicit* requests for
-    fields that no layer enforces yet. Profile defaults for such fields are
-    reported in ``deferred_fields`` instead of being silently ignored.
+    Rejects budgets below the enforceable floors and an *explicit* ``processes``
+    request unless the per-UID mode is opted into. The ``processes`` profile
+    default is reported in ``deferred_fields`` instead of being silently ignored.
     """
     if not isinstance(effective, ResourceBudget) or not effective.is_complete:
         raise ResourcePolicyError("an enforcement plan requires a complete effective budget")
@@ -341,10 +350,7 @@ def plan_enforcement(
     for name, floor in _MINIMUMS.items():
         if getattr(effective, name) < floor:
             raise ResourcePolicyError(f"{name} is below the enforceable minimum of {floor}")
-    for name in UNENFORCED_FIELDS:
-        if getattr(explicit, name) is not None:
-            raise ResourcePolicyError(f"{name} is not enforced yet; refusing to pretend it is")
-    deferred = list(UNENFORCED_FIELDS)
+    deferred: list[str] = []
     os_limits = {name: getattr(effective, name) for name in OS_ENFORCED_FIELDS}
     if process_mode is ProcessLimitMode.OS_PER_UID:
         os_limits["processes"] = effective.processes

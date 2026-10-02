@@ -165,7 +165,7 @@ def test_plan_reports_enforced_and_deferred_fields() -> None:
     plan = plan_enforcement(effective)
     assert set(plan.os_limits) == {"cpu_seconds", "memory_bytes", "file_descriptors"}
     assert plan.message_bytes == effective.message_bytes
-    assert plan.deferred_fields == ("concurrency", "processes", "wall_clock_seconds")
+    assert plan.deferred_fields == ("processes",)
     per_uid = plan_enforcement(effective, process_mode=ProcessLimitMode.OS_PER_UID)
     assert per_uid.os_limits["processes"] == effective.processes
     assert "processes" not in per_uid.deferred_fields
@@ -174,8 +174,6 @@ def test_plan_reports_enforced_and_deferred_fields() -> None:
 @pytest.mark.parametrize(
     ("override", "match"),
     [
-        (ResourceBudget(wall_clock_seconds=1), "not enforced yet"),
-        (ResourceBudget(concurrency=1), "not enforced yet"),
         (ResourceBudget(processes=1), "cannot be enforced per plugin"),
         (ResourceBudget(file_descriptors=3), "enforceable minimum"),
         (ResourceBudget(memory_bytes=MIB), "enforceable minimum"),
@@ -469,13 +467,13 @@ def test_launched_runtime_cleans_up_cwd_and_process_group() -> None:
 # --- H. existing behaviour -------------------------------------------------
 
 
-def test_ungoverned_runtime_still_spawns_directly_with_full_protocol_limit() -> None:
+def test_runtime_without_explicit_budget_is_still_governed_by_the_default_profile() -> None:
     reports, runtime = _run_probe("rlimits", limits=None)
     try:
         runtime.start()
-        assert runtime.enforcement is None
+        assert runtime.enforcement is not None
         runtime.serve_once()
         limits = json.loads(reports[0])
-        assert limits["nofile"][0] != 32  # not governed
+        assert limits["nofile"][0] == runtime.enforcement.effective.file_descriptors
     finally:
         runtime.close()

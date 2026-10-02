@@ -181,8 +181,7 @@ def test_unknown_missing_and_non_string_resource_class_fail_closed() -> None:
         resolve_resource_budget("test")
     with pytest.raises(ResourcePolicyError, match="unknown resource class"):
         resolve_resource_budget("SMALL")
-    with pytest.raises(ResourcePolicyError, match="required"):
-        resolve_resource_budget(None)
+    assert resolve_resource_budget(None) == DEFAULT_RESOURCE_PROFILES["standard"].budget
     with pytest.raises(ResourcePolicyError):
         resolve_resource_budget(1)  # type: ignore[arg-type]
 
@@ -282,13 +281,13 @@ def test_runtime_unknown_resource_class_fails_closed_without_spawn(no_spawn: lis
     assert no_spawn == []
 
 
-def test_runtime_missing_resource_class_fails_closed_without_spawn(no_spawn: list[object]) -> None:
-    rt = IsolatedPluginRuntime(
-        _manifest(None), resource_limits=ResourceBudget(cpu_seconds=1)
-    )
-    with pytest.raises(LifecycleError, match="resource class is required"):
-        rt.start()
-    assert no_spawn == []
+def test_runtime_missing_resource_class_uses_standard_profile(no_spawn: list[object]) -> None:
+    rt = IsolatedPluginRuntime(_manifest(None), resource_limits=ResourceBudget(cpu_seconds=1))
+    with pytest.raises(LifecycleError):
+        rt.start()  # resolved to 'standard' and reached the (patched) spawn
+    assert len(no_spawn) == 1
+    assert rt.enforcement is not None
+    assert rt.enforcement.effective.cpu_seconds == 1
 
 
 def test_runtime_override_above_profile_fails_closed_without_spawn(no_spawn: list[object]) -> None:

@@ -59,7 +59,7 @@ def _manifest(
                 *arguments,
             ],
             "requested_capabilities": list(capabilities),
-            "resource_class": "test",
+            "resource_class": "standard",
         }
     )
 
