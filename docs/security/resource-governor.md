@@ -15,9 +15,10 @@ Copyright (C) 2026 Siergej Sobolewski
 Status: **Slices 1-4 implemented and audited** (policy contract; POSIX rlimit
 and IPC-size enforcement; default governance, total wall-clock watchdog,
 concurrency permits and `RESOURCE` diagnostic events; bounded abuse evidence and
-this audit). FreeBSD execution evidence is pending. Issue #53 is not complete:
-it is not closed until the maintainer accepts the audit and the FreeBSD lane
-evidence below.
+this audit). Native Tier-1 CI validates the governor on Debian 13 / amd64 /
+CPython 3.13 and FreeBSD 14.4 / amd64 / CPython 3.13. The implementation and
+acceptance evidence for Issue #53 are complete; the issue itself stays open
+until the maintainer closes it.
 
 ## Slice 1: policy contract (implemented)
 
@@ -173,7 +174,11 @@ required primitive fails closed before exec.
   `CAP_SYS_RESOURCE`.
 * FreeBSD: `RLIMIT_VMEM` is the address-space limit (aliased to `RLIMIT_AS` in
   Python); the rest map identically. Capsicum and per-jail accounting are not
-  used. Issue #52 defines the platform-tier contract; Issue #53 owns the resource-governor execution evidence, and no FreeBSD execution evidence exists yet.
+  used. Native FreeBSD 14.4 CI validates this path: address-space enforcement
+  relies on `RLIMIT_AS`/`RLIMIT_VMEM` alias detection, and the `RLIMIT_NPROC`
+  evidence runs under an unprivileged account (it is per-real-UID, not a
+  per-plugin tree limit). Issue #52 defines the platform-tier contract; Issue
+  #53 owns the resource-governor execution evidence.
 
 ## Slice 3: supervision (implemented)
 
@@ -255,10 +260,11 @@ no child-tree counting, no `/proc`.
 
 ### Evidence
 
-Linux (Debian) execution evidence exists in `tests/test_resource_supervisor.py`
-and `tests/test_resource_enforcement.py`. The code uses no `/proc`, cgroups,
-systemd or root, but FreeBSD execution evidence is pending; nothing here
-claims it ran on FreeBSD.
+Both Tier-1 reference platforms (Debian 13 / amd64 / CPython 3.13 and FreeBSD
+14.4 / amd64 / CPython 3.13) execute the shared governor evidence suite
+(`scripts/check_resource_governor_evidence.sh`, including
+`tests/test_resource_supervisor.py` and `tests/test_resource_enforcement.py`).
+The code uses no `/proc`, cgroups, systemd or root.
 
 ## Slice 4: controlled abuse evidence
 
@@ -298,10 +304,15 @@ scripts/check_resource_governor_evidence.sh`); the script owns the resource
 test list, so the workflow does not duplicate it, and
 `tests/test_platform_tier_contract.py` pins the entrypoint in both jobs.
 
-| Platform | State |
+| Platform | Evidence |
 | --- | --- |
-| Debian 13 / amd64 / CPython 3.13 | Implementation tested locally; Tier-1 CI wired; PR CI execution pending. |
-| FreeBSD 14.4 / amd64 / CPython 3.13 | Implementation ready; Tier-1 CI wired; FreeBSD execution evidence is pending. The code has never run on FreeBSD (`RLIMIT_VMEM` alias detection, no `/proc`), and no native evidence is claimed until GitHub CI runs it successfully. |
+| Debian 13 / amd64 / CPython 3.13 | Tier-1 native/reference CI evidence passes. |
+| FreeBSD 14.4 / amd64 / CPython 3.13 | Tier-1 native CI evidence passes, executed under the dedicated unprivileged `pyshci` account. |
+
+The FreeBSD governor suite runs under `pyshci` because privileged contexts able
+to raise hard rlimits are intentionally rejected by the launcher. In that job
+the general platform tests keep the VM's normal context. No Capsicum or jail
+confinement is claimed.
 
 Issue #52 defines the platform-tier contract; Issue #53 owns the resource
 governor execution evidence.
@@ -312,8 +323,8 @@ Roadmap acceptance criteria for Issue #53, with evidence:
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
-| Task exceeding budget is stopped without taking down the session | Met on Linux | `test_resource_abuse.py` (session-healthy check after each scenario) |
-| Tests force timeout / OOM / fork-bomb in isolation and verify containment | Met on Linux, bounded | Hang and busy loop (watchdog), allocation (`RLIMIT_AS`), fork loop (per-UID `RLIMIT_NPROC`, opt-in) |
+| Task exceeding budget is stopped without taking down the session | Met; validated by the shared Tier-1 evidence | `test_resource_abuse.py` (session-healthy check after each scenario) |
+| Tests force timeout / OOM / fork-bomb in isolation and verify containment | Met; validated by the shared Tier-1 evidence, bounded | Hang and busy loop (watchdog), allocation (`RLIMIT_AS`), process creation refused by the opt-in per-real-UID `RLIMIT_NPROC` (not an exact per-plugin counter) |
 | Limits documented and versioned; hard ceilings enforced over user config | Met | Contract version `1`; `test_resource_governor_contract.py` pins this document to the constants |
 | Budget violations are contained and reported through Issue #50 | Met for wall clock, message size, concurrency | `resource.limit_exceeded`, schema version 1; OS deaths deliberately unattributed |
 | Default budgets per task class | Met | `small`, `standard`, `large`; `standard` default; unknown fails closed |
@@ -329,10 +340,11 @@ Known limitations (not hidden):
 * CPU, memory, descriptor and fork deaths are not attributed to a resource.
 * `concurrency` counts runtimes of one plugin in one parent process; it is not a
   cross-process or system-wide limit.
-* FreeBSD execution evidence is pending PR CI; the Tier-1 CI jobs are wired but
-  have not yet run.
+* There is no exact portable per-plugin process-tree counter, and no Capsicum,
+  jail or cgroup claim is made.
 
-## Remaining (NOT implemented)
+## Future hardening (outside this contract)
 
-FreeBSD (and Debian CI) execution evidence from a successful PR CI run, and
-per-plugin process-tree containment.
+Exact per-plugin process-tree containment is intentionally deferred. It is not
+part of the portable `RLIMIT_NPROC` contract above and the issue's acceptance
+criteria do not require it.

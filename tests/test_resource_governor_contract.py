@@ -84,12 +84,17 @@ def test_documentation_makes_only_truthful_claims() -> None:
         "virtual address-space",
         "not a resident-memory meter",
         "per-real-UID",
-        "FreeBSD execution evidence is pending",
-        "Issue #53 is not complete",
+        "FreeBSD 14.4",
+        "Tier-1",
+        "`pyshci`",
+        "`RLIMIT_NPROC`",
         "no cgroup",
     ):
         assert required in text, required
-    assert "Issue #53 is complete" not in text
+    assert "Issue #53 is closed" not in text  # closing is the maintainer's action
+    assert "stays open until the maintainer closes it" in text
+    for stale in ("execution evidence is pending", "has never run on FreeBSD"):
+        assert stale not in text, stale
 
 
 def test_documented_exit_codes_and_mappings_match_the_launcher() -> None:
