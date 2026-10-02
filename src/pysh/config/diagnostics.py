@@ -9,15 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-SECRET_KEY_MARKERS: tuple[str, ...] = (
-    "TOKEN",
-    "SECRET",
-    "PASSWORD",
-    "PASS",
-    "KEY",
-    "PRIVATE",
-    "CREDENTIAL",
-)
+from pysh.diagnostics.redaction import DEFAULT_REDACTION_POLICY, SENSITIVE_NAME_TOKENS
+
+# Re-exported for backward compatibility. The canonical sensitive-name list
+# lives in pysh.diagnostics.redaction (Issue #50); this configuration module
+# no longer owns a second, independently-maintained copy.
+SECRET_KEY_MARKERS: tuple[str, ...] = SENSITIVE_NAME_TOKENS
 
 
 @dataclass(frozen=True)
@@ -61,11 +58,15 @@ def safe_value_repr(key: str | None, value: object) -> str:
 
 
 def is_secret_like(name: str | None) -> bool:
-    """Return whether *name* looks sensitive enough to redact diagnostics."""
+    """Return whether *name* looks sensitive enough to redact diagnostics.
+
+    Delegates to the canonical :data:`pysh.diagnostics.redaction.DEFAULT_REDACTION_POLICY`
+    so configuration diagnostics classify secrets identically to every other
+    PySH diagnostic surface (Issue #50).
+    """
     if not name:
         return False
-    upper = name.upper()
-    return any(marker in upper for marker in SECRET_KEY_MARKERS)
+    return DEFAULT_REDACTION_POLICY.is_sensitive_name(name)
 
 
 def error(

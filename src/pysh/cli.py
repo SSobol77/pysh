@@ -8,14 +8,15 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from pysh import __version__
 from pysh.config.startup import StartupPolicy
 from pysh.core.errors import exception_to_diagnostic
 from pysh.core.shell import PyShell, _ExitShell
-from pysh.diagnostics.trace import DiagnosticTrace, TraceOptions
+from pysh.diagnostics.jsonl import JsonlDiagnosticSink, structured_event_from_trace
+from pysh.diagnostics.trace import DiagnosticEvent, DiagnosticTrace, TraceOptions
 from pysh.parsing.multiline import iter_logical_lines
 
 _UNSUPPORTED_SYSTEM_SHELL_NAMES: frozenset[str] = frozenset(
@@ -45,12 +46,22 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="execute COMMAND and exit",
     )
-    parser.add_argument(
+    diagnostics_format_group = parser.add_mutually_exclusive_group()
+    diagnostics_format_group.add_argument(
         "--debug",
         "--trace",
         dest="debug",
         action="store_true",
         help="emit deterministic PySH diagnostic trace lines to stderr",
+    )
+    diagnostics_format_group.add_argument(
+        "--diagnostics-json",
+        dest="diagnostics_json",
+        action="store_true",
+        help=(
+            "emit structured (schema v1) diagnostic trace events as JSON "
+            "Lines to stderr; mutually exclusive with --debug/--trace"
+        ),
     )
     parser.add_argument(
         "--no-rc",
@@ -84,6 +95,26 @@ def is_unsupported_system_shell_invocation(
     return False
 
 
+def _build_trace(*, debug: bool, diagnostics_json: bool) -> DiagnosticTrace:
+    """Construct the runtime trace, wiring the structured JSONL sink when requested.
+
+    ``pysh.diagnostics.trace`` stays decoupled from the schema v1 structured
+    event model; this function is the single place that bridges the two
+    (Issue #50 slice 2).
+    """
+    structured_sink: Callable[[DiagnosticEvent], None] | None = None
+    if diagnostics_json:
+        json_sink = JsonlDiagnosticSink()
+
+        def structured_sink(event: DiagnosticEvent) -> None:
+            json_sink.write_structured_event(structured_event_from_trace(event))
+
+    return DiagnosticTrace(
+        TraceOptions(enabled=debug, json_enabled=diagnostics_json),
+        structured_sink=structured_sink,
+    )
+
+
 def _print_unsupported_system_shell_invocation(argv0: str) -> None:
     name = Path(argv0).name
     print(f"pysh: unsupported invocation mode: {name}", file=sys.stderr)
@@ -108,7 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv if argv is not None else sys.argv[1:])
     startup_policy = StartupPolicy(load_user_configuration=not args.no_rc)
     shell = PyShell(
-        trace=DiagnosticTrace(TraceOptions(enabled=bool(args.debug))),
+        trace=_build_trace(debug=bool(args.debug), diagnostics_json=bool(args.diagnostics_json)),
         startup_policy=startup_policy,
     )
     try:

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import shlex
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import IO
@@ -77,9 +77,17 @@ class DiagnosticStage(StrEnum):
 
 @dataclass(frozen=True)
 class TraceOptions:
-    """Options for opt-in diagnostic tracing."""
+    """Options for opt-in diagnostic tracing.
+
+    ``enabled`` gates the pre-existing human-readable ``[PYSH_DEBUG]`` text
+    trace. ``json_enabled`` independently gates the structured (schema v1)
+    trace adapter (Issue #50 slice 2, see :mod:`pysh.diagnostics.jsonl`).
+    Either, both, or neither may be set; a trace call becomes a no-op only
+    when both are False.
+    """
 
     enabled: bool = False
+    json_enabled: bool = False
     prefix: str = "[PYSH_DEBUG]"
     redaction: RedactionPolicy = DEFAULT_REDACTION_POLICY
 
@@ -105,21 +113,66 @@ class DiagnosticSink:
         print(line, file=self.stream)
 
 
+#: Exception classes a structured_sink failure is expected to raise: schema
+#: validation errors from a malformed event (TypeError/ValueError, see
+#: pysh.diagnostics.schema), and serialization/stream I/O failures
+#: (TypeError/ValueError from json.dumps, OSError from a closed or broken
+#: stream). Diagnostics are observational (Issue #50): a failure in this set
+#: must never alter command execution. Anything outside this set is treated
+#: as a genuine programming error and is allowed to propagate.
+_STRUCTURED_SINK_FAILURE_EXCEPTIONS: tuple[type[Exception], ...] = (
+    TypeError,
+    ValueError,
+    OSError,
+)
+
+
 class DiagnosticTrace:
-    """Runtime trace writer. Disabled traces are no-ops."""
+    """Runtime trace writer. Disabled traces are no-ops.
+
+    ``structured_sink``, when supplied, is invoked with the raw
+    :class:`DiagnosticEvent` whenever ``options.json_enabled`` is True. This
+    class deliberately knows nothing about the structured (schema v1)
+    event model: the adapter from :class:`DiagnosticEvent` to a
+    ``StructuredDiagnosticEvent`` lives in :mod:`pysh.diagnostics.jsonl`,
+    and callers (``pysh.cli``) wire the two together. This keeps the
+    pre-existing text-trace path fully decoupled from the newer structured
+    contract.
+
+    Structured diagnostics are observational only (Issue #50): a failure
+    raised by ``structured_sink`` (malformed event construction, JSON
+    serialization, or sink I/O) is contained at this boundary and never
+    propagates into the caller's command execution. It is not re-logged
+    through this same trace (doing so could recurse or fail identically)
+    and produces no secondary output. The pre-existing human-readable text
+    sink is unaffected by this containment and keeps its original behavior.
+    """
 
     def __init__(
         self,
         options: TraceOptions | None = None,
         sink: DiagnosticSink | None = None,
+        structured_sink: Callable[[DiagnosticEvent], None] | None = None,
     ) -> None:
         self.options = options if options is not None else TraceOptions()
         self.sink = sink if sink is not None else DiagnosticSink()
+        self.structured_sink = structured_sink
 
     @property
     def enabled(self) -> bool:
-        """Return True when trace emission is enabled."""
-        return self.options.enabled
+        """Return True when any trace emission (text or structured) is enabled."""
+        return self.options.enabled or self.options.json_enabled
+
+    def _dispatch(self, event: DiagnosticEvent) -> None:
+        if self.options.enabled:
+            self.sink.write_event(format_trace_event(event, self.options))
+        if self.options.json_enabled and self.structured_sink is not None:
+            try:
+                self.structured_sink(event)
+            except _STRUCTURED_SINK_FAILURE_EXCEPTIONS:
+                # Observational only: never let a diagnostics-sink failure
+                # affect command execution, and never re-attempt to log it.
+                pass
 
     def emit(
         self,
@@ -131,7 +184,7 @@ class DiagnosticTrace:
         if not self.enabled:
             return
         event = DiagnosticEvent(stage=stage, message=message, fields=fields)
-        self.sink.write_event(format_trace_event(event, self.options))
+        self._dispatch(event)
 
     def error(self, message: str, **fields: object) -> None:
         """Emit an error event if tracing is enabled."""
@@ -143,7 +196,7 @@ class DiagnosticTrace:
             level=DiagnosticLevel.ERROR,
             fields=fields,
         )
-        self.sink.write_event(format_trace_event(event, self.options))
+        self._dispatch(event)
 
 
 def format_trace_event(event: DiagnosticEvent, options: TraceOptions | None = None) -> str:

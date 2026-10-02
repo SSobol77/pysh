@@ -94,7 +94,7 @@ layer = "interactive_presentation"
 classification = "internal"
 owner = "Prompt colors, terminal presentation, and system-profile rendering"
 extension_status = "none"
-allowed_dependencies = []
+allowed_dependencies = ["pysh.diagnostics"]
 
 [[domains]]
 module = "pysh.python_layer"
@@ -110,7 +110,7 @@ layer = "configuration"
 classification = "internal"
 owner = "Startup policy, configuration parsing, validation, and application"
 extension_status = "documented_configuration_schema"
-allowed_dependencies = []
+allowed_dependencies = ["pysh.diagnostics"]
 
 [[domains]]
 module = "pysh.compat"
