@@ -476,7 +476,7 @@ def test_v1_threat_model_preserves_security_assurance_contract() -> None:
         "CPython in-process execution is\n**not a security boundary**",
         "## Data classification",
         "## Safe startup: `--no-rc`",
-        "`pysh.diagnostics.trace.RedactionPolicy` is the canonical policy",
+        "`pysh.diagnostics.redaction.RedactionPolicy` (default instance",
         "## Threat register",
         "TM-PARSER-001",
         "TM-RUNTIME-001",
@@ -1541,3 +1541,44 @@ def test_issue_47_historical_budget_cannot_mask_normative_row_mismatch() -> None
         match=re.escape(expected_diagnostic),
     ):
         _assert_documented_budgets_match_policy(performance, policy["benchmarks"])
+
+
+# ---------------------------------------------------------------------------
+# Issue #50 — structured diagnostics, audit log, and redaction contract
+# ---------------------------------------------------------------------------
+
+
+def test_issue_50_diagnostics_audit_contract_is_documented() -> None:
+    """Durable Issue #50 invariants must be stated in the public contract."""
+    contract = (
+        DOCS / "architecture" / "observability-diagnostics-contract.md"
+    ).read_text(encoding="utf-8")
+    normalized = " ".join(contract.split()).lower()
+
+    assert "schema_version" in normalized and "currently `1`" in normalized
+    assert "--diagnostics-json" in contract
+    assert "--audit-log" in contract
+    assert "off by default" in normalized
+    assert "redaction always precedes serialization" in normalized
+    assert "not part of the diagnostic or audit pipeline" in normalized
+    assert "reserved" in normalized and "does not mean" in normalized
+    for reserved_class in ("`ai`", "`remote`", "`package`"):
+        assert reserved_class in contract
+
+    usage = (DOCS / "user" / "usage.md").read_text(encoding="utf-8")
+    limitations = (DOCS / "user" / "limitations.md").read_text(encoding="utf-8")
+    assert "--audit-log" in usage and "--diagnostics-json" in usage
+    assert "not a sandbox" in " ".join(limitations.split()).lower()
+
+    threat_model = (DOCS / "security" / "threat-model.md").read_text(encoding="utf-8")
+    assert "pysh.diagnostics.redaction" in threat_model
+    # Isolated-plugin events carry capability declarations (which may name a
+    # filesystem root, variable name, command, or endpoint) but no payload values.
+    assert "bounded authorization metadata" in normalized
+    assert "canonical capability declarations" in normalized
+    assert "are not copied into diagnostic/audit events" in normalized
+    assert "requested paths" not in normalized
+    feature_matrix = (DOCS / "compatibility" / "feature-matrix.md").read_text(
+        encoding="utf-8"
+    )
+    assert "all egress seams" not in feature_matrix

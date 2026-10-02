@@ -186,6 +186,11 @@ class IsolatedPluginRuntime:
             )
             hello = self._read(self._handshake_timeout)
             self._validate_hello(hello)
+            self._emit(
+                IsolatedPluginEventKind.GRANTED,
+                requested=self.grant.requested,
+                granted=self.grant.granted,
+            )
             self._write(
                 IPCMessage(
                     message_type=HANDSHAKE_GRANT,

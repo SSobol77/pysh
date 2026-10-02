@@ -420,15 +420,35 @@ def test_events_expose_identity_grants_denials_and_failures_without_values() -> 
     finally:
         runtime.close()
 
-    assert [event.kind for event in events[:3]] == [
+    assert [event.kind for event in events[:4]] == [
         IsolatedPluginEventKind.SPAWN,
+        IsolatedPluginEventKind.GRANTED,
         IsolatedPluginEventKind.HANDSHAKE,
         IsolatedPluginEventKind.RUNNING,
     ]
     assert any(event.kind is IsolatedPluginEventKind.DENIED for event in events)
     assert events[0].requested_capabilities == (declaration,)
     assert events[0].granted_capabilities == ()
+    assert events[1].requested_capabilities == (declaration,)
+    assert events[1].granted_capabilities == ()
+    assert sum(event.kind is IsolatedPluginEventKind.GRANTED for event in events) == 1
     assert all("must-not" not in repr(event) for event in events)
+
+
+@pytest.mark.parametrize("mode", ["identity_mismatch", "version_mismatch", "malformed_handshake"])
+def test_granted_event_is_not_emitted_when_hello_validation_fails(mode: str) -> None:
+    events: list[IsolatedPluginEvent] = []
+    runtime = IsolatedPluginRuntime(_manifest(mode), event_sink=events.append)
+    try:
+        with pytest.raises(LifecycleError):
+            runtime.start()
+    finally:
+        runtime.close()
+
+    kinds = [event.kind for event in events]
+    assert IsolatedPluginEventKind.SPAWN in kinds
+    assert IsolatedPluginEventKind.GRANTED not in kinds
+    assert IsolatedPluginEventKind.FAILURE in kinds
 
 
 def test_resource_limit_seam_fails_closed_until_issue_53() -> None:

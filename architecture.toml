@@ -150,7 +150,7 @@ layer = "isolated_plugin_boundary"
 classification = "internal"
 owner = "Issue #44 manifest, IPC, broker, and isolated subprocess implementation"
 extension_status = "manifest_and_ipc_are_external_python_objects_are_internal"
-allowed_dependencies = ["pysh.plugins"]
+allowed_dependencies = ["pysh.diagnostics", "pysh.plugins"]
 
 [[domains]]
 module = "pysh.migration"

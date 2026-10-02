@@ -125,9 +125,14 @@ src/pysh/
 │   └── secure_runner.py     ← SecureRunner: PTY bridge for sensitive commands
 │
 ├── diagnostics/
+│   ├── audit.py             ← opt-in append-only `--audit-log` JSONL sink
 │   ├── command_plan.py      ← plan builtin: advisory command classifier
+│   ├── emitter.py           ← DiagnosticEmitter: validate → redact → payload
+│   ├── jsonl.py             ← schema-v1 JSONL serializer and stderr sink
+│   ├── redaction.py         ← canonical RedactionPolicy (single policy)
+│   ├── schema.py            ← StructuredDiagnosticEvent, schema version 1
 │   ├── system_info.py       ← sys_info and env_audit helpers
-│   └── trace.py             ← opt-in trace events, stages and redaction policy
+│   └── trace.py             ← opt-in trace events and stages (re-exports redaction)
 │
 └── contracts/               ← architecture protocol layer (Issue #3)
     ├── __init__.py          ← re-exports all protocol names
@@ -219,7 +224,13 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.security.secure_runner` | `SecureRunner`: PTY bridge; `indicator_config_from_mapping` |
 | `pysh.diagnostics.command_plan` | `plan` function: advisory classifier for `plan <cmd>` builtin |
 | `pysh.diagnostics.system_info` | System information helpers used by `sys_info` and `env_audit` |
-| `pysh.diagnostics.trace` | `DiagnosticTrace`, canonical stages and redaction helpers for opt-in stderr trace output |
+| `pysh.diagnostics.trace` | `DiagnosticTrace`, canonical stages for opt-in stderr trace output; re-exports the canonical redaction names |
+| `pysh.diagnostics.schema` | `StructuredDiagnosticEvent` and `DIAGNOSTIC_EVENT_SCHEMA_VERSION` (schema v1) |
+| `pysh.diagnostics.redaction` | `RedactionPolicy`, `DEFAULT_REDACTION_POLICY`: the single canonical redaction implementation |
+| `pysh.diagnostics.emitter` | `DiagnosticEmitter`: validate, redact, and convert events to payloads |
+| `pysh.diagnostics.jsonl` | `encode_jsonl_line`, `JsonlDiagnosticSink`, trace-to-structured adapter (`--diagnostics-json`) |
+| `pysh.diagnostics.audit` | `AuditLogSink`, `AuditLogError`: opt-in persistent audit file (`--audit-log`) |
+| `pysh.plugins.isolated.diagnostics` | Adapter from isolated-plugin events to schema v1 and `make_structured_plugin_event_sink` (`pysh.plugins.isolated → pysh.diagnostics` only) |
 | `pysh.script_runner` | `ScriptRunner`, `ScriptType`, `ScriptExit`: shebang dispatch and native logical-line execution |
 
 ---
@@ -269,7 +280,8 @@ pysh.core.shell
   `config`. This reflects the editor engine serving multiple consumers.
 - `pysh.prompt.colors` is used by `core`, `config`, and `security`.
 - `pysh.plugins.isolated` is a distinct domain that may import only the
-  trusted-plugin domain; `core` does not import isolated runtime internals.
+  trusted-plugin domain and the lower-level `pysh.diagnostics` facility
+  (never the reverse); `core` does not import isolated runtime internals.
 - No circular imports exist as of the Issue #2 relocation.
 
 ---
