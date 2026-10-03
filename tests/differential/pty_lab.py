@@ -397,4 +397,3 @@ def evaluate_profile(
         elif record.classification == UNDECLARED_DIFFERENCE:
             problems.append(f"UNREVIEWED PTY {case.case_id}/{profile.profile_id}: {record.detail}")
     return records, problems
-
