@@ -15,7 +15,7 @@
       "product_dependency": false,
       "semantic_authority": false,
       "policy": "Explicit interoperability request. Never defines PySH language semantics and is never used internally for ordinary execution. Retained in Slice 2.",
-      "notes": "_run_zsh_command is shared with the automatic fallback but is only reachable automatically through _run_zsh_fallback."
+      "notes": "Reached only through the explicit `zsh` builtin; no automatic path calls _run_zsh_command."
     },
     {
       "id": "zsh-bridge-executor",
@@ -38,14 +38,15 @@
       "category": "EXPLICIT_MIGRATION_BRIDGE",
       "production_path": "src/pysh/core/shell.py",
       "symbols": [
-        "<module>"
+        "<module>",
+        "PyShell.__init__"
       ],
       "trigger": "Module import of the bridge class.",
       "automatic": false,
       "product_dependency": false,
       "semantic_authority": false,
       "policy": "Wiring only; no execution.",
-      "notes": "The bridge instance is created in PyShell.__init__ (see zsh-fallback-enablement)."
+      "notes": "The bridge instance is created in PyShell.__init__ and is used only by the explicit builtin."
     },
     {
       "id": "zsh-builtin-registry",
@@ -54,59 +55,12 @@
       "symbols": [
         "<module>"
       ],
-      "trigger": "Registration of the `zsh` and `zsh_fallback` builtin names.",
+      "trigger": "Registration of the `zsh` builtin name.",
       "automatic": false,
       "product_dependency": false,
       "semantic_authority": false,
       "policy": "Name registry only; no execution.",
-      "notes": "The `zsh_fallback` name is classified with the automatic fallback boundaries."
-    },
-    {
-      "id": "zsh-fallback-enablement",
-      "category": "AUTOMATIC_LEGACY_FALLBACK",
-      "production_path": "src/pysh/core/shell.py",
-      "symbols": [
-        "PyShell.__init__",
-        "PyShell._builtin_zsh_fallback",
-        "PyShell._assign_local",
-        "PyShell._set_exported_environment"
-      ],
-      "trigger": "`zsh_fallback on`, or PYSH_ZSH_FALLBACK=1 in the environment, or assigning PYSH_ZSH_FALLBACK=1 as a local/exported variable.",
-      "automatic": true,
-      "product_dependency": false,
-      "semantic_authority": false,
-      "policy": "Migration-era opt-in switch that arms the automatic fallback. Off by default. Not part of the target PySH 1.0 architecture; a pre-1.0 decision is required (see docs/compatibility/legacy-shell-migration.md).",
-      "notes": "Enablement is user-controlled but, once armed, handing work to zsh is automatic."
-    },
-    {
-      "id": "zsh-fallback-triggers",
-      "category": "AUTOMATIC_LEGACY_FALLBACK",
-      "production_path": "src/pysh/core/shell.py",
-      "symbols": [
-        "PyShell._run_simple",
-        "PyShell._run_pipeline",
-        "PyShell._run_external"
-      ],
-      "trigger": "While armed: path-expansion ValueError (_run_simple), a pipeline stage whose external command is not on PATH (_run_pipeline), FileNotFoundError from process creation (_run_external).",
-      "automatic": true,
-      "product_dependency": false,
-      "semantic_authority": false,
-      "policy": "Automatic hand-off of unsupported or unresolved input to zsh. Not part of the target PySH 1.0 architecture; a pre-1.0 decision is required (see docs/compatibility/legacy-shell-migration.md).",
-      "notes": "Exact current entry points; each calls _run_zsh_fallback."
-    },
-    {
-      "id": "zsh-fallback-dispatch",
-      "category": "AUTOMATIC_LEGACY_FALLBACK",
-      "production_path": "src/pysh/core/shell.py",
-      "symbols": [
-        "PyShell._run_zsh_fallback"
-      ],
-      "trigger": "Called only by the trigger sites above.",
-      "automatic": true,
-      "product_dependency": false,
-      "semantic_authority": false,
-      "policy": "Thin wrapper over _run_zsh_command. Not part of the target PySH 1.0 architecture; a pre-1.0 decision is required (see docs/compatibility/legacy-shell-migration.md).",
-      "notes": "Removing the fallback means removing this and the trigger branches."
+      "notes": "Name registry only; no execution."
     },
     {
       "id": "script-shebang-delegation",
@@ -211,20 +165,6 @@
       "semantic_authority": false,
       "policy": "Describes the bridges; no execution.",
       "notes": "Documentation never counts as a drift signal."
-    },
-    {
-      "id": "substitution-fallback-isolation",
-      "category": "PYSH_NATIVE",
-      "production_path": "src/pysh/parsing/expansion.py",
-      "symbols": [
-        "<module>"
-      ],
-      "trigger": "Every command substitution.",
-      "automatic": false,
-      "product_dependency": false,
-      "semantic_authority": false,
-      "policy": "Defensive only: names the fallback environment variable so the nested PySH is started with it removed. Executes nothing and never reaches a legacy shell.",
-      "notes": "The only legacy-related token in the substitution module; pinned by test_command_substitution_native."
     }
   ]
 }

@@ -244,7 +244,6 @@ Aliases are expanded only for the first word of each pipeline stage.
 | `paste_cancel` | Discard captured bracketed multiline paste. |
 | `compat_check` | Print a static migration report for a shell file.      |
 | `zsh`      | Execute one command through real `zsh -lc`.                |
-| `zsh_fallback` | Enable or disable optional zsh fallback mode.         |
 | `py`       | Execute Python code in the persistent PySH runtime.        |
 | `sys_info` | Print platform / Python / user / shell / PATH summary.     |
 | `env_audit` | Print a redacted environment audit summary.               |
@@ -301,16 +300,9 @@ through PySH's native execution engine where possible.
 installed. If zsh is unavailable, it returns 127 and reports
 `pysh: zsh: command not found`.
 
-Fallback is off by default:
-
-```sh
-zsh_fallback on
-zsh_fallback off
-PYSH_ZSH_FALLBACK=1
-```
-
-When enabled, fallback may delegate commands PySH cannot parse or execute
-natively. PySH builtins are not delegated.
+PySH never delegates to zsh automatically. The `zsh_fallback` builtin and the
+`PYSH_ZSH_FALLBACK` variable were removed before 1.0; the variable has no
+effect. Unknown commands report `command not found` (127).
 
 ## Python runtime
 

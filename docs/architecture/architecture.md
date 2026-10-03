@@ -241,7 +241,7 @@ pysh.compat   ──►  provides: ZshBridge, zsh/sh alias importers, MC detecti
 ```
 
 The compat layer is a **transition** layer, not a permanent broad compatibility
-layer. `zsh_fallback` and `run_script` delegation are explicit operations, not
+layer. `zsh <cmd>` and `run_script` delegation are explicit operations, not
 transparent wrappers. No new broad compatibility layers are permitted.
 
 ---

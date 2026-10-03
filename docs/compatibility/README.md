@@ -88,9 +88,9 @@ and extract static alias/export/assignment entries without executing any code.
 `zsh <command>` is explicit: the user types the `zsh` prefix. The command
 is forwarded to `zsh -lc <command>`.
 
-Fallback mode (`zsh_fallback on`) is off by default and must be explicitly
-enabled. When enabled, PySH may forward unparseable commands to zsh. This is
-a migration aid, not a compatibility guarantee.
+PySH has no automatic fallback to zsh: the former `zsh_fallback` builtin and
+`PYSH_ZSH_FALLBACK` variable were removed before PySH 1.0. A command PySH cannot
+run is a PySH diagnostic, never a silent retry through zsh.
 
 **Static profile import** is not the same as sourcing a profile.
 `source_zsh_profile ~/.zshrc` extracts aliases, exports, and assignments

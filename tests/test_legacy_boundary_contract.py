@@ -38,31 +38,23 @@ def _pairs(inventory: tuple[bnd.Boundary, ...], category: str) -> set[tuple[str,
 
 def test_shipped_inventory_is_valid_and_covers_every_category() -> None:
     inventory = bnd.load_inventory()
-    assert {b.category for b in inventory} == bnd.CATEGORIES
-    assert all(not b.automatic or b.category == bnd.AUTOMATIC_CATEGORY for b in inventory)
+    # The automatic-fallback category exists in the schema but must stay empty.
+    assert {b.category for b in inventory} == bnd.CATEGORIES - {bnd.AUTOMATIC_CATEGORY}
+    assert not any(b.automatic for b in inventory)
     assert all(b.policy and b.trigger and b.notes for b in inventory)
 
 
-def test_automatic_fallback_entry_points_are_pinned_exactly() -> None:
+def test_no_automatic_legacy_fallback_boundary_exists() -> None:
     inventory = bnd.load_inventory()
-    assert _pairs(inventory, "AUTOMATIC_LEGACY_FALLBACK") == {
-        ("src/pysh/core/shell.py", "PyShell.__init__"),
-        ("src/pysh/core/shell.py", "PyShell._builtin_zsh_fallback"),
-        ("src/pysh/core/shell.py", "PyShell._assign_local"),
-        ("src/pysh/core/shell.py", "PyShell._set_exported_environment"),
-        ("src/pysh/core/shell.py", "PyShell._run_simple"),
-        ("src/pysh/core/shell.py", "PyShell._run_pipeline"),
-        ("src/pysh/core/shell.py", "PyShell._run_external"),
-        ("src/pysh/core/shell.py", "PyShell._run_zsh_fallback"),
-    }
+    assert _pairs(inventory, "AUTOMATIC_LEGACY_FALLBACK") == set()
+    assert bnd.MAX_AUTOMATIC_ENTRIES == 0
+    assert RAW["boundaries"] and all(b["automatic"] is False for b in RAW["boundaries"])
 
 
 def test_command_substitution_is_no_longer_a_legacy_boundary() -> None:
     inventory = bnd.load_inventory()
-    mine = [b for b in inventory if b.production_path == "src/pysh/parsing/expansion.py"]
-    # Only the defensive environment scrub is inventoried: no bridge, shebang or fallback.
-    assert [(b.category, b.symbols) for b in mine] == [("PYSH_NATIVE", ("<module>",))]
-    assert bnd.scan_tree()["src/pysh/parsing/expansion.py"] == frozenset({"<module>"})
+    assert all(b.production_path != "src/pysh/parsing/expansion.py" for b in inventory)
+    assert "src/pysh/parsing/expansion.py" not in bnd.scan_tree()
 
 
 def test_explicit_bridge_and_shebang_entry_points_are_distinct_from_automatic_ones() -> None:
@@ -103,10 +95,11 @@ def _mutated(mutate) -> Any:
         (lambda d: d["boundaries"][0].update(symbols=["NoSuch.symbol"]), "unresolved"),
         (lambda d: d["boundaries"][0].update(symbols=[]), "symbols"),
         (lambda d: d["boundaries"][0].update(automatic=True), "automatic"),
+        (lambda d: d["boundaries"][0].update(category="AUTOMATIC_LEGACY_FALLBACK", automatic=True),
+         "permits no AUTOMATIC_LEGACY_FALLBACK"),
         (lambda d: d["boundaries"][0].update(semantic_authority=True), "semantic authority"),
         (lambda d: d["boundaries"][0].update(product_dependency=True), "product dependency"),
         (lambda d: d["boundaries"][0].update(automatic="yes"), "boolean"),
-        (lambda d: d["boundaries"][4].update(automatic=False), "automatic"),
         (lambda d: d["boundaries"][1].update(symbols=d["boundaries"][0]["symbols"][:1]
                                              ) or d["boundaries"][1].update(
             production_path=d["boundaries"][0]["production_path"]), "already classified"),
@@ -119,6 +112,70 @@ def test_invalid_inventory_is_rejected(mutate, message: str) -> None:
 
 
 # --- drift guard -------------------------------------------------------------------------------
+
+
+def test_production_has_no_automatic_fallback_signal_of_any_kind() -> None:
+    assert bnd.scan_forbidden() == {}, "an automatic legacy-shell fallback was reintroduced"
+
+
+def test_bridge_machinery_is_referenced_only_by_the_explicit_bridge_entries() -> None:
+    inventory = bnd.load_inventory()
+    explicit = {
+        (b.production_path, symbol)
+        for b in inventory if b.category == "EXPLICIT_MIGRATION_BRIDGE" for symbol in b.symbols
+    }
+    referenced = {
+        (path, symbol) for path, symbols in bnd.scan_bridge_references().items() for symbol in symbols
+    }
+    assert referenced <= explicit, sorted(referenced - explicit)
+    # Only the explicit `zsh` builtin reaches the bridge executor.
+    callers = {
+        symbol for path, symbols in bnd.scan_bridge_references().items()
+        if path == "src/pysh/core/shell.py" for symbol in symbols
+    }
+    assert callers == {"<module>", "PyShell.__init__", "PyShell._builtin_zsh", "PyShell._run_zsh_command"}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def _run_zsh_fallback(self, c):\n    return 1\n",
+        "def _run_legacy_fallback(c):\n    return 1\n",
+        "class A:\n    def m(self):\n        return self.zsh_fallback_enabled\n",
+        "def f(env):\n    return env.get('PYSH_ZSH_FALLBACK')\n",
+        "def f():\n    return 'zsh_fallback'\n",
+        "bash_fallback = True\n",
+        "def f(zsh_fallback=False):\n    return 1\n",
+    ],
+)
+def test_reintroduced_fallback_machinery_is_detected(source: str) -> None:
+    assert bnd.forbidden_fallback_signals(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def f():\n    return 'fallback'\n",
+        "def retry_with_fallback_encoding(x):\n    return x\n",
+        "def f(self):\n    return self._builtin_zsh([])\n",
+        '"""Documents the removed zsh_fallback feature."""\n',
+        "# zsh_fallback is gone\nx = 1\n",
+    ],
+)
+def test_ordinary_fallback_wording_and_the_explicit_builtin_are_not_flagged(source: str) -> None:
+    assert bnd.forbidden_fallback_signals(source) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def f(self, c):\n    return self._run_zsh_command(c)\n",
+        "def f():\n    return ZshBridge()\n",
+        "def f(self):\n    return self.zsh_bridge.execute('x')\n",
+    ],
+)
+def test_bridge_reference_detection(source: str) -> None:
+    assert bnd.bridge_references(source)
 
 
 def test_production_tree_has_no_unreviewed_legacy_execution_signal() -> None:
@@ -199,13 +256,16 @@ def test_the_os_package_launcher_is_the_only_unscanned_shell_surface() -> None:
 # --- facts about current behavior the inventory relies on --------------------------------------
 
 
-def test_automatic_zsh_fallback_is_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_shell_has_no_fallback_state_even_if_the_old_variable_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from pysh.core.shell import PyShell
 
-    monkeypatch.delenv("PYSH_ZSH_FALLBACK", raising=False)
-    assert PyShell().zsh_fallback_enabled is False
     monkeypatch.setenv("PYSH_ZSH_FALLBACK", "1")
-    assert PyShell().zsh_fallback_enabled is True
+    shell = PyShell()
+    assert not hasattr(shell, "zsh_fallback_enabled")
+    assert "zsh_fallback" not in PyShell.BUILTINS
+    assert "zsh" in PyShell.BUILTINS  # the explicit bridge stays
 
 
 def test_direct_script_mode_ignores_the_shebang_and_run_script_delegates() -> None:
@@ -218,23 +278,40 @@ def test_direct_script_mode_ignores_the_shebang_and_run_script_delegates() -> No
 # --- documentation and dependency boundary -----------------------------------------------------
 
 
-def test_policies_and_the_unresolved_decision_are_documented() -> None:
-    text = " ".join(DOC.read_text(encoding="utf-8").split())
+def test_policies_and_the_fallback_removal_are_documented() -> None:
+    raw = DOC.read_text(encoding="utf-8")
+    text = " ".join(raw.split())
     for anchor in ("PYSH-MIG-BOUNDARIES", "PYSH-MIG-SHEBANG", "PYSH-MIG-BRIDGE",
                    "PYSH-MIG-AUTOMATIC-FALLBACK"):
-        assert f'<a id="{anchor}"></a>' in DOC.read_text(encoding="utf-8")
+        assert f'<a id="{anchor}"></a>' in raw
     for phrase in (
         "is an explicit request by that script for an external interpreter",
         "is **not** a fallback from PySH language semantics",
         "never silently substitutes a different legacy shell",
         "`zsh <cmd>` is an explicit migration and interoperability request",
         "is not used internally as a fallback for ordinary PySH execution",
-        "is **not** part of the target PySH 1.0 architecture",
-        "(A) remove it, (B) deprecate then remove it, or (C) retain it only as",
-        "No option is chosen here",
+        "automatic fallback from PySH language execution to Bash, Zsh or Fish is not part of the PySH 1.0 architecture, and it has been removed",
+        "`PYSH_ZSH_FALLBACK` has no meaning",
+        "The `zsh_fallback` builtin does not exist",
+        "No external legacy shell is required for ordinary PySH operation",
         "no longer a legacy boundary",
     ):
         assert phrase in text, phrase
+    for stale in ("(A) remove it", "No option is chosen here", "technical debt. Before PySH 1.0"):
+        assert stale not in text, stale
+
+
+def test_user_facing_docs_no_longer_instruct_enabling_the_removed_feature() -> None:
+    enable = re.compile(r"zsh_fallback\s+(on|off)\b|PYSH_ZSH_FALLBACK=1")
+    offenders = []
+    for path in [REPO_ROOT / "README.md", *(REPO_ROOT / "docs").rglob("*.md")]:
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        if relative.startswith("docs/issues/"):
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if enable.search(line) and "removed" not in line and "no effect" not in line and "unknown command" not in line:
+                offenders.append(f"{relative}:{number}")
+    assert offenders == []
 
 
 def test_slice_two_adds_no_runtime_dependency_and_no_production_import() -> None:

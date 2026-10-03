@@ -233,22 +233,9 @@ underlying zsh exit code. If zsh is unavailable, PySH returns 127 and prints:
 pysh: zsh: command not found
 ```
 
-## Optional fallback mode
+## Automatic fallback was removed
 
-Fallback is off by default. Enable it only when intentionally testing a
-migration path:
-
-```sh
-zsh_fallback on
-zsh_fallback off
-PYSH_ZSH_FALLBACK=1
-```
-
-When fallback is enabled, PySH may delegate a command it cannot parse or
-execute natively to real zsh through the bridge. PySH does not delegate
-builtins it already handles, and it does not reinterpret successful native
-commands.
-
-Fallback is a compatibility aid, not a certification boundary. Production
-configurations should keep the native command surface explicit and minimize
-implicit delegation.
+PySH no longer falls back to zsh. The `zsh_fallback` builtin was removed before
+PySH 1.0, and setting `PYSH_ZSH_FALLBACK` has no effect. A command PySH cannot
+run produces a PySH diagnostic. Use `zsh <command>` for an explicit, one-off
+delegation to real zsh, and move stable automation to PySH-native constructs.

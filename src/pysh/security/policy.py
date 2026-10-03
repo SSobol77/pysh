@@ -34,7 +34,7 @@ class TrustLevel(StrEnum):
 
     TRUSTED_DELEGATED  Explicit user delegation to an external interpreter.
                        The delegation command is user-issued.  Examples:
-                       ``zsh <command>``, ``run_script``, ``zsh_fallback on``.
+                       ``zsh <command>``, ``run_script``.
 
     STATIC_IMPORT      Read-only text parse of a foreign profile file.  No
                        shell code is executed.  Examples: source_zsh,

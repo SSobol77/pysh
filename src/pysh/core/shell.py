@@ -564,7 +564,6 @@ class PyShell:
         )
         self.line_reader = RawLineReader()
         self.zsh_bridge = zsh_bridge if zsh_bridge is not None else ZshBridge()
-        self.zsh_fallback_enabled = os.environ.get("PYSH_ZSH_FALLBACK") == "1"
         self.python_runtime = PythonRuntime()
         self.script_runner = (
             script_runner if script_runner is not None else ScriptRunner(
@@ -1318,8 +1317,6 @@ class PyShell:
         try:
             argv = tokenize_and_glob_expand(clean, cwd=Path(os.getcwd()))
         except ValueError as exc:
-            if self.zsh_fallback_enabled:
-                return self._run_zsh_fallback(stage)
             self.trace.error(
                 "path expansion failed",
                 detail=str(exc),
@@ -1417,17 +1414,6 @@ class PyShell:
             if isinstance(stage, int):
                 return stage
             resolved.append(stage)
-        if self.zsh_fallback_enabled:
-            missing_external = next(
-                (
-                    stage.argv[0]
-                    for stage in resolved
-                    if stage.kind == "external" and shutil.which(stage.argv[0]) is None
-                ),
-                None,
-            )
-            if missing_external is not None:
-                return self._run_zsh_fallback(original_command)
         return self._execute_resolved_pipeline(
             resolved,
             original_command=original_command,
@@ -1688,8 +1674,6 @@ class PyShell:
                         preexec_fn=preexec_fn,
                     )
             except FileNotFoundError:
-                if self.zsh_fallback_enabled and original_stage is not None:
-                    return self._run_zsh_fallback(original_stage)
                 self.trace.error(
                     "command not found",
                     command=argv[0],
@@ -1835,7 +1819,6 @@ class PyShell:
             "deactivate": self._builtin_deactivate,
             "config_alias_pack": self._builtin_config_alias_pack,
             "zsh": self._builtin_zsh,
-            "zsh_fallback": self._builtin_zsh_fallback,
             "py": self._builtin_py,
             "sys_info": self._builtin_sys_info,
             "env_audit": self._builtin_env_audit,
@@ -2468,14 +2451,6 @@ class PyShell:
             return 2
         return self._run_zsh_command(" ".join(args))
 
-    def _builtin_zsh_fallback(self, args: list[str]) -> int:
-        if len(args) != 1 or args[0] not in {"on", "off"}:
-            print("zsh_fallback: usage: zsh_fallback {on|off}", file=sys.stderr)
-            return 2
-        self.zsh_fallback_enabled = args[0] == "on"
-        self.local_vars["PYSH_ZSH_FALLBACK"] = "1" if self.zsh_fallback_enabled else "0"
-        return 0
-
     def _builtin_py(self, args: list[str]) -> int:
         if not args:
             print("py: code argument required", file=sys.stderr)
@@ -2813,8 +2788,6 @@ class PyShell:
         self.aliases.update(result.aliases)
         for name, value in result.variables.items():
             self.local_vars[name] = value
-            if name == "PYSH_ZSH_FALLBACK":
-                self.zsh_fallback_enabled = value == "1"
         for name, value in result.exports.items():
             self._set_exported_environment(name, value, notify_plugins=True)
         print(
@@ -2840,8 +2813,6 @@ class PyShell:
         expanded = expand_variables(raw, self.local_vars)
         value = self._unquote_value(expanded)
         self.local_vars[name] = value
-        if name == "PYSH_ZSH_FALLBACK":
-            self.zsh_fallback_enabled = value == "1"
         return 0
 
     def _enter_python_mode(self) -> int:
@@ -2862,9 +2833,6 @@ class PyShell:
         if result.stderr:
             print(result.stderr, end="", file=sys.stderr)
         return result.returncode
-
-    def _run_zsh_fallback(self, command: str) -> int:
-        return self._run_zsh_command(command)
 
     def _run_python_code(self, code: str) -> int:
         return self.python_runtime.execute(code)
@@ -3023,8 +2991,6 @@ class PyShell:
         old = os.environ.get(name)
         os.environ[name] = value
         self.local_vars[name] = value
-        if name == "PYSH_ZSH_FALLBACK":
-            self.zsh_fallback_enabled = value == "1"
         if notify_plugins and old != value:
             self.plugin_manager.notify_env_change(name, old, value)
 

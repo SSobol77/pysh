@@ -42,7 +42,8 @@ zsh, bash, and other shell environments.
 
 6. **External shell delegation must be explicit.** PySH never silently
    delegates a command to an external shell without the user's explicit
-   instruction (`zsh <cmd>`, `run_script <file>`, or `zsh_fallback on`).
+   instruction (`zsh <cmd>` or `run_script <file>`). There is no automatic
+   fallback to any external shell.
 
 7. **Foreign profile execution must be opt-in.** Static import (`source_zsh`,
    `source_zsh_profile`, `source_sh_aliases`) reads files as text. It does not
@@ -71,7 +72,7 @@ Every PySH feature or shell construct falls into exactly one category:
 | -------- | ---------- | ---------------- |
 | **Native** | Implemented by the PySH runtime directly. Behavior is defined by PySH, not by a foreign shell. | Works out of the box. Bugs are PySH bugs. |
 | **Transition** | Statically imported or analyzed by PySH without executing foreign shell code. Examples: `source_zsh`, `compat_check`. | Safe to use. Unsupported constructs are skipped and counted, not silently broken. |
-| **Delegated** | Forwarded explicitly to a real external shell or tool by user request. Examples: `zsh <cmd>`, `run_script`, `zsh_fallback`. | Requires the external tool to be installed. Behavior is the external tool's behavior. PySH is a pass-through. |
+| **Delegated** | Forwarded explicitly to a real external shell or tool by user request. Examples: `zsh <cmd>`, `run_script`. | Requires the external tool to be installed. Behavior is the external tool's behavior. PySH is a pass-through. |
 | **Planned** | On the roadmap with an assigned owner issue. Not currently implemented. | Not available in current release. Owner issue defines the implementation milestone. |
 | **Unsupported** | Not implemented and not planned in the current roadmap horizon. | Must not be used; will not work. Use a real shell for these constructs. |
 | **Forbidden by default** | Not executed or imported by default for safety reasons. Requires explicit user opt-in if available at all. | Opt-in only. Default behavior is safe rejection. |
@@ -126,7 +127,7 @@ PySH delegates the following explicitly:
 - `zsh <command>`: executes `zsh -lc <command>` when zsh is installed.
 - `run_script <file>`: delegates scripts with zsh/bash/sh shebangs to the real
   interpreter via an argv list.
-- `zsh_fallback on`: enables optional delegation of unparseable commands to zsh.
+- There is no automatic delegation: `zsh_fallback` and `PYSH_ZSH_FALLBACK` were removed before PySH 1.0.
 
 ### Out of scope (Unsupported / Planned)
 

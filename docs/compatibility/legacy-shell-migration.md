@@ -58,11 +58,11 @@ Issue #54 does **not** require, and PySH does not promise:
 Intentional incompatibility is allowed. Unsupported legacy syntax is not
 automatically a bug. An *undocumented* PySH regression is a bug.
 
-Existing, explicit opt-in transition bridges (`zsh <cmd>`, `zsh_fallback`,
+Two explicit transition bridges predate this contract (`zsh <cmd>`, and
 `run_script` on a foreign shebang; see
-[shell-compatibility-contract.md](shell-compatibility-contract.md)) predate this
-contract. Issue #54 adds none, treats none of them as a semantic authority, and
-their long-term place is a separate architectural decision.
+[shell-compatibility-contract.md](shell-compatibility-contract.md)). Issue #54
+adds none and treats none as a semantic authority. There is no automatic
+fallback (see below).
 
 <a id="PYSH-MIG-OUTCOMES"></a>
 
@@ -171,27 +171,37 @@ substitutes a different legacy shell.
 
 `zsh <cmd>` is an explicit migration and interoperability request. It does not
 define PySH language semantics and is not used internally as a fallback for
-ordinary PySH execution. It is retained for now.
+ordinary PySH execution. It is retained as an explicit bridge.
 
 <a id="PYSH-MIG-AUTOMATIC-FALLBACK"></a>
 
-### Automatic legacy fallback: decision record
+### Automatic legacy fallback: removed
 
-Automatic fallback from PySH language execution to Bash, Zsh or Fish is **not**
-part of the target PySH 1.0 architecture. Current behavior, recorded and not
-changed by Issue #54:
+Decision (Issue #54, Slice 2.6): automatic fallback from PySH language execution
+to Bash, Zsh or Fish is not part of the PySH 1.0 architecture, and it has been
+removed. Testable facts:
 
-- `zsh_fallback on`, `PYSH_ZSH_FALLBACK=1` in the environment, or assigning
-  that variable arms a fallback that is off by default. While armed, a path
-  expansion error, an unresolved external command in a pipeline, and a
-  process-creation `FileNotFoundError` are handed to `zsh -lc`.
+- The `zsh_fallback` builtin does not exist: `zsh_fallback on` is an unknown command
+  with the ordinary status 127.
+- `PYSH_ZSH_FALLBACK` has no meaning. It may be set like any unrelated
+  variable and changes no execution behavior (environment, local assignment and
+  `export` are all inert).
+- A path-expansion error, an unresolved external command (alone or in a
+  pipeline) and a process-creation `FileNotFoundError` produce the ordinary PySH
+  diagnostic and status; nothing is retried through zsh.
+- Explicit `zsh <cmd>` remains an explicit migration and interoperability
+  bridge. Explicit legacy shebang execution through `run_script` remains
+  interoperability requested by the script itself. Neither is a fallback and
+  neither defines PySH semantics.
+- No external legacy shell is required for ordinary PySH operation.
+- The boundary inventory's automatic-fallback category must stay empty, and the
+  AST drift guard rejects reintroduced fallback machinery.
 
 Command substitution (`$(...)` and backticks) is **PySH-native** and no longer
 a legacy boundary: the default runner evaluates the nested command in an
-isolated nested PySH execution (no user startup configuration, no zsh
-fallback armed, all descendants contained in one process group and terminated
-with it), never `/bin/sh`. (Before Issue #54 Slice 2.5 it ran `/bin/sh -c`.)
-The zsh fallback above is **not** resolved by this change.
+isolated nested PySH execution (no user startup configuration, all descendants
+contained in one process group and terminated with it), never `/bin/sh`.
+(Before Issue #54 Slice 2.5 it ran `/bin/sh -c`.)
 
 Containment limit (known, not hidden): containment covers descendants that stay
 in the substitution's execution domain and process group. A descendant that
@@ -199,11 +209,6 @@ deliberately leaves it with its own `setsid()` or `setpgid()` (for example a
 daemon) escapes portable POSIX process-group containment and is not terminated.
 No Linux-only mechanism (`/proc`, cgroups, subreaper, process-name scanning) is
 used.
-
-The zsh fallback is migration-era technical debt. Before PySH 1.0 it needs one
-explicit decision: (A) remove it, (B) deprecate then remove it, or (C) retain it only as
-a clearly separated compatibility feature with no default enablement. No option
-is chosen here.
 
 <a id="PYSH-MIG-LAB"></a>
 

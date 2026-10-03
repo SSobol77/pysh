@@ -72,7 +72,6 @@ def shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("PYSH_ZSH_FALLBACK", raising=False)
     monkeypatch.delenv(expansion.SUBSTITUTION_DEPTH_ENV, raising=False)
     return PyShell(startup_policy=NO_RC_STARTUP_POLICY)
 
@@ -177,7 +176,7 @@ def test_startup_configuration_is_never_read_by_the_nested_process(shell, capfd,
     assert (status, out, err) == (0, "[x]\n", "")
 
 
-def test_substitution_does_not_use_the_legacy_zsh_fallback(
+def test_substitution_never_reaches_zsh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd
 ) -> None:
     from pysh.config.startup import NO_RC_STARTUP_POLICY
@@ -185,22 +184,19 @@ def test_substitution_does_not_use_the_legacy_zsh_fallback(
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    marker = tmp_path / "zsh-invoked"
     fake_zsh = bin_dir / "zsh"
-    fake_zsh.write_text("#!/bin/sh\necho ZSH-USED\n", encoding="utf-8")
+    fake_zsh.write_text(f"#!/bin/sh\necho ZSH-USED\n: > {marker}\n", encoding="utf-8")
     fake_zsh.chmod(0o755)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setenv("PYSH_ZSH_FALLBACK", "1")
+    monkeypatch.setenv("PYSH_ZSH_FALLBACK", "1")  # no longer means anything
     shell = PyShell(startup_policy=NO_RC_STARTUP_POLICY)
-    assert shell.zsh_fallback_enabled
-    # Control: the armed outer shell does fall back to zsh for an unknown command.
-    assert "ZSH-USED" in _out(shell, capfd, "nonexistent_cmd_xyz")[1]
-    # The nested substitution is PySH-native: the fallback is not armed inside it.
     status, out, err = _out(shell, capfd, "echo [$(nonexistent_cmd_xyz)]")
     assert out == "[]\n" and "ZSH-USED" not in out
     assert "command not found" in expansion._run_nested("nonexistent_cmd_xyz", 20.0).stderr
-    assert "PYSH_ZSH_FALLBACK" not in expansion._nested_environment(0)
+    assert not marker.exists()
 
 
 # --- recursion, timeout, resources -----------------------------------------------------------
@@ -272,20 +268,13 @@ def test_production_substitution_module_has_no_legacy_shell_reference() -> None:
     from tests.differential import boundaries
 
     source = EXPANSION.read_text(encoding="utf-8")
-    # The single permitted token is the defensive scrub of the fallback variable name.
-    assert boundaries.scan_source(source) == frozenset({"<module>"})
+    # No legacy-related token of any kind remains in the substitution module.
+    assert boundaries.scan_source(source) == frozenset()
     tree = ast.parse(source)
-    legacy_constants = [
+    assert not [
         n.value for n in ast.walk(tree)
         if isinstance(n, ast.Constant) and isinstance(n.value, str) and boundaries._is_legacy_constant(n.value)
     ]
-    assert legacy_constants == ["PYSH_ZSH_FALLBACK"]
-    for node in ast.walk(tree):
-        if isinstance(node, ast.keyword) and node.arg == "shell":
-            assert isinstance(node.value, ast.Constant) and node.value.value is False
-        if isinstance(node, ast.Name | ast.Attribute):
-            name = node.id if isinstance(node, ast.Name) else node.attr
-            assert name not in {"ZshBridge", "zsh_bridge", "_run_zsh_fallback", "zsh_fallback_enabled"}
     runners = [
         n for n in tree.body
         if isinstance(n, ast.FunctionDef) and n.name in {"_default_runner", "_run_nested"}

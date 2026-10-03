@@ -712,25 +712,6 @@ and 2 when no command is supplied.
 
 Limitations: this delegates to real zsh; it does not make PySH a zsh clone.
 
-## `zsh_fallback`
-
-Syntax: `zsh_fallback {on|off}`
-
-Purpose: Enable or disable optional fallback delegation for commands PySH
-cannot parse or execute natively.
-
-Examples:
-
-```sh
-zsh_fallback on
-zsh_fallback off
-```
-
-Return behavior: returns 0 for `on` or `off`, and 2 for invalid usage.
-
-Limitations: fallback is off by default and should be treated as a migration
-aid, not a compatibility guarantee.
-
 ## `py`
 
 Syntax: `py PYTHON_CODE...` or multiline block:

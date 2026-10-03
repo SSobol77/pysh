@@ -8,7 +8,7 @@
 Covers:
 A. Trust model policy predicates (policy.py).
 B. Static profile import safety — profile_importer does not execute code.
-C. Explicit delegation — zsh_fallback off by default, ZshBridge uses zsh -lc.
+C. Explicit delegation only — no automatic fallback, ZshBridge uses zsh -lc.
 D. Sensitive input boundary — normal command path does not use SecureRunner.
 E. Diagnostics non-mutation — plan/env_audit/apt_check non-executing.
 F. Python runtime trust — py executes in-process; is_python_runtime_sandboxed()
@@ -176,25 +176,20 @@ class TestStaticProfileImportSafety:
 
 
 # ---------------------------------------------------------------------------
-# C. Explicit delegation — zsh_fallback off by default
+# C. Explicit delegation only — no automatic fallback
 # ---------------------------------------------------------------------------
 
 
 class TestExplicitDelegation:
-    def test_zsh_fallback_off_by_default(self) -> None:
-        from pysh.core.shell import PyShell
-
-        shell = PyShell()
-        assert shell.zsh_fallback_enabled is False
-
-    def test_pysh_zsh_fallback_env_not_set_by_default(
+    def test_no_automatic_zsh_fallback_state_exists(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("PYSH_ZSH_FALLBACK", raising=False)
         from pysh.core.shell import PyShell
 
+        monkeypatch.setenv("PYSH_ZSH_FALLBACK", "1")
         shell = PyShell()
-        assert not shell.zsh_fallback_enabled
+        assert not hasattr(shell, "zsh_fallback_enabled")
+        assert not hasattr(shell, "_run_zsh_fallback")
 
     def test_zsh_bridge_uses_lc_flag(self) -> None:
         """ZshBridge must pass -lc to zsh — never bare exec or shell=True."""
@@ -233,14 +228,13 @@ class TestExplicitDelegation:
         result = bridge.execute("echo test")
         assert result.returncode == ZSH_MISSING_STATUS
 
-    def test_unknown_command_without_fallback_returns_127(
+    def test_unknown_command_returns_127_not_silent_delegation(
         self, tmp_path: Path
     ) -> None:
-        """Without zsh_fallback, unknown command → 127, not silent delegation."""
+        """An unknown command is a PySH-owned 127, never silently delegated."""
         from pysh.core.shell import PyShell
 
         shell = PyShell()
-        assert not shell.zsh_fallback_enabled
         status = shell.execute("__pysh_no_such_command_xyz_abc__")
         assert status == 127
 

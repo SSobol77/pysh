@@ -140,9 +140,6 @@ _containment: bool | None = None
 #: Maximum nested substitution depth. Each level is a separate PySH process and
 #: the text shrinks at every level, so this is only a deterministic backstop.
 MAX_SUBSTITUTION_DEPTH = 32
-#: Environment entries that must not reach a nested substitution: it is PySH
-#: language semantics and must never arm the legacy zsh fallback.
-_NESTED_ENV_SCRUBBED = frozenset({"PYSH_ZSH_FALLBACK"})
 _WAIT_POLL_START = 0.001
 _WAIT_POLL_MAX = 0.02
 
@@ -157,11 +154,7 @@ class NestedResult:
 
 
 def _nested_environment(depth: int) -> dict[str, str]:
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if k not in _NESTED_ENV_SCRUBBED and k != CAPABILITY_ENV
-    }
+    env = {k: v for k, v in os.environ.items() if k != CAPABILITY_ENV}
     env[SUBSTITUTION_DEPTH_ENV] = str(depth + 1)
     return env
 
@@ -247,7 +240,7 @@ def _run_nested(command: str, timeout: float) -> NestedResult:
 
     The nested process is PySH itself (never ``/bin/sh`` or another legacy
     shell): it parses and executes ``command`` with PySH's own grammar, reads no
-    user startup configuration (``--no-rc``), and has no zsh fallback armed. A
+    user startup configuration (``--no-rc``). A
     fresh process is used because in-process nesting cannot isolate the working
     directory, exported environment, file descriptors and signal state, nor
     enforce the timeout. It inherits the exported environment and working

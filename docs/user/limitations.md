@@ -47,7 +47,7 @@ confinement.  Key security properties:
 - Foreign shell profiles (`.zshrc`, `.bashrc`) are **not** executed automatically.
   `source_zsh`, `source_zsh_profile`, and `source_sh_aliases` parse files as plain
   text and import only safe static constructs.
-- `zsh_fallback` is **off by default**. Delegation to zsh requires explicit opt-in.
+- PySH never falls back to zsh automatically (`zsh_fallback` was removed before 1.0). Delegation requires an explicit `zsh <command>`.
 - Normal external commands inherit the terminal. PySH does not observe password
   bytes for `sudo`, `ssh`, `su`, or `gpg`.
 - The `secure <cmd>` PTY bridge is opt-in and non-default.
@@ -150,11 +150,11 @@ expansion rather than POSIX separate-word semantics.
 `run_script` delegates shebang scripts to real `zsh`, `bash` or `sh` when
 declared. A no-shebang script is executed through PySH's native script engine.
 
-## Fallback mode
+## No automatic fallback
 
-`zsh_fallback on` may delegate commands PySH cannot parse or execute
-natively. It is a migration aid and is off by default. It should not be used
-as a broad zsh compatibility claim.
+PySH does not hand commands it cannot parse or execute to zsh. The former
+`zsh_fallback` builtin and `PYSH_ZSH_FALLBACK` variable were removed before
+PySH 1.0. Use the explicit `zsh <command>` bridge when you want real zsh.
 
 ## Python runtime
 

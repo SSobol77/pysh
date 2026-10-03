@@ -36,9 +36,9 @@ workflow, see [Zsh compatibility guide](../migration/zsh-compatibility.md).
    types the `zsh` prefix deliberately. PySH does not silently wrap commands
    in zsh.
 
-5. **Fallback mode is explicit and off by default.** `zsh_fallback on` must
-   be intentionally enabled. It is a migration aid, not a compatibility
-   guarantee.
+5. **There is no automatic fallback.** The former `zsh_fallback` builtin and
+   `PYSH_ZSH_FALLBACK` variable were removed before PySH 1.0; PySH never
+   retries a command through zsh on its own.
 
 6. **Unsupported zsh constructs must be diagnosed, not silently misinterpreted.**
    `compat_check <file>` classifies zsh constructs as supported, delegated,
@@ -68,7 +68,7 @@ workflow, see [Zsh compatibility guide](../migration/zsh-compatibility.md).
 | zsh options (`setopt`, `unsetopt`) | Not imported | Transition — counted as skipped | — |
 | `zsh COMMAND` (explicit delegation) | Supported | Delegated — `zsh -lc <command>` | — |
 | `run_script` (shebang zsh scripts) | Supported | Delegated — real `zsh` via argv | #14 |
-| `zsh_fallback on` | Supported | Delegated — off by default | — |
+| `zsh_fallback`, `PYSH_ZSH_FALLBACK` | Removed before 1.0 | No automatic fallback exists | #54 |
 | `compat_check FILE` (static report) | Supported | Transition — static analysis only | — |
 | zsh-compatible alias file format | Supported (static import) | Transition | — |
 | Full zsh interactive session | Not supported | Use real zsh | — |
@@ -109,8 +109,8 @@ The recommended migration path for zsh users:
    supported aliases and exports into PySH.
 3. **Delegate what remains**: use `zsh <cmd>` for commands that need real zsh.
 4. **Move stable automation to Python**: use `py { ... }` for scripts.
-5. **Enable fallback only during active migration**: `zsh_fallback on` is a
-   temporary crutch, not a goal state.
+5. **Do not rely on fallback**: PySH has none; commands PySH cannot run
+   report a diagnostic.
 
 See [Zsh compatibility guide](../migration/zsh-compatibility.md)
 for the full workflow.
@@ -124,7 +124,7 @@ zsh scope claims are validated by:
 1. `tests/test_profile_importer.py` — static import behavior, skipped construct
    counts, malformed line reporting.
 2. `tests/test_zsh_bridge.py` — explicit `zsh -lc` delegation, 127 on missing zsh.
-3. `tests/test_zsh_transition.py` — fallback mode enable/disable/env var.
+3. `tests/test_zsh_transition.py` and `tests/test_no_automatic_legacy_fallback.py` — no automatic fallback.
 4. CI with real zsh installed (`ubuntu-latest` in GitHub Actions) for delegation tests.
 
 See [validation-matrix.md](validation-matrix.md) for the full validation plan.

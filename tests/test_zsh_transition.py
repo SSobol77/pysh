@@ -130,7 +130,7 @@ def test_zsh_builtin_returns_127_when_zsh_unavailable(
     assert "pysh: zsh: command not found" in captured.err
 
 
-def test_zsh_fallback_is_off_by_default(
+def test_unknown_command_is_never_delegated_to_zsh(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     fake = _FakeZshBridge()
@@ -141,25 +141,23 @@ def test_zsh_fallback_is_off_by_default(
     assert "command not found" in captured.err
 
 
-def test_zsh_fallback_delegates_missing_external_when_enabled(
+def test_removed_zsh_fallback_builtin_is_an_ordinary_unknown_command(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     fake = _FakeZshBridge()
     shell = PyShell(zsh_bridge=fake)  # type: ignore[arg-type]
-    assert shell.execute("zsh_fallback on") == 0
-    assert shell.execute("zsh_native_only_command") == 0
-    assert fake.commands == ["zsh_native_only_command"]
-    captured = capsys.readouterr()
-    assert "fallback-ok" in captured.out
+    assert shell.execute("zsh_fallback on") == 127
+    assert shell.execute("zsh_native_only_command") == 127
+    assert fake.commands == []
+    assert "command not found" in capsys.readouterr().err
 
 
-def test_zsh_fallback_does_not_delegate_pysh_builtins(
+def test_builtin_failures_are_not_delegated_to_zsh(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     fake = _FakeZshBridge()
     shell = PyShell(zsh_bridge=fake)  # type: ignore[arg-type]
-    assert shell.execute("zsh_fallback on") == 0
     assert shell.execute(f"cd {tmp_path / 'missing'}") == 1
     assert fake.commands == []
     captured = capsys.readouterr()

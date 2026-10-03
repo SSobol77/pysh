@@ -22,7 +22,7 @@ from pysh.diagnostics.trace import DEFAULT_REDACTION_POLICY
 from pysh.parsing.multiline import PY_BLOCK_OPENER, is_block_opener
 from pysh.parsing.parser import ChainOp, split_chain, split_pipeline
 
-ZSH_DELEGATION_BUILTINS: frozenset[str] = frozenset({"zsh", "zsh_fallback"})
+ZSH_DELEGATION_BUILTINS: frozenset[str] = frozenset({"zsh"})
 SCRIPT_BUILTINS: frozenset[str] = frozenset({"run_script", "source", ".", "source_zsh"})
 
 RISKY_COMMANDS: frozenset[str] = frozenset({"sudo", "eval"})

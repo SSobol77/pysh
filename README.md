@@ -88,8 +88,7 @@ reference CI environments, not installation allowlists.
   delegates shebang scripts to their real interpreter, and `compat_check
   <file>` reports migration risk before execution.
 - **Zsh Transition Layer** for explicit delegation: `zsh <command>` delegates
-  to real zsh when installed, and `zsh_fallback` can be enabled for
-  controlled fallback experiments.
+  to real zsh when installed. PySH never falls back to zsh automatically.
 - **Python-native runtime bridge**: `py <code>` executes one-line Python code
   in a persistent per-session runtime context.
 - **Python automation blocks**: `py { ... }` runs a multiline Python block in
@@ -243,7 +242,7 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 **Migration**
 
 - [Migration](https://github.com/SSobol77/pysh/blob/main/docs/migration/migration.md) — static profile import, script transition runner, and compatibility reporting.
-- [Zsh compatibility](https://github.com/SSobol77/pysh/blob/main/docs/migration/zsh-compatibility.md) — transition bridge, safe profile import, explicit zsh delegation, optional fallback mode.
+- [Zsh compatibility](https://github.com/SSobol77/pysh/blob/main/docs/migration/zsh-compatibility.md) — transition bridge, safe profile import, explicit zsh delegation (no automatic fallback).
 
 **Compatibility contracts**
 
@@ -296,7 +295,6 @@ documented.
 | `compat_check` | Produce a static migration report for a shell file. |
 | `migrate`  | Produce Python-first shell-script migration guidance. |
 | `zsh`      | Execute one command through real `zsh -lc`.              |
-| `zsh_fallback` | Enable or disable explicit zsh fallback mode.       |
 | `py`       | Execute Python code in the persistent PySH runtime.      |
 | `sys_info` | Print platform / Python / user / shell / PATH summary.   |
 | `env_audit` | Print a redacted environment audit summary.             |
@@ -459,17 +457,11 @@ engine where possible.
 `zsh <command>` delegates explicitly to real `zsh -lc <command>`. If zsh is
 not installed, it returns 127 with a deterministic error.
 
-Fallback mode is off by default. It can be enabled only explicitly:
-
-```sh
-zsh_fallback on
-zsh_fallback off
-PYSH_ZSH_FALLBACK=1
-```
-
-When fallback is on, PySH may delegate commands it cannot parse or execute
-natively to zsh. Builtins already handled by PySH stay native, and native
-command failures are not hidden.
+PySH does not fall back to zsh automatically: an unknown command, a missing
+pipeline command, or a failed expansion is a PySH diagnostic. The former
+`zsh_fallback` builtin and `PYSH_ZSH_FALLBACK` variable were removed before 1.0;
+`PYSH_ZSH_FALLBACK` now has no effect. Use `zsh <command>` when you explicitly
+want real zsh.
 
 ---
 

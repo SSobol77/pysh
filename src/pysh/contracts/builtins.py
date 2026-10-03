@@ -57,7 +57,6 @@ BUILTIN_NAMES: frozenset[str] = frozenset(
         "unalias",
         "which_all",
         "zsh",
-        "zsh_fallback",
     }
 )
 

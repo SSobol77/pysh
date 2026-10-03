@@ -217,7 +217,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.config.rc` | `execute_rc`, `load_default_rc`: mini rc-interpreter, `if`/`for`/`while` |
 | `pysh.config.plugins` | `load_plugins`: `~/.pyshrc.d/*.pysh` lexicographic loader |
 | `pysh.config.api` | `ConfigAPI`: prompt segment, cursor color, ANSI scheme configuration |
-| `pysh.compat.zsh_bridge` | `ZshBridge`: `zsh -lc` delegation, fallback mode |
+| `pysh.compat.zsh_bridge` | `ZshBridge`: explicit `zsh -lc` delegation |
 | `pysh.compat.zsh_aliases` | `parse_zsh_aliases`: static alias file parser |
 | `pysh.compat.profile_importer` | Static zsh/sh/bash profile importer: aliases, exports, assignments |
 | `pysh.compat.mc` | `is_mc_environment`: Midnight Commander integration detection |

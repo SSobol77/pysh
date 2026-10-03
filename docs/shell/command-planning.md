@@ -48,7 +48,7 @@ contains sensitive assignments or known sensitive environment values.
 `plan` assigns a coarse risk:
 
 - `low` — ordinary builtins, external commands, simple pipelines.
-- `medium` — command substitution, `zsh` / `zsh_fallback` delegation,
+- `medium` — command substitution, `zsh` delegation,
   `run_script` delegation.
 - `high` — commands matching `sudo` or `eval`, or redirection that targets
   a system path such as `/etc`, `/usr`, `/bin`, `/sbin`, `/boot`, `/lib`.

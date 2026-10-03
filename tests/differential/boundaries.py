@@ -235,6 +235,10 @@ def parse_inventory(data: object, *, repo_root: Path = REPO_ROOT) -> tuple[Bound
         category = _text(raw["category"], f"{context}.category")
         if category not in CATEGORIES:
             raise BoundaryError(f"{context}.category: unknown category {category!r}")
+        if category == AUTOMATIC_CATEGORY and MAX_AUTOMATIC_ENTRIES == 0:
+            raise BoundaryError(
+                f"{context}.category: PySH 1.0 permits no {AUTOMATIC_CATEGORY} entries"
+            )
         automatic = _flag(raw["automatic"], f"{context}.automatic")
         if automatic != (category == AUTOMATIC_CATEGORY):
             raise BoundaryError(
@@ -295,3 +299,114 @@ def unreviewed_signals(
         if extra:
             drift[path] = extra
     return drift
+
+
+#: Maximum inventory entries allowed in the automatic-fallback category. PySH 1.0
+#: has no automatic hand-off from PySH execution to a legacy shell, so this is
+#: zero and cannot be raised by editing the inventory alone.
+MAX_AUTOMATIC_ENTRIES = 0
+#: Names that only the explicit ``zsh <cmd>`` bridge may reference.
+BRIDGE_NAMES = frozenset({"ZshBridge", "zsh_bridge", "_run_zsh_command"})
+_FALLBACK_NAME_RE = re.compile(
+    r"(zsh|bash|fish|legacy|posix_?sh)\w*fallback|fallback\w*(zsh|bash|fish|legacy)",
+    re.IGNORECASE,
+)
+_FALLBACK_CONSTANTS = frozenset({"PYSH_ZSH_FALLBACK", "zsh_fallback"})
+
+
+def forbidden_fallback_signals(source: str) -> frozenset[str]:
+    """Qualified names that define or use an automatic legacy-shell fallback.
+
+    These can never be blessed by an inventory entry: a function, class,
+    attribute or variable whose name pairs "fallback" with a legacy shell, or the
+    removed ``PYSH_ZSH_FALLBACK`` / ``zsh_fallback`` names as string constants.
+    """
+    found: set[str] = set()
+
+    class Finder(_Scanner):
+        def _hit(self) -> None:
+            found.add(self._qualname())
+
+        def _scope(self, node: ast.AST, name: str) -> None:
+            if _FALLBACK_NAME_RE.search(name):
+                found.add(".".join([*self.stack, name]))
+            super()._scope(node, name)
+
+        def visit_Constant(self, node: ast.Constant) -> None:
+            if isinstance(node.value, str) and node.value.strip() in _FALLBACK_CONSTANTS:
+                if id(node) not in self._docstrings:
+                    self._hit()
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if _FALLBACK_NAME_RE.search(node.id):
+                self._hit()
+
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            if _FALLBACK_NAME_RE.search(node.attr):
+                self._hit()
+            self.generic_visit(node)
+
+        def visit_keyword(self, node: ast.keyword) -> None:
+            self.generic_visit(node)
+
+        def visit_alias(self, node: ast.alias) -> None:
+            return None
+
+        def visit_arg(self, node: ast.arg) -> None:
+            if _FALLBACK_NAME_RE.search(node.arg):
+                self._hit()
+
+    finder = Finder()
+    finder.visit(ast.parse(source))
+    return frozenset(found)
+
+
+def bridge_references(source: str) -> frozenset[str]:
+    """Qualified names that reference the explicit zsh bridge machinery."""
+    found: set[str] = set()
+
+    class Finder(_Scanner):
+        def visit_Constant(self, node: ast.Constant) -> None:
+            return None
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if node.id in BRIDGE_NAMES:
+                found.add(self._qualname())
+
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            if node.attr in BRIDGE_NAMES:
+                found.add(self._qualname())
+            self.generic_visit(node)
+
+        def visit_keyword(self, node: ast.keyword) -> None:
+            self.generic_visit(node)
+
+        def visit_alias(self, node: ast.alias) -> None:
+            if node.name.rsplit(".", 1)[-1] in BRIDGE_NAMES:
+                found.add(self._qualname())
+
+        def visit_arg(self, node: ast.arg) -> None:
+            if node.arg in BRIDGE_NAMES:
+                found.add(self._qualname())
+
+    finder = Finder()
+    finder.visit(ast.parse(source))
+    return frozenset(found)
+
+
+def scan_forbidden(root: Path = SRC_ROOT) -> dict[str, frozenset[str]]:
+    result: dict[str, frozenset[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        found = forbidden_fallback_signals(path.read_text(encoding="utf-8"))
+        if found:
+            result[path.relative_to(REPO_ROOT).as_posix()] = found
+    return result
+
+
+def scan_bridge_references(root: Path = SRC_ROOT) -> dict[str, frozenset[str]]:
+    result: dict[str, frozenset[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        found = bridge_references(path.read_text(encoding="utf-8"))
+        if found:
+            result[path.relative_to(REPO_ROOT).as_posix()] = found
+    return result
