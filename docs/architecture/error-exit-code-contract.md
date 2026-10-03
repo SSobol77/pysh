@@ -133,7 +133,6 @@ Builtin misuse examples that return 2:
 - `unalias` with no argument
 - `source_zsh` / `source_zsh_profile` / `source_sh_aliases` with no file
 - `py {` without a collected block (bare unterminated block)
-- `zsh_fallback` with an invalid argument
 
 Parse errors (unclosed quotes, shlex failure) also return 2 because they are
 command-level syntax errors from the user's perspective.

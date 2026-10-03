@@ -22,8 +22,8 @@ def test_completion_exposes_migration_builtins() -> None:
     assert "source_sh_aliases" in builtins
     assert "run_script" in builtins
     assert "compat_check" in builtins
-    assert "zsh" in builtins
-    assert "zsh_fallback" in builtins
+    assert "zsh" not in builtins
+    assert "zsh_fallback" not in builtins
 
 
 def test_completion_exposes_system_profile_builtins() -> None:

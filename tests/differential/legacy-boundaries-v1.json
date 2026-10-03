@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "boundaries": [
+    {
+      "id": "script-shebang-delegation",
+      "category": "EXPLICIT_SHEBANG_DELEGATION",
+      "production_path": "src/pysh/script_runner.py",
+      "symbols": [
+        "<module>",
+        "ScriptRunner.run",
+        "ScriptRunner._run_interpreter_script",
+        "detect_script_type",
+        "_interpreter_from_env_shebang"
+      ],
+      "trigger": "`run_script FILE` where FILE's own shebang names bash, sh or zsh.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "The script explicitly requests the interpreter. Interpreter is optional; absence yields a controlled status 127 and no other shell is substituted. Direct `pysh FILE` ignores the shebang (native_only=True).",
+      "notes": "Not an automatic fallback: PySH language semantics are not handed off; the script asked for another interpreter."
+    },
+    {
+      "id": "static-script-migration-analysis",
+      "category": "PYSH_NATIVE",
+      "production_path": "src/pysh/migration/script.py",
+      "symbols": [
+        "<module>"
+      ],
+      "trigger": "The `migrate` builtin analyzes a script as text.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Static analysis only; executes nothing.",
+      "notes": "Shebang table is used for reporting."
+    },
+    {
+      "id": "system-shell-invocation-refusal",
+      "category": "PYSH_NATIVE",
+      "production_path": "src/pysh/cli.py",
+      "symbols": [
+        "<module>",
+        "is_unsupported_system_shell_invocation"
+      ],
+      "trigger": "PySH invoked as `sh`.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "PySH refuses to act as a POSIX /bin/sh provider.",
+      "notes": "Diagnostic only."
+    },
+    {
+      "id": "os-package-launcher",
+      "category": "BUILD_OR_TEST_TOOLING",
+      "production_path": "packaging/wrappers/pysh.sh",
+      "symbols": [
+        "<module>"
+      ],
+      "trigger": "Installed `pysh` launcher in Debian/RPM packages.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "POSIX /bin/sh launcher that selects a Python >=3.13 and execs `python -m pysh`; it runs no PySH language input.",
+      "notes": "Not visible to the AST scanner; pinned by test_legacy_boundary_contract."
+    },
+    {
+      "id": "compatibility-documentation",
+      "category": "DOCUMENTATION_ONLY",
+      "production_path": "docs/compatibility/shell-compatibility-contract.md",
+      "symbols": [
+        "<module>"
+      ],
+      "trigger": "Documentation.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Documentation only: describes the explicit shebang delegation boundary and the removed historical zsh bridge; it executes nothing.",
+      "notes": "Documentation never counts as a drift signal."
+    }
+  ]
+}

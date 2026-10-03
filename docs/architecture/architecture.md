@@ -234,15 +234,15 @@ pysh.core     ──►  imports from: all leaf packages (fan-in)
 ## Compatibility-layer boundaries
 
 ```text
-pysh.compat   ──►  provides: ZshBridge, zsh/sh alias importers, MC detection
+pysh.compat   ──►  provides: zsh/sh alias importers, MC detection
                    consumed by: core
                    must not: import from core, python_layer, config
                    current state: clean (no known violations)
 ```
 
 The compat layer is a **transition** layer, not a permanent broad compatibility
-layer. `zsh_fallback` and `run_script` delegation are explicit operations, not
-transparent wrappers. No new broad compatibility layers are permitted.
+layer. PySH has no zsh bridge; `run_script` shebang delegation is an explicit
+operation requested by the script, not a transparent wrapper. No new broad compatibility layers are permitted.
 
 ---
 

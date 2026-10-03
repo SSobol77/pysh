@@ -42,7 +42,7 @@ Use these modes:
 - Use `run_script FILE [ARGS...]` when deliberately transitioning an existing
   shell script. Scripts with `zsh`, `bash` or `sh` shebangs are delegated to
   the real interpreter through an argv list.
-- Use `zsh COMMAND...` only as explicit delegation to real zsh.
+- PySH has no `zsh` builtin; run a legacy shell yourself as an ordinary program if you need it.
 - Keep the operating-system `/bin/sh` unchanged.
 
 ## Unsupported integration modes
@@ -79,7 +79,7 @@ PySH has three distinct script paths:
 | ---- | ------- | -------- |
 | Native PySH script | `pysh script.pysh` | Executes documented PySH Script Mode v1 semantics. This is not POSIX sh. |
 | Explicit transition runner | `run_script FILE [ARGS...]` | Delegates `zsh`, `bash` and `sh` shebang scripts to their real interpreters. |
-| External interpreter | `zsh COMMAND...` or direct `bash`/`sh` command | External shell behavior; PySH is not interpreting that grammar. |
+| External program | `zsh ...`, `bash ...` or `sh ...` typed as an ordinary command | Ordinary external-command execution with exactly the typed arguments; PySH is not interpreting that grammar and adds no flags. |
 
 Unsupported mode:
 

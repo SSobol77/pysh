@@ -116,8 +116,7 @@ src/pysh/
 ├── compat/
 │   ├── mc.py                ← Midnight Commander environment detection
 │   ├── profile_importer.py  ← static zsh/sh profile importer
-│   ├── zsh_aliases.py       ← zsh alias file parser
-│   └── zsh_bridge.py        ← ZshBridge: explicit zsh delegation
+│   └── zsh_aliases.py       ← zsh alias file parser
 │
 ├── services/
 │   ├── pyinit.py            ← PyInit service metadata parser
@@ -163,7 +162,7 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.plugins` | Trusted local Plugin API 1.0 | Version compatibility, name validation, file discovery, controlled loading, registration API, plugin command/completion/prompt/lifecycle records | Shell command dispatch internals, config parsing, network access, auto-installation |
 | `pysh.python_layer` | Python command execution layer | `PythonRuntime` (persistent namespace), `py` builtin logic, `#py` interactive mode, Python syntax highlighting, `iter_logical_lines`, block detection | Shell builtins outside the Python layer, config loading |
 | `pysh.config` | Configuration and startup | RC file execution, mini rc-interpreter, plugin directory loader, `ConfigAPI` (prompt/cursor/color settings) | Runtime command dispatch, builtin logic |
-| `pysh.compat` | Transition and compatibility helpers | Zsh bridge (`ZshBridge`), zsh/sh alias file parser, static profile importer, MC environment detection | Core shell execution, prompt rendering |
+| `pysh.compat` | Transition and compatibility helpers | zsh/sh alias file parser, static profile importer, MC environment detection | Core shell execution, prompt rendering |
 | `pysh.services` | Service management | `svc` builtin client, PID-file-based service control, PyInit metadata parser | Shell REPL, command dispatch |
 | `pysh.security` | Security-sensitive command execution | Trust constants/predicates, `SecureRunner` PTY bridge, fixed-size ring indicator, `indicator_config_from_mapping` | General command dispatch, shell state |
 | `pysh.diagnostics` | Advisory diagnostics | `plan` builtin command classifier, opt-in trace event model, diagnostic redaction | Policy enforcement, runtime execution |
@@ -217,7 +216,6 @@ Current tree anchors for Issue #5/#6/#7 modules:
 | `pysh.config.rc` | `execute_rc`, `load_default_rc`: mini rc-interpreter, `if`/`for`/`while` |
 | `pysh.config.plugins` | `load_plugins`: `~/.pyshrc.d/*.pysh` lexicographic loader |
 | `pysh.config.api` | `ConfigAPI`: prompt segment, cursor color, ANSI scheme configuration |
-| `pysh.compat.zsh_bridge` | `ZshBridge`: `zsh -lc` delegation, fallback mode |
 | `pysh.compat.zsh_aliases` | `parse_zsh_aliases`: static alias file parser |
 | `pysh.compat.profile_importer` | Static zsh/sh/bash profile importer: aliases, exports, assignments |
 | `pysh.compat.mc` | `is_mc_environment`: Midnight Commander integration detection |
@@ -266,7 +264,7 @@ pysh.core.shell
     ├── pysh.config           (api, rc, plugins)
     │   └── pysh.editor.lineedit.buffer  (_display_width)
     │   └── pysh.prompt.colors
-    ├── pysh.compat           (mc, profile_importer, zsh_aliases, zsh_bridge)
+    ├── pysh.compat           (mc, profile_importer, zsh_aliases)
     ├── pysh.services         (service, pyinit)
     ├── pysh.security         (secure_runner)
     │   └── pysh.prompt.colors

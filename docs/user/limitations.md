@@ -32,9 +32,9 @@ for the complete POSIX sh scope table and prohibition on `/bin/sh` use.
 
 ## zsh compatibility
 
-PySH is not a full zsh clone. The Zsh Transition Layer provides static alias
-and profile import plus explicit delegation to real zsh. zsh-specific
-features remain the responsibility of real zsh when delegated.
+PySH is not a full zsh clone. The zsh migration helpers provide static alias
+and profile import only. zsh-specific features remain the responsibility of
+real zsh, which PySH never runs on your behalf.
 
 See the [zsh scope document](../compatibility/zsh-scope.md) for the
 complete zsh scope table.
@@ -47,7 +47,7 @@ confinement.  Key security properties:
 - Foreign shell profiles (`.zshrc`, `.bashrc`) are **not** executed automatically.
   `source_zsh`, `source_zsh_profile`, and `source_sh_aliases` parse files as plain
   text and import only safe static constructs.
-- `zsh_fallback` is **off by default**. Delegation to zsh requires explicit opt-in.
+- PySH never falls back to zsh automatically (`zsh_fallback` was removed before 1.0). There is no `zsh` builtin; a program named `zsh` is an ordinary external command.
 - Normal external commands inherit the terminal. PySH does not observe password
   bytes for `sudo`, `ssh`, `su`, or `gpg`.
 - The `secure <cmd>` PTY bridge is opt-in and non-default.
@@ -133,6 +133,18 @@ Parser-owned unsupported constructs such as `$((expr))`, `(( expr ))` and
 `let` return a parse diagnostic with status 2. Heredoc parse errors such as a
 missing delimiter word or missing terminator also return status 2.
 
+## Command substitution limits
+
+`$(...)` and backtick substitution are evaluated by an isolated nested PySH. Each
+substitution is bounded by the 5-second timeout and by output limits: the
+captured standard output may not exceed 4 MiB and the (never propagated)
+standard error 256 KiB. A substitution that exceeds the timeout or a limit
+emits a `pysh: substitution: ...` diagnostic and substitutes an empty string;
+output is never silently truncated. Processes started by the substitution are
+terminated when it ends. A process that deliberately starts its own session or
+process group (a daemon) is not contained. Each substitution costs roughly one
+PySH start-up.
+
 ## Static zsh/sh import
 
 `source_zsh`, `source_zsh_profile` and `source_sh_aliases` are static import
@@ -150,11 +162,11 @@ expansion rather than POSIX separate-word semantics.
 `run_script` delegates shebang scripts to real `zsh`, `bash` or `sh` when
 declared. A no-shebang script is executed through PySH's native script engine.
 
-## Fallback mode
+## No automatic fallback
 
-`zsh_fallback on` may delegate commands PySH cannot parse or execute
-natively. It is a migration aid and is off by default. It should not be used
-as a broad zsh compatibility claim.
+PySH does not hand commands it cannot parse or execute to zsh. The former
+`zsh_fallback` builtin and `PYSH_ZSH_FALLBACK` variable were removed before
+PySH 1.0. The `zsh <command>` builtin was removed too; run zsh as an ordinary program if you need it.
 
 ## Python runtime
 

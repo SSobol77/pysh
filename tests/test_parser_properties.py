@@ -385,6 +385,7 @@ UNREGISTERED_SHELL_IMPORTS = {
     "heredoc_line_matches": "needs a HereDocSpec argument; exercised through collect_heredoc_bodies",
     "parse_leading_env_assignments": "takes a token list produced by the tokenizer, not text",
     "expand_tilde": "host account database; exercised through the tokenizer boundary",
+    "in_substitution_domain": "reads the internal execution-domain environment marker; takes no text",
 }
 
 

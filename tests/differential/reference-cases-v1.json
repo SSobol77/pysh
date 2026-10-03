@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"case_id": "lexical-unquoted-words", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status", "stdout"], "rationale": "basic command execution with plain words"},
+    {"case_id": "quoting-groups-and-escapes", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status", "stdout"], "rationale": "double quotes, single quotes and a backslash-escaped space"},
+    {"case_id": "quoting-single-preserves-whitespace", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status", "stdout"], "rationale": "single-quoted whitespace preservation"},
+    {"case_id": "chains-and-short-circuit", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status", "stdout"], "rationale": "&& short-circuit and resulting status"},
+    {"case_id": "chains-status-last-executed", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status", "stdout"], "rationale": "|| chain, status of the last executed command"},
+    {"case_id": "pipelines-data-flow", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status", "stdout"], "rationale": "pipeline stdout to stdin"},
+    {"case_id": "pipelines-final-stage-status", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status", "stdout"], "rationale": "pipeline status is the final stage"},
+    {"case_id": "redirection-output-and-append", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status", "stdout"], "rationale": "output redirection, append and input redirection"},
+    {"case_id": "fd-order-output-then-dup", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status", "stdout"], "rationale": "redirect stdout to a file then duplicate stderr onto it"},
+    {"case_id": "variables-environment", "shells": ["bash", "zsh"], "compared_dimensions": ["status", "stdout"], "rationale": "exported variable in $NAME and ${NAME} forms; the braced form is selected for bash and zsh only"},
+    {"case_id": "variables-command-environment", "shells": ["bash", "zsh"], "compared_dimensions": ["status", "stdout"], "rationale": "command-local NAME=value prefix assignment; selected for bash and zsh only"},
+    {"case_id": "substitution-dollar-paren", "shells": ["bash", "zsh"], "compared_dimensions": ["status", "stdout"], "rationale": "$(...) command substitution; selected for bash and zsh only"},
+    {"case_id": "exit-general-failure", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status", "stdout"], "rationale": "exit status 1 propagation"},
+    {"case_id": "exit-command-not-found", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status"], "rationale": "status for a missing command; stderr wording is shell-specific and not compared"},
+    {"case_id": "exit-sigterm-mapping", "shells": ["bash", "zsh", "fish"], "compared_dimensions": ["status", "stdout"], "rationale": "status for a child killed by SIGTERM"}
+  ]
+}
