@@ -14,10 +14,11 @@ nor the repository.
 
 Two classes of requirements are kept apart:
 
-* CURRENT structural invariants must hold now; a violation fails the check.
-* FUTURE implementation requirements (real SBOM generation, attestations, ...) are
-  only *reported* as deferred or present, never enforced, so Slice 1 passes honestly
-  without them.
+* CURRENT structural invariants must hold now; a violation fails the check. Since
+  Slice 2 they include real SBOM generation (the generator, its pinned tool, its
+  position in the release workflow and the checksum policy).
+* FUTURE implementation requirements (attestations, reproducibility measurement, ...)
+  are only *reported* as deferred or present, never enforced.
 
 Exit codes: 0 contract holds, 1 contract violation, 2 command-line misuse.
 """
@@ -26,6 +27,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,6 +78,7 @@ PIPELINE_STAGES = (
 DOC = Path("docs/security/supply-chain.md")
 PACKAGING_DOC = Path("docs/development/packaging.md")
 ARTIFACT_CHECKER = Path("scripts/check_release_artifacts.sh")
+SBOM_GENERATOR = Path("scripts/generate_release_sboms.py")
 WORKFLOWS = Path(".github/workflows")
 RELEASE_WORKFLOW = WORKFLOWS / "release-artifacts.yml"
 PUBLISH_WORKFLOW = WORKFLOWS / "publish.yml"
@@ -401,18 +404,131 @@ def future_status(root: Path) -> list[str]:
         _code(p.read_text(encoding="utf-8")) for p in sorted(directory.glob("*.y*ml"))
     ) if directory.is_dir() else ""
     items = (
-        ("SPDX SBOM generation (Slice 2)", r"spdx|sbom"),
         ("keyless artifact attestation (Slice 3)", r"actions/attest|attest-build-provenance"),
         ("attestation verification before upload (Slice 3)", r"gh\s+attestation\s+verify"),
         ("reproducibility measurement (Slice 4)", r"reproducib"),
     )
-    return [
+    lines = [
         f"deferred: {name}: " + ("present" if re.search(pattern, corpus, re.I) else "not yet implemented")
         for name, pattern in items
     ]
+    return ["implemented: SPDX 2.3 JSON SBOM generation (Slice 2)", *lines]
+
+
+#: Actions/tools that produce supply-chain material; any ``uses:`` of them must be SHA-pinned.
+SUPPLY_CHAIN_ACTION_RE = re.compile(r"^\s*-?\s*uses:\s*([^\s@]*(?:anchore|syft|sbom|cyclonedx|attest|cosign|sigstore)[^\s@]*)@(\S+)", re.I | re.M)
+SBOM_DEPENDENCY_RE = re.compile(r"syft|anchore|spdx|cyclonedx|sbom", re.I)
+STATUS_ROWS = (
+    ("policy, anchors and structural contract check", "IMPLEMENTED (Slice 1)"),
+    ("spdx 2.3 json sbom generation", "IMPLEMENTED (Slice 2)"),
+    ("keyless artifact attestations", "DEFERRED (Slice 3)"),
+    ("reproducibility measurement", "DEFERRED (Slice 4)"),
+    ("final tier-1 dry-run release evidence", "DEFERRED (Slice 5)"),
+)
+
+
+def _stage_index(job: str, needle: str, start: int = 0) -> int:
+    return job.find(needle, start)
+
+
+def check_sbom_implementation(root: Path) -> list[Violation]:
+    """Slice 2: real SBOM generation, its position in the release workflow and checksum policy."""
+    out: list[Violation] = []
+    generator = _read(root, SBOM_GENERATOR)
+    if generator is None:
+        return [Violation("SBOM-GENERATOR", f"{SBOM_GENERATOR} is missing")]
+    version = re.search(r'^SYFT_VERSION = "(\d+\.\d+\.\d+)"', generator, re.M)
+    digest = re.search(r'^SYFT_LINUX_AMD64_SHA256 = "([0-9a-f]{64})"', generator, re.M)
+    if version is None or digest is None:
+        out.append(Violation("SBOM-PIN", "the SBOM tool must be pinned by an exact version and an archive SHA-256"))
+    if re.search(r"releases/latest|/latest/|install\.sh", generator):
+        out.append(Violation("SBOM-PIN", "the SBOM tool must not be fetched through a mutable reference"))
+    if not re.search(r'^SPDX_VERSION = "SPDX-2\.3"', generator, re.M):
+        out.append(Violation("SBOM-FORMAT", "the generator must target SPDX-2.3"))
+    if not re.search(r'^SBOM_SUFFIX = "\.spdx\.json"', generator, re.M) or not re.search(
+        r"def sbom_name\(artifact_basename: str\) -> str:\s+(?:\"\"\"[^\n]*\"\"\"\s+)?return artifact_basename \+ SBOM_SUFFIX", generator
+    ):
+        out.append(Violation("SBOM-NAMING", "SBOM names must derive mechanically from the artifact basename plus .spdx.json"))
+    if "shell=True" in _code(generator):
+        out.append(Violation("SBOM-GENERATOR", "the generator must never use shell=True"))
+    for pattern in RELEASE_UPLOAD_PATTERNS:
+        if re.search(pattern, _code(generator)):
+            out.append(Violation("WF-UPLOAD-BYPASS", f"{SBOM_GENERATOR}: the SBOM tooling must never upload release assets ({pattern})"))
+    if re.search(r"""["']gh["']|\bgh\s+release\b""", _code(generator)):
+        out.append(Violation("WF-UPLOAD-BYPASS", f"{SBOM_GENERATOR}: the SBOM tooling must not invoke the GitHub CLI"))
+    modelled = {f.family_id for f in FAMILIES if f.requires_sbom}
+    in_generator = set(re.findall(r'Family\("([a-z_]+)"', generator))
+    if in_generator != modelled:
+        out.append(Violation("SBOM-FAMILIES", f"generator families {sorted(in_generator)} differ from the SBOM-required families {sorted(modelled)}"))
+
+    artifacts_script = _read(root, ARTIFACT_CHECKER) or ""
+    if re.search(r'^SBOM_SUFFIX="\.spdx\.json"', artifacts_script, re.M) is None:
+        out.append(Violation("SBOM-NAMING", f"{ARTIFACT_CHECKER} must use the same .spdx.json SBOM suffix"))
+    if "--finalize-release-assets" not in artifacts_script or "grep -vx SHA256SUMS" not in artifacts_script:
+        out.append(Violation("SBOM-CHECKSUMS", f"{ARTIFACT_CHECKER} must finalize SHA256SUMS over every published file except itself"))
+    if "must not list itself" not in generator:
+        out.append(Violation("SBOM-CHECKSUMS", "the bundle validator must reject a SHA256SUMS that lists itself"))
+    doc = _read(root, DOC) or ""
+    if "every published release file except `SHA256SUMS` itself" not in " ".join(doc.split()):
+        out.append(Violation("SBOM-CHECKSUMS", "the documented checksum policy must cover every published file except SHA256SUMS itself"))
+    status_lines = [line.lower() for line in doc.splitlines() if line.startswith("|")]
+    for label, status in STATUS_ROWS:
+        row = next((line for line in status_lines if line.startswith(f"| {label}")), "")
+        if status.lower() not in row:
+            out.append(Violation("DOC-STATUS", f"the slice status of {label!r} must read {status}"))
+
+    workflow = _read(root, RELEASE_WORKFLOW)
+    jobs = split_jobs(_code(workflow)) if workflow else {}
+    build = jobs.get("build-and-validate", "")
+    stage = _stage_index(build, "check_release_artifacts.sh\n")
+    fetch = _stage_index(build, "generate_release_sboms.py fetch-syft")
+    generate = _stage_index(build, "generate_release_sboms.py generate")
+    validate = _stage_index(build, "generate_release_sboms.py validate --dir")
+    finalize = _stage_index(build, "check_release_artifacts.sh --finalize-release-assets")
+    bundle = _stage_index(build, "generate_release_sboms.py validate-bundle")
+    handoff = _stage_index(build, "name: release-assets")
+    order = [stage, fetch, generate, validate, finalize, bundle, handoff]
+    if min(order) < 0:
+        out.append(Violation("SBOM-WORKFLOW", "build-and-validate must stage, fetch the pinned tool, generate, validate, finalize checksums, validate the bundle and hand off"))
+    elif order != sorted(order):
+        out.append(Violation("SBOM-WORKFLOW", "SBOM steps are out of order: expected stage, fetch tool, generate, validate, finalize SHA256SUMS, validate bundle, hand-off"))
+    elif "--input dist/release-assets" not in build[generate:validate]:
+        out.append(Violation("SBOM-WORKFLOW", "SBOMs must be generated from the staged dist/release-assets only"))
+    if "generate_release_sboms.py" in jobs.get("upload", "") or "fetch-syft" in jobs.get("upload", ""):
+        out.append(Violation("SBOM-WORKFLOW", "the upload job must not run SBOM tooling"))
+
+    directory = root / WORKFLOWS
+    for path in sorted(directory.glob("*.y*ml")) if directory.is_dir() else []:
+        text = _code(path.read_text(encoding="utf-8"))
+        for action, ref in SUPPLY_CHAIN_ACTION_RE.findall(text):
+            if not re.fullmatch(r"[0-9a-f]{40}", ref):
+                out.append(Violation("SBOM-PIN", f"{path.relative_to(root)}: {action}@{ref} must be pinned to a full commit SHA"))
+        if re.search(r"(?:curl|wget)\b[^\n]*(?:syft|anchore)", text, re.I):
+            out.append(Violation("SBOM-PIN", f"{path.relative_to(root)}: the SBOM tool must not be piped or downloaded outside fetch-syft"))
+
+    manifest = _read(root, Path("pyproject.toml"))
+    if manifest is not None:
+        data = tomllib.loads(manifest)
+        names: list[str] = list(data.get("project", {}).get("dependencies", []))
+        for group in data.get("project", {}).get("optional-dependencies", {}).values():
+            names += list(group)
+        for group in data.get("dependency-groups", {}).values():
+            names += [item for item in group if isinstance(item, str)]
+        for requirement in names:
+            if SBOM_DEPENDENCY_RE.search(requirement):
+                out.append(Violation("SBOM-DEPENDENCY", f"pyproject.toml declares an SBOM/supply-chain dependency: {requirement}"))
+    lock = _read(root, Path("uv.lock")) or ""
+    if re.search(r'^name = "(?:[^"]*(?:syft|anchore|spdx|cyclonedx)[^"]*)"', lock, re.M | re.I):
+        out.append(Violation("SBOM-DEPENDENCY", "uv.lock must not lock an SBOM/supply-chain package"))
+    source = root / "src"
+    for path in sorted(source.rglob("*.py")) if source.is_dir() else []:
+        if "generate_release_sboms" in path.read_text(encoding="utf-8"):
+            out.append(Violation("SBOM-DEPENDENCY", f"{path.relative_to(root)}: runtime code must not use the SBOM tooling"))
+    return out
 
 
 CURRENT_CHECKS = (
+    check_sbom_implementation,
     check_documentation,
     check_packaging_agreement,
     check_release_workflow,

@@ -3,10 +3,10 @@
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
-"""Issue #51 Slice 1: the repository-owned supply-chain contract and its checker.
+"""Issue #51 Slices 1-2: the repository-owned supply-chain contract and its checker.
 
-Hermetic: no network, GitHub CLI, Docker, FreeBSD, signing or SBOM generator. Negative
-cases mutate a temporary copy of the real documents and workflows.
+Hermetic: no network, GitHub CLI, Docker, FreeBSD, signing or SBOM tool. Negative
+cases mutate a temporary copy of the real documents, scripts and workflows.
 """
 from __future__ import annotations
 
@@ -24,12 +24,16 @@ DOC = Path("docs/security/supply-chain.md")
 PACKAGING = Path("docs/development/packaging.md")
 RELEASE_WF = Path(".github/workflows/release-artifacts.yml")
 PUBLISH_WF = Path(".github/workflows/publish.yml")
+SBOM_GENERATOR = Path("scripts/generate_release_sboms.py")
 
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A copy of just the files the checker reads."""
-    for relative in (DOC, PACKAGING, Path("scripts/check_release_artifacts.sh")):
+    for relative in (
+        DOC, PACKAGING, Path("scripts/check_release_artifacts.sh"), SBOM_GENERATOR,
+        Path("pyproject.toml"), Path("uv.lock"),
+    ):
         target = tmp_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(REPO_ROOT / relative, target)
@@ -55,21 +59,20 @@ def test_the_real_repository_satisfies_the_contract() -> None:
     assert contract.run_checks(REPO_ROOT) == []
 
 
-def test_slice_one_passes_without_an_sbom_generator_or_attestation_action(repo: Path) -> None:
-    corpus = "\n".join(
-        contract._code(p.read_text(encoding="utf-8")) for p in (repo / ".github" / "workflows").glob("*.yml")
-    )
-    assert not re.search(r"actions/attest|attest-build-provenance|syft|cosign|cyclonedx|spdx", corpus, re.I)
+def test_slice_two_reports_sboms_implemented_and_the_rest_deferred(repo: Path) -> None:
     assert contract.run_checks(repo) == []
-    assert all("not yet implemented" in line for line in contract.future_status(repo))
+    status = contract.future_status(repo)
+    assert status[0] == "implemented: SPDX 2.3 JSON SBOM generation (Slice 2)"
+    assert all("not yet implemented" in line for line in status[1:])
+    assert not any("sbom" in line.lower() for line in status[1:])
 
 
-def test_future_features_being_present_never_fail_slice_one(repo: Path) -> None:
-    """Deferred items are reported, not enforced, whichever way they are wired."""
-    extra = repo / ".github" / "workflows" / "future-sbom.yml"
+def test_deferred_attestation_features_being_present_never_fail_the_checker(repo: Path) -> None:
+    """Attestation and reproducibility are reported, not enforced, whichever way they are wired."""
+    extra = repo / ".github" / "workflows" / "future-attest.yml"
     extra.write_text(
-        "name: future\non: workflow_dispatch\njobs:\n  sbom:\n    runs-on: ubuntu-latest\n"
-        "    steps:\n      - run: echo generate spdx sbom\n      - uses: actions/attest-build-provenance@v1\n",
+        "name: future\non: workflow_dispatch\njobs:\n  attest:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - uses: actions/attest-build-provenance@" + "a" * 40 + "\n",
         encoding="utf-8",
     )
     assert contract.run_checks(repo) == []
@@ -101,11 +104,13 @@ def test_required_anchors_and_reproducibility_statuses_are_exact() -> None:
     assert not re.search(r"\bX\.Y\.Z\b|pysh[-_]shell[-_]", text)
 
 
-def test_the_policy_does_not_claim_that_sboms_or_attestations_exist() -> None:
+def test_the_policy_claims_sboms_but_not_attestations_exist() -> None:
     text = " ".join((REPO_ROOT / DOC).read_text(encoding="utf-8").split())
-    assert "Nothing in this document claims that SBOMs or attestations exist yet" in text
-    assert "SPDX 2.3 JSON SBOM generation | Not implemented (Slice 2)" in text
-    assert "attestations and verification before upload | Not implemented (Slice 3)" in text
+    assert "SPDX 2.3 JSON SBOM generation | IMPLEMENTED (Slice 2)" in text
+    assert "attestations and verification before upload | DEFERRED (Slice 3)" in text
+    assert "Reproducibility measurement | DEFERRED (Slice 4)" in text
+    assert "Final Tier-1 dry-run release evidence | DEFERRED (Slice 5)" in text
+    assert "Not implemented" not in text
 
 
 def test_the_checker_is_stdlib_only_offline_and_read_only() -> None:
@@ -416,3 +421,134 @@ def test_a_signing_secret_in_any_workflow_fails(repo: Path) -> None:
         encoding="utf-8",
     )
     assert "WF-SECRETS" in codes(repo)
+
+
+# --- Slice 2: SBOM implementation checks ------------------------------------------------------------
+
+
+def test_a_missing_generator_fails(repo: Path) -> None:
+    (repo / SBOM_GENERATOR).unlink()
+    assert codes(repo) == {"SBOM-GENERATOR"}
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "code"),
+    [
+        ('SYFT_VERSION = "', 'SYFT_VERSION_UNPINNED = "', "SBOM-PIN"),
+        ('SYFT_LINUX_AMD64_SHA256 = "', 'SYFT_DIGEST_GONE = "', "SBOM-PIN"),
+        ('SPDX_VERSION = "SPDX-2.3"', 'SPDX_VERSION = "SPDX-2.2"', "SBOM-FORMAT"),
+        ('SBOM_SUFFIX = ".spdx.json"', 'SBOM_SUFFIX = ".sbom.json"', "SBOM-NAMING"),
+        ("return artifact_basename + SBOM_SUFFIX", "return artifact_basename.lower() + SBOM_SUFFIX", "SBOM-NAMING"),
+        ('Family("deb"', 'Family("debian"', "SBOM-FAMILIES"),
+        ("must not list itself", "may list itself", "SBOM-CHECKSUMS"),
+    ],
+)
+def test_generator_contract_violations_fail(repo: Path, old: str, new: str, code: str) -> None:
+    edit(repo, SBOM_GENERATOR, old, new)
+    assert code in codes(repo)
+
+
+def test_a_mutable_tool_reference_or_shell_or_upload_in_the_generator_fails(repo: Path) -> None:
+    path = repo / SBOM_GENERATOR
+    path.write_text(path.read_text(encoding="utf-8") + '\nBAD = "https://github.com/anchore/syft/releases/latest"\n', encoding="utf-8")
+    assert "SBOM-PIN" in codes(repo)
+    path.write_text(path.read_text(encoding="utf-8") + '\nsubprocess.run("x", shell=True)\n', encoding="utf-8")
+    assert "SBOM-GENERATOR" in codes(repo)
+    path.write_text(path.read_text(encoding="utf-8") + '\nsubprocess.run(["gh", "release", "upload", "v1"])\n', encoding="utf-8")
+    assert "WF-UPLOAD-BYPASS" in codes(repo)
+
+
+def test_a_generator_comment_mentioning_upload_does_not_fail(repo: Path) -> None:
+    path = repo / SBOM_GENERATOR
+    path.write_text(path.read_text(encoding="utf-8") + "\n# never runs gh release upload\n", encoding="utf-8")
+    assert contract.run_checks(repo) == []
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        "generate_release_sboms.py fetch-syft",
+        "generate_release_sboms.py generate",
+        "generate_release_sboms.py validate --dir",
+        "check_release_artifacts.sh --finalize-release-assets",
+        "generate_release_sboms.py validate-bundle",
+    ],
+)
+def test_a_missing_sbom_workflow_step_fails(repo: Path, step: str) -> None:
+    path = repo / RELEASE_WF
+    text = path.read_text(encoding="utf-8")
+    path.write_text(re.sub(re.escape(step), "echo skipped", text), encoding="utf-8")
+    assert "SBOM-WORKFLOW" in codes(repo)
+
+
+def test_swapping_generate_and_finalize_is_an_ordering_violation(repo: Path) -> None:
+    path = repo / RELEASE_WF
+    text = path.read_text(encoding="utf-8")
+    text = text.replace("generate_release_sboms.py validate --dir", "@@V@@").replace(
+        "check_release_artifacts.sh --finalize-release-assets", "generate_release_sboms.py validate --dir"
+    ).replace("@@V@@", "check_release_artifacts.sh --finalize-release-assets")
+    path.write_text(text, encoding="utf-8")
+    assert "SBOM-WORKFLOW" in codes(repo)
+
+
+def test_generating_from_a_directory_other_than_the_staged_assets_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "--input dist/release-assets", "--input dist")
+    assert "SBOM-WORKFLOW" in codes(repo)
+
+
+def test_sbom_tooling_in_the_upload_job_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "gh release upload", "python scripts/generate_release_sboms.py generate\n          gh release upload")
+    assert "SBOM-WORKFLOW" in codes(repo)
+
+
+def test_an_unpinned_sbom_or_attestation_action_fails(repo: Path) -> None:
+    extra = repo / ".github" / "workflows" / "sbom-action.yml"
+    extra.write_text(
+        "name: x\non: workflow_dispatch\njobs:\n  s:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - uses: anchore/sbom-action@v0\n",
+        encoding="utf-8",
+    )
+    assert "SBOM-PIN" in codes(repo)
+    extra.write_text(extra.read_text(encoding="utf-8").replace("@v0", "@" + "b" * 40), encoding="utf-8")
+    assert "SBOM-PIN" not in codes(repo)
+
+
+def test_downloading_the_tool_outside_fetch_syft_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "python scripts/generate_release_sboms.py fetch-syft",
+         "curl -sSfL https://example.invalid/anchore/syft.tar.gz -o x\n          python scripts/generate_release_sboms.py fetch-syft")
+    assert "SBOM-PIN" in codes(repo)
+
+
+def test_a_checksum_finalizer_that_hashes_itself_is_rejected_at_the_contract_level(repo: Path) -> None:
+    edit(repo, Path("scripts/check_release_artifacts.sh"), "grep -vx SHA256SUMS", "cat")
+    assert "SBOM-CHECKSUMS" in codes(repo)
+
+
+def test_the_documented_checksum_policy_is_required(repo: Path) -> None:
+    edit(repo, DOC, "every published release file except `SHA256SUMS` itself", "the package files")
+    assert "SBOM-CHECKSUMS" in codes(repo)
+
+
+def test_the_status_table_must_mark_sboms_implemented_and_the_rest_deferred(repo: Path) -> None:
+    edit(repo, DOC, "| SPDX 2.3 JSON SBOM generation | IMPLEMENTED (Slice 2) |", "| SPDX 2.3 JSON SBOM generation | DEFERRED (Slice 2) |")
+    assert "DOC-STATUS" in codes(repo)
+
+
+def test_an_sbom_tool_declared_as_a_dependency_fails(repo: Path) -> None:
+    path = repo / "pyproject.toml"
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace("dependencies = [", 'dependencies = [\n  "syft>=1",', 1), encoding="utf-8")
+    assert "SBOM-DEPENDENCY" in codes(repo)
+
+
+def test_an_sbom_package_in_the_lockfile_fails(repo: Path) -> None:
+    path = repo / "uv.lock"
+    path.write_text(path.read_text(encoding="utf-8") + '\n[[package]]\nname = "cyclonedx-python-lib"\nversion = "1"\n', encoding="utf-8")
+    assert "SBOM-DEPENDENCY" in codes(repo)
+
+
+def test_runtime_code_using_the_sbom_tooling_fails(repo: Path) -> None:
+    runtime = repo / "src" / "pysh"
+    runtime.mkdir(parents=True)
+    (runtime / "bad.py").write_text("import generate_release_sboms\n", encoding="utf-8")
+    assert "SBOM-DEPENDENCY" in codes(repo)

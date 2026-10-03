@@ -26,14 +26,30 @@ cd "${REPO_ROOT}"
 # one artifact family that cannot be produced on the host, e.g. a FreeBSD
 # .pkg on Linux) instead of the real dist/. See
 # docs/architecture/release-quality-gate-2-audit.md for the rationale.
+#
+# --finalize-release-assets [ARTIFACT_DIR]: the last step of the release-asset
+# pipeline (Issue #51). It runs AFTER scripts/generate_release_sboms.py has added
+# the five SPDX SBOMs to ARTIFACT_DIR/release-assets, and (re)writes the one
+# public SHA256SUMS over every published release file except SHA256SUMS itself
+# (packages and SBOMs), then verifies it. It never builds, never generates an
+# SBOM and never uploads anything.
 CONTRACT_ONLY=0
-if [ "${1:-}" = "--contract-only" ]; then
-    CONTRACT_ONLY=1
+FINALIZE_RELEASE_ASSETS=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --contract-only) CONTRACT_ONLY=1 ;;
+        --finalize-release-assets) FINALIZE_RELEASE_ASSETS=1 ;;
+        -*)
+            echo "usage: check_release_artifacts.sh [--contract-only | --finalize-release-assets] [ARTIFACT_DIR]" >&2
+            exit 2
+            ;;
+        *) break ;;
+    esac
     shift
-fi
+done
 DIST_DIR="${1:-${REPO_ROOT}/dist}"
-if [ $# -gt 1 ]; then
-    echo "usage: check_release_artifacts.sh [--contract-only] [ARTIFACT_DIR]" >&2
+if [ $# -gt 1 ] || { [ "${CONTRACT_ONLY}" -eq 1 ] && [ "${FINALIZE_RELEASE_ASSETS}" -eq 1 ]; }; then
+    echo "usage: check_release_artifacts.sh [--contract-only | --finalize-release-assets] [ARTIFACT_DIR]" >&2
     exit 2
 fi
 
@@ -71,6 +87,8 @@ EXPECTED_DEB="${PKG_NAME}_${VERSION}-${PKG_RELEASE}_all.deb"
 EXPECTED_RPM="${PKG_NAME}-${VERSION}-${PKG_RELEASE}.noarch.rpm"
 EXPECTED_FREEBSD_PKG="${PKG_NAME}-${VERSION}.pkg"
 
+SBOM_SUFFIX=".spdx.json"
+
 WHEEL_PATH="${DIST_DIR}/${EXPECTED_WHEEL_NAME}"
 DEB_PATH="${DIST_DIR}/os/deb/${EXPECTED_DEB}"
 RPM_PATH="${DIST_DIR}/os/rpm/${EXPECTED_RPM}"
@@ -78,6 +96,81 @@ FREEBSD_PKG_PATH="${DIST_DIR}/os/freebsd/${EXPECTED_FREEBSD_PKG}"
 RELEASE_ASSETS_DIR="${DIST_DIR}/release-assets"
 
 missing=0
+
+# --- final SHA256SUMS over the complete published set (Issue #51) -------------
+#
+# SBOM file names derive mechanically from the artifact basename. The manifest
+# covers every published file except itself, so there is no checksum recursion,
+# and it is written only once the complete release asset set exists.
+if [ "${FINALIZE_RELEASE_ASSETS}" -eq 1 ]; then
+    ASSETS="${RELEASE_ASSETS_DIR}"
+    echo "==> check_release_artifacts.sh (finalize mode): ${ASSETS}"
+    if [ ! -d "${ASSETS}" ]; then
+        echo "check_release_artifacts.sh: missing release assets directory: ${ASSETS}" >&2
+        exit 1
+    fi
+    SDIST_BASENAME=""
+    if [ -f "${ASSETS}/${EXPECTED_SDIST_UNDER}" ]; then
+        SDIST_BASENAME="${EXPECTED_SDIST_UNDER}"
+    elif [ -f "${ASSETS}/${EXPECTED_SDIST_HYPHEN}" ]; then
+        SDIST_BASENAME="${EXPECTED_SDIST_HYPHEN}"
+    else
+        echo "check_release_artifacts.sh: missing sdist in ${ASSETS}" >&2
+        exit 1
+    fi
+    PACKAGES=(
+        "${EXPECTED_WHEEL_NAME}" "${SDIST_BASENAME}" "${EXPECTED_DEB}"
+        "${EXPECTED_RPM}" "${EXPECTED_FREEBSD_PKG}"
+    )
+    ALLOWED=("SHA256SUMS")
+    for package in "${PACKAGES[@]}"; do
+        for required in "${package}" "${package}${SBOM_SUFFIX}"; do
+            if [ ! -f "${ASSETS}/${required}" ]; then
+                echo "check_release_artifacts.sh: missing release asset: ${required}" >&2
+                missing=1
+            elif [ ! -s "${ASSETS}/${required}" ]; then
+                echo "check_release_artifacts.sh: release asset is empty: ${required}" >&2
+                missing=1
+            fi
+            ALLOWED+=("${required}")
+        done
+    done
+    for path in "${ASSETS}"/*; do
+        base="$(basename "${path}")"
+        found=0
+        for allowed in "${ALLOWED[@]}"; do
+            if [ "${base}" = "${allowed}" ]; then found=1; fi
+        done
+        if [ "${found}" -ne 1 ]; then
+            echo "check_release_artifacts.sh: unexpected release asset: ${base}" >&2
+            missing=1
+        fi
+    done
+    if [ "${missing}" -ne 0 ]; then
+        echo "check_release_artifacts.sh: aborting: the release asset set is incomplete." >&2
+        exit 1
+    fi
+    TMP_SUMS="$(mktemp)"
+    mapfile -t PUBLISHED < <(cd "${ASSETS}" && ls -1 | grep -vx SHA256SUMS | LC_ALL=C sort)
+    (cd "${ASSETS}" && sha256sum -- "${PUBLISHED[@]}") >"${TMP_SUMS}"
+    mv "${TMP_SUMS}" "${ASSETS}/SHA256SUMS"
+    (cd "${ASSETS}" && sha256sum -c SHA256SUMS)
+    for published in "${PUBLISHED[@]}"; do
+        if ! awk '{print $2}' "${ASSETS}/SHA256SUMS" | sed 's/^\*//' | grep -Fxq "${published}"; then
+            echo "check_release_artifacts.sh: SHA256SUMS missing: ${published}" >&2
+            missing=1
+        fi
+    done
+    if awk '{print $2}' "${ASSETS}/SHA256SUMS" | sed 's/^\*//' | grep -Fxq SHA256SUMS; then
+        echo "check_release_artifacts.sh: SHA256SUMS must not list itself" >&2
+        missing=1
+    fi
+    if [ "${missing}" -ne 0 ]; then
+        exit 1
+    fi
+    echo "==> Final SHA256SUMS covers ${#PUBLISHED[@]} published files (packages + SBOMs), excluding itself."
+    exit 0
+fi
 
 # Fails on a missing artifact (contract items 1-5) AND on a present-but-empty
 # artifact (contract item 9: a zero-byte placeholder must never be accepted

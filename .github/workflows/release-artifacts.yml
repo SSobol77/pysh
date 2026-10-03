@@ -138,6 +138,32 @@ jobs:
       - name: Verify canonical artifact names + stage flat release assets
         run: bash scripts/check_release_artifacts.sh
 
+      # Issue #51 (Slice 2): SPDX 2.3 JSON SBOMs for the five package artifacts,
+      # generated ONLY from the validated canonical bytes staged above. The SBOM
+      # tool is CI-only equipment pinned by version and archive SHA-256 inside
+      # scripts/generate_release_sboms.py; it never uploads anything. The sequence
+      # is: generate, validate completeness, write the final SHA256SUMS over the
+      # complete published set, validate the whole bundle, and only then hand the
+      # bundle to the upload job.
+      - name: Fetch pinned SBOM tool (CI-only, digest-verified)
+        run: python scripts/generate_release_sboms.py fetch-syft --dest "${RUNNER_TEMP}/sbom-tool"
+
+      - name: Generate SPDX 2.3 JSON SBOMs for the staged package artifacts
+        run: |
+          python scripts/generate_release_sboms.py generate \
+            --input dist/release-assets \
+            --output dist/release-assets \
+            --syft "${RUNNER_TEMP}/sbom-tool/syft"
+
+      - name: Validate SBOM completeness
+        run: python scripts/generate_release_sboms.py validate --dir dist/release-assets
+
+      - name: Finalize SHA256SUMS over the complete published set
+        run: bash scripts/check_release_artifacts.sh --finalize-release-assets
+
+      - name: Validate the complete release bundle (packages, SBOMs, SHA256SUMS)
+        run: python scripts/generate_release_sboms.py validate-bundle --dir dist/release-assets
+
       # The validated, flat dist/release-assets/ tree is the ONLY thing the
       # upload job can see: it never has repository source, never rebuilds
       # anything, and cannot run until this job succeeds. This is the

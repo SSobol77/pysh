@@ -24,17 +24,18 @@ and never becomes a PySH runtime dependency.
 
 ## Scope and implementation status
 
-**Issue #51 defines the supply-chain contract; real SBOM and provenance
-generation are implemented in later slices.** Nothing in this document claims that
-SBOMs or attestations exist yet.
+**Issue #51 defines the supply-chain contract. SPDX 2.3 JSON SBOM generation is
+implemented (Slice 2); provenance and attestations, reproducibility measurement and
+the final evidence run are implemented in later slices.** Nothing in this document
+claims that attestations or signatures exist yet, and an SBOM is not provenance.
 
 | Capability | Status |
 | --- | --- |
-| Policy, anchors and structural contract check | Slice 1 (this contract) |
-| SPDX 2.3 JSON SBOM generation | Not implemented (Slice 2) |
-| Keyless artifact attestations and verification before upload | Not implemented (Slice 3) |
-| Reproducibility measurement | Not implemented (Slice 4) |
-| Final Tier-1 dry-run release evidence | Not implemented (Slice 5) |
+| Policy, anchors and structural contract check | IMPLEMENTED (Slice 1) |
+| SPDX 2.3 JSON SBOM generation | IMPLEMENTED (Slice 2) |
+| Keyless artifact attestations and verification before upload | DEFERRED (Slice 3) |
+| Reproducibility measurement | DEFERRED (Slice 4) |
+| Final Tier-1 dry-run release evidence | DEFERRED (Slice 5) |
 
 Non-goals. This contract does not:
 
@@ -89,16 +90,38 @@ release workflow, with minimal explicit workflow permissions.
 
 ## SBOM
 
-- The canonical release SBOM format is **SPDX 2.3 JSON**.
-- It is required for the wheel, sdist, `.deb`, `.rpm` and `.pkg` families.
-- It is produced in CI and release infrastructure only, with no PySH runtime
-  dependency.
-- Its file names are derived deterministically from the canonical artifact
-  basenames.
-- It is staged through the same validated release-assets boundary and is never
-  uploaded to a release directly by the generator.
+- The canonical release SBOM format is **SPDX 2.3 JSON** (`SPDX-2.3`).
+- It is required for, and generated for, the wheel, sdist, `.deb`, `.rpm` and `.pkg`
+  families: exactly one SBOM per package artifact, none for `SHA256SUMS`.
+- **Naming**: the SBOM file name is the exact artifact basename plus `.spdx.json`
+  (for example `<artifact-basename>.spdx.json`), derived mechanically by
+  `scripts/generate_release_sboms.py`. There are no version-independent aliases and no
+  separate naming authority.
+- **Tool**: Anchore Syft 1.54.0, a CI-only tool. It is fetched by
+  `scripts/generate_release_sboms.py fetch-syft` from the official release archive
+  and verified against a pinned SHA-256 (the upstream tag commit is recorded beside
+  it in that script). It is never a PySH dependency and is not part of any package.
+- **Inputs**: the SBOMs are generated only from the validated canonical bytes staged in
+  `dist/release-assets`. A wheel, sdist or `.pkg` payload is safely unpacked into a
+  private scratch directory and scanned; a `.deb` or `.rpm` is scanned as an archive.
+  The artifact itself is never modified. The artifact is bound into its SBOM: the
+  described root package is named by the artifact basename and its version is
+  `sha256:<artifact digest>`.
+- **Content**: the SBOM lists whatever components the tool recognizes. Wheel and
+  `.deb` SBOMs list the PySH package; the sdist and FreeBSD `.pkg` SBOMs currently list
+  only the bound artifact because the tool has no cataloger for those payloads.
+- **Validation** (`validate`, `validate-bundle`): valid JSON, `SPDX-2.3`, data license,
+  document namespace, creation info, artifact binding, exact name mapping, exactly one
+  SBOM per package family, no unexpected sibling files, and no host paths or secret
+  values.
+- The generator never uploads. SBOMs enter the same validated release-assets bundle
+  and are attached to a release only by the existing upload job.
+- Generation is all-or-nothing: no SBOM is written unless all five were produced and
+  validated.
 - A required artifact without its SBOM is a release-gate failure.
-- Any external generator is pinned, with its own release-upload behavior disabled.
+- **Where to find them**: the SBOMs are ordinary GitHub Release assets next to the
+  artifacts. Download `<artifact-basename>.spdx.json` and inspect it with any SPDX
+  2.3 JSON tool. The SBOM's presence does not prove provenance.
 
 <a id="PYSH-SC-PROVENANCE"></a>
 
@@ -123,7 +146,11 @@ renamed, duplicated or digest-mismatched required subject is a release-gate fail
 
 Two independent controls are required, and neither substitutes for the other:
 
-1. **Checksum integrity**: `sha256sum -c SHA256SUMS`.
+1. **Checksum integrity**: `sha256sum -c SHA256SUMS`. The published `SHA256SUMS` covers
+   every published release file except `SHA256SUMS` itself, that is the five package
+   artifacts and their five SBOMs. It is written only after the complete asset set
+   exists (a preliminary manifest of the packages is replaced), so it never lists
+   itself.
 2. **Provenance verification**: the attestation is verified against the expected
    repository identity and the expected subject digest.
 

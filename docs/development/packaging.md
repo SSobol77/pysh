@@ -61,11 +61,13 @@ For version `X.Y.Z` and package release `1`:
 The build scripts and CI **fail** if produced `.deb`, `.rpm`, or `.pkg`
 filenames drift from the canonical names above.
 
-These names are the only subject names any later supply-chain layer (SBOM,
+These names are the only subject names any supply-chain layer (SBOM,
 provenance, `SHA256SUMS`) may use; see
-[`supply-chain.md`](../security/supply-chain.md). Issue #51 defines the
-supply-chain contract; real SBOM/provenance generation is implemented in later
-slices.
+[`supply-chain.md`](../security/supply-chain.md). SPDX 2.3 JSON SBOMs are
+generated for every package artifact (Issue #51 Slice 2) and named by appending
+`.spdx.json` to the artifact basename, for example
+`pysh-shell_X.Y.Z-1_all.deb.spdx.json`; keyless provenance attestations are
+implemented in a later slice.
 
 ## Output directories
 
@@ -84,6 +86,11 @@ dist/
 │   ├── pysh-shell_X.Y.Z-1_all.deb
 │   ├── pysh-shell-X.Y.Z-1.noarch.rpm
 │   ├── pysh-shell-X.Y.Z.pkg
+│   ├── pysh_shell-X.Y.Z-py3-none-any.whl.spdx.json
+│   ├── pysh_shell-X.Y.Z.tar.gz.spdx.json
+│   ├── pysh-shell_X.Y.Z-1_all.deb.spdx.json
+│   ├── pysh-shell-X.Y.Z-1.noarch.rpm.spdx.json
+│   ├── pysh-shell-X.Y.Z.pkg.spdx.json
 │   └── SHA256SUMS
 └── os/
     ├── deb/
@@ -221,8 +228,11 @@ launcher, and smoke interpreter together; it does not change OS ABI.
 ### Verify checksums
 
 GitHub Release assets are uploaded from `dist/release-assets/` as flat files:
-wheel, sdist, `.deb`, `.rpm`, `.pkg`, and `SHA256SUMS`. The release-facing
-`SHA256SUMS` contains flat filenames only. After downloading all release
+wheel, sdist, `.deb`, `.rpm`, `.pkg`, their five `.spdx.json` SBOMs, and
+`SHA256SUMS`. The release-facing `SHA256SUMS` contains flat filenames only and
+covers every published file except `SHA256SUMS` itself (packages and SBOMs); it
+is written once, after the complete set exists
+(`bash scripts/check_release_artifacts.sh --finalize-release-assets`). After downloading all release
 assets into one directory, checksum verification requires no directory
 reconstruction:
 
@@ -293,7 +303,7 @@ bash scripts/build_pysh_package.sh    # dist/*.whl + dist/*.tar.gz
 bash scripts/build_deb.sh             # dist/os/deb/pysh-shell_*-1_all.deb
 bash scripts/build_rpm.sh             # dist/os/rpm/pysh-shell-*-1.noarch.rpm
 sh scripts/build_freebsd_pkg.sh       # dist/os/freebsd/pysh-shell-X.Y.Z.pkg (native FreeBSD)
-bash scripts/check_release_artifacts.sh   # naming + local and flat SHA256SUMS
+bash scripts/check_release_artifacts.sh   # naming + local and flat (package-only) SHA256SUMS
 ```
 
 `scripts/build_rpm.sh` requires `rpmbuild` (Debian package: `rpm`).
