@@ -45,6 +45,7 @@ from pysh.plugins.isolated.supervisor import (
     ConcurrencyGovernor,
     WallClockWatchdog,
 )
+from tests.fuzz_support import fdprobe
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PLUGIN = (FIXTURES / "isolated_plugin.py").resolve()
@@ -79,10 +80,6 @@ def _wait_until(predicate, timeout=6.0):
             return True
         time.sleep(0.02)
     return predicate()
-
-
-def _fd_count() -> int | None:
-    return len(os.listdir("/dev/fd")) if os.path.isdir("/dev/fd") else None
 
 
 def _isolated_tempdirs() -> set[str]:
@@ -709,7 +706,7 @@ def test_signals_never_reach_unrelated_processes_and_fds_do_not_leak(rec) -> Non
     bystander = subprocess.Popen(  # noqa: S603
         [PY, "-c", "import time; time.sleep(30)"], start_new_session=True
     )
-    before = _fd_count()
+    before = fdprobe.open_fds()
     try:
         runtime = _runtime(_manifest("ignore_sigterm"), rec,
                            resource_limits=ResourceBudget(wall_clock_seconds=1))
@@ -718,7 +715,7 @@ def test_signals_never_reach_unrelated_processes_and_fds_do_not_leak(rec) -> Non
         assert _wait_until(lambda: runtime.state is IsolatedPluginState.FAILED)
         assert {group for group, _ in rec.signals} == {pid}
         assert bystander.poll() is None
-        assert before is None or _fd_count() <= before + 1
+        assert fdprobe.open_fds() == before, "descriptors leaked by a contained plugin"
     finally:
         bystander.kill()
         bystander.wait()
