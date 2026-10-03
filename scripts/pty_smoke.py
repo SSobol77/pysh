@@ -155,8 +155,16 @@ def _become_controlling_tty() -> None:
 
 def _exited_noreap(proc: subprocess.Popen[bytes]) -> bool:
     """Whether the leader has exited, without reaping it (its zombie keeps the group id reserved)."""
+    if proc.returncode is not None:
+        return True
     if hasattr(os, "waitid"):
-        return os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+        try:
+            return (
+                os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                is not None
+            )
+        except ChildProcessError:
+            return True  # already reaped elsewhere: certainly exited
     return proc.poll() is not None
 
 
@@ -295,7 +303,8 @@ def run_pty_command(
 
         while True:
             remaining = deadline - time.monotonic()
-            exited = proc.poll() is not None
+            # A group-owning child must not be reaped before its group is swept.
+            exited = _exited_noreap(proc) if controlling_tty else proc.poll() is not None
             if remaining <= 0:
                 break
 

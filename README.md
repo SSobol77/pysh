@@ -745,7 +745,7 @@ twine check dist/*
 The project ships unit tests for the parser, the redirection module, the
 rc loader and mini-interpreter, command substitution, the history manager,
 the highlighting helpers, the plugin loader, directory stack, `unalias`,
-the `svc` builtin, the PyInit metadata parser, the zsh transition layer and
+the `svc` builtin, the PyInit metadata parser, the static zsh migration helpers and
 the Python runtime bridge.
 
 ---

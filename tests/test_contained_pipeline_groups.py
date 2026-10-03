@@ -103,13 +103,13 @@ def test_contained_foreground_pipeline_uses_no_invalid_group_id(make_shell, monk
     spies = Spies(monkeypatch)
     shell = make_shell(contained=True)
     shell._tty_fd = 99  # even with a terminal descriptor present, no handover may happen
-    jobs_before = len(shell.job_table.jobs) if hasattr(shell.job_table, "jobs") else 0
+    jobs_before = len(shell.job_table.all_jobs())
     capfd.readouterr()
     assert shell.execute(f"{PROBE} | cat") == 0
     pid, pgid = _probe_ids(capfd.readouterr().out)
     assert pgid == os.getpgrp() != pid  # the stage stayed in the existing (domain) group
     assert spies.killpg == [] and spies.tcsetpgrp == []
-    assert (len(shell.job_table.jobs) if hasattr(shell.job_table, "jobs") else 0) == jobs_before
+    assert len(shell.job_table.all_jobs()) == jobs_before
 
 
 def test_contained_pipeline_cancellation_never_targets_a_group(
@@ -206,3 +206,58 @@ def test_ordinary_pipeline_interrupt_still_signals_the_pipeline_group(
 def test_the_contained_flag_is_still_granted_only_by_the_capability(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PYSH_SUBSTITUTION_DEPTH", "3")
     assert PyShell(startup_policy=NO_RC_STARTUP_POLICY)._descendants_contained is False
+
+
+# --- PTY helper: a group-owning child is never reaped before its group is swept ----------------
+
+
+def _pty_helper():
+    from tests.differential import pty_lab
+
+    return pty_lab.load_pty_helper()
+
+
+def test_controlling_tty_mode_does_not_poll_the_leader_before_the_sweep(monkeypatch) -> None:
+    helper = _pty_helper()
+    polls_before_sweep: list[int] = []
+    state = {"swept": False}
+    real_popen = helper.subprocess.Popen
+
+    class SpyPopen(real_popen):
+        def poll(self):
+            if not state["swept"]:
+                polls_before_sweep.append(self.pid)  # poll() would reap the zombie leader
+            return super().poll()
+
+    real_sweep = helper._sweep_group_and_reap
+
+    def sweep(proc):
+        state["swept"] = True
+        return real_sweep(proc)
+
+    monkeypatch.setattr(helper.subprocess, "Popen", SpyPopen)
+    monkeypatch.setattr(helper, "_sweep_group_and_reap", sweep)
+    result = helper.run_pty_command(
+        [PY, "-c", "print('done')"], "", timeout=20.0, input_bytes=b"", controlling_tty=True,
+    )
+    assert state["swept"] and result.returncode == 0 and "done" in result.output
+    assert polls_before_sweep == []
+
+
+def test_exited_noreap_treats_an_already_reaped_child_as_exited(monkeypatch) -> None:
+    helper = _pty_helper()
+
+    class Gone:
+        pid = 1
+        returncode = None
+
+    def raise_child_process_error(*_args):
+        raise ChildProcessError
+
+    monkeypatch.setattr(helper.os, "waitid", raise_child_process_error)
+    assert helper._exited_noreap(Gone()) is True
+
+    class Reaped(Gone):
+        returncode = 0
+
+    assert helper._exited_noreap(Reaped()) is True  # decided without any system call
