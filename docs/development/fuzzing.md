@@ -17,8 +17,10 @@ documents the harness, the evidence model per platform, and the maintainer
 workflow for findings.
 
 Status: the portable evidence and the scheduled workflow are implemented and
-wired into CI. Native FreeBSD execution of the portable evidence is **pending
-the first native PR CI run**; this page does not claim it as passed.
+wired into CI. PR #73 has passed the native Debian 13 and native FreeBSD 14.4
+Tier-1 platform-reference jobs, which run the portable evidence. FreeBSD
+coverage is portable deterministic evidence only; Atheris coverage-guided
+fuzzing remains Linux x86_64 only.
 
 ## Authority
 
@@ -149,7 +151,7 @@ hard wall-clock budget:
 | --- | --- |
 | Targets | `grammar.split_chain`, `grammar.split_pipeline`, `redirection.parse_redirections`, `path_expansion.tokenize_and_glob_expand`, `lexer.scan_quote_state`, `block_syntax.split_unquoted_pipe_stages`, `heredoc.parse_heredoc_specs`, `heredoc.collect_heredoc_bodies`, `multiline.split_paste_commands`, `expansion.expand_variables` |
 | Budget per target | 300 s by default; `workflow_dispatch` input `seconds`, validated to 30–1800 |
-| Engine bound | `--max-total-time` plus a 60 s grace, after which the engine process group is killed; job `timeout-minutes: 25` |
+| Engine bound | `--max-total-time` plus a 60 s grace, after which the engine process group is killed; job `timeout-minutes: 40` |
 | Per-input limits | 256 bytes, 5 s hang timeout, 1024 MB RSS |
 
 The seed corpus is materialized by the engine at run time from the #48 corpus
@@ -181,12 +183,16 @@ dumps neither the environment nor secrets.
 
 ```sh
 # a permanent regression record
-uv run python scripts/fuzz_atheris.py --replay tests/fuzz/regressions/<sha256>.json
+uv run python scripts/fuzz_atheris.py --replay tests/fuzz/regressions/REPLACE_WITH_SHA256.json
 # an engine artifact downloaded from CI
-uv run python scripts/fuzz_atheris.py --target grammar.split_chain --input-file crash-<hash>
+uv run python scripts/fuzz_atheris.py --target grammar.split_chain --input-file crash-REPLACE_WITH_HASH
 # one input from a report
-uv run python scripts/fuzz_atheris.py --target grammar.split_chain --encoding bytes-hex --input-hex <hex>
+uv run python scripts/fuzz_atheris.py --target grammar.split_chain --encoding bytes-hex --input-hex REPLACE_WITH_HEX
 ```
+
+Replace the `REPLACE_WITH_SHA256`, `REPLACE_WITH_HASH` and `REPLACE_WITH_HEX`
+tokens with the real file name, artifact name or hex input before running the
+command; they are not valid values as written.
 
 ## Regression records
 
@@ -224,4 +230,6 @@ reviews and commits every record.
 * The interactive editor and PTY paths are not fuzzed here.
 * The descriptor probe cannot see descriptors numbered at or above its scan cap
   (4096) or exhaust real descriptors outside the one bounded child.
-* No claim of native FreeBSD execution exists until the PR CI run proves it.
+* FreeBSD 14.4 runs the portable deterministic evidence natively (passed in
+  PR #73) but has no coverage-guided Atheris evidence; the two are not
+  equivalent.

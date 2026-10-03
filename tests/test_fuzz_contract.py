@@ -105,7 +105,7 @@ def test_nightly_workflow_is_scheduled_manual_read_only_and_publication_free() -
     assert not missing, f"nightly matrix is missing: {missing!r}"
     assert "--max-total-time" in code
     assert "--artifact-dir" in code
-    assert "timeout-minutes:" in code
+    assert "timeout-minutes: 40" in code
 
 
 def test_nightly_targets_exist_in_the_registry() -> None:
@@ -156,7 +156,7 @@ def test_regression_directory_and_documentation_exist_and_state_the_platform_spl
         "fuzz-nightly.yml",
         "--replay",
         "makes **no coverage-guided claim**",
-        "pending the first native PR CI run",
+        "PR #73 has passed the native Debian 13 and native FreeBSD 14.4",
         "Automation never converts a crash artifact into committed source",
     ):
         assert phrase in text, phrase

@@ -9,7 +9,7 @@
 Everything except the engine run is portable and never imports Atheris::
 
     # replay a permanent regression record (any platform)
-    uv run python scripts/fuzz_atheris.py --replay tests/fuzz/regressions/<sha256>.json
+    uv run python scripts/fuzz_atheris.py --replay tests/fuzz/regressions/REPLACE_WITH_SHA256.json
     # replay one input
     uv run python scripts/fuzz_atheris.py --target split_chain --input-hex 6120 --encoding bytes-hex
     # materialize the deterministic seed corpus from the #48 corpus + regressions
@@ -297,7 +297,11 @@ def _classify_findings(
             continue
         print(done.stdout, end="")
         print(done.stderr, end="", file=sys.stderr)
-        if done.returncode == EXIT_FINDING:
+        if done.returncode < 0:
+            print(f"fuzz: classification: portable replay was terminated by signal {-done.returncode} - "
+                  "crash reproduced (parser/runtime defect candidate)")
+            status = EXIT_FINDING
+        elif done.returncode == EXIT_FINDING:
             print("fuzz: classification: REPRODUCED - parser/runtime defect candidate. "
                   "Do not filter the input; minimize it, add a failing regression record, then fix.")
             status = EXIT_FINDING

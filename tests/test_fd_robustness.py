@@ -92,7 +92,7 @@ def test_probe_does_not_assume_stdio_is_the_only_open_set(tmp_path: Path) -> Non
         observed = fdprobe.open_fds()
         assert {read_fd, write_fd} <= observed
         assert observed - {0, 1, 2}  # something beyond stdio is open
-        assert {0, 1, 2} <= observed or observed  # stdio presence is not required of the probe
+        assert {0, 1, 2} <= observed  # pytest keeps stdio open; the probe must report it
     finally:
         os.close(read_fd)
         os.close(write_fd)
@@ -235,7 +235,10 @@ def test_unopenable_redirection_targets_fail_deterministically_without_leaks(
     before = fdprobe.open_fds()
     status = shell.execute(command)
     err = capfd.readouterr().err
-    assert status != 0 and "pysh:" in err or "No such file" in err
+    assert "pysh:" in err or "No such file" in err  # a diagnostic is always emitted
+    if "|" not in command:
+        assert status != 0
+    # A pipeline reports its last stage (no pipefail), so only the diagnostic is pinned there.
     assert fdprobe.open_fds() == before
     assert unreaped_child() is None
     assert stdio_identity() == identity
@@ -325,7 +328,8 @@ def test_external_children_do_not_inherit_internal_descriptors(
     assert reported <= allowed, (
         f"child inherited unexpected descriptors {sorted(reported - allowed)} "
         f"(allowed {sorted(allowed)})")
-    assert reported >= {0, 1, 2} or "<<<" in command or "<" in command or True
+    # every template redirects or pipes stdio but never closes it
+    assert reported >= {0, 1, 2}
 
 
 # --- repeated stability --------------------------------------------------------------------------

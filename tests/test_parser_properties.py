@@ -343,9 +343,8 @@ def test_split_structure_invariants(ctx) -> None:
 # --- production defect found by these properties (Issue #49 finding F1) ---------------
 # parse_redirections() returns ``" ".join(clean.split())``, which collapses runs of
 # whitespace INSIDE quotes (``echo 'a  b'`` -> ``echo 'a b'``), contradicting
-# PYSH-LANG-QUOTE-RULES ("Single quotes preserve all enclosed characters"). These tests
-# stay red until production is fixed in a separate, authorized change; they are neither
-# skipped nor xfail'd.
+# PYSH-LANG-QUOTE-RULES ("Single quotes preserve all enclosed characters"). The defect
+# was fixed in this PR (d9e15c2) and these tests are now its permanent regression guard.
 
 
 def test_f1_redirection_stage_preserves_whitespace_inside_quotes_fixed_examples(ctx) -> None:

@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 import random
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -308,3 +309,30 @@ def test_engine_property_includes_totality_and_determinism() -> None:
     with driver.replay_context() as ctx:
         driver.engine_check(target)(b"a ; b \xff" * 60, ctx)  # input is truncated to the bound
         assert props.determinism(target) is not None
+
+
+@pytest.mark.parametrize(
+    ("returncode", "expected"),
+    [
+        (-11, fuzz_atheris.EXIT_FINDING),  # SIGSEGV in the portable replay: a reproduced crash
+        (-6, fuzz_atheris.EXIT_FINDING),  # SIGABRT
+        (fuzz_atheris.EXIT_FINDING, fuzz_atheris.EXIT_FINDING),
+        (fuzz_atheris.EXIT_USAGE, fuzz_atheris.EXIT_NOT_REPRODUCED),  # not converted into a finding
+        (fuzz_atheris.EXIT_NO_ENGINE, fuzz_atheris.EXIT_NOT_REPRODUCED),
+        (fuzz_atheris.EXIT_TIMEOUT, fuzz_atheris.EXIT_NOT_REPRODUCED),
+        (fuzz_atheris.EXIT_CLEAN, fuzz_atheris.EXIT_NOT_REPRODUCED),  # harness/engine suspect
+    ],
+)
+def test_signal_terminated_replay_is_a_finding_and_other_statuses_are_not_converted(
+    tmp_path: Path, monkeypatch, capsys, returncode: int, expected: int
+) -> None:
+    artifact = tmp_path / "crash-0123"
+    artifact.write_bytes(b"a")
+    monkeypatch.setattr(
+        fuzz_atheris.subprocess, "run",
+        lambda *_a, **_k: subprocess.CompletedProcess([], returncode, "", ""),
+    )
+    status = fuzz_atheris._classify_findings("grammar.split_chain", [artifact], tmp_path, 77)
+    assert status == expected
+    if returncode < 0:
+        assert f"terminated by signal {-returncode}" in capsys.readouterr().out
