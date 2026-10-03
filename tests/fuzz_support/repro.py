@@ -117,4 +117,5 @@ _REPLAY = {
     "generated": "case_at",
     "generated:quoted": "quoted_operator_line_at",
     "generated:argv": "argv_case_at",
+    "generated:pipeline": "pipeline_case_at",
 }

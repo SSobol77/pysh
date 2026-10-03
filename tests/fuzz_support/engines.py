@@ -173,3 +173,45 @@ def mutated_case_at(seed_texts: Sequence[str], seed: int, iteration: int) -> tup
             start = min(position, len(text) - 2)
             text = text[:start] + text[start + 1] + text[start] + text[start + 2 :]
     return index, text[:MAX_CASE_CHARS]
+
+
+# --- structured execution cases (Issue #49 slice 3) ---------------------------------
+#
+# Execution/fd robustness never receives arbitrary bytes: cases are bounded
+# pipelines of known-safe commands over tmp-dir file names, plus one
+# deterministic injected failure. ``fault`` is ``(operation, call_index)``.
+
+SAFE_STAGES = (
+    "echo zq",
+    "cat",
+    "true",
+    "cat < in.txt",
+    "cat > out.txt",
+    "cat >> out.txt",
+    "echo zq 2>&1",
+    "cat 2> err.txt",
+    "pwd > cwd.txt",
+)
+FAULT_OPERATIONS = {"fork": 4, "pipe": 3, "dup": 7, "dup2": 5, "open": 3}
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineCase:
+    """A bounded pipeline plus an optional injected failure."""
+
+    stages: tuple[str, ...]
+    fault: tuple[str, int] | None = None
+
+    @property
+    def command(self) -> str:
+        return " | ".join(self.stages)
+
+
+def pipeline_case_at(seed: int, iteration: int) -> PipelineCase:
+    rng = _rng(seed, iteration, "pipeline")
+    stages = tuple(rng.choice(SAFE_STAGES) for _ in range(rng.randint(1, 4)))
+    fault: tuple[str, int] | None = None
+    if rng.random() < 0.75:
+        operation = rng.choice(sorted(FAULT_OPERATIONS))
+        fault = (operation, rng.randrange(FAULT_OPERATIONS[operation]))
+    return PipelineCase(stages, fault)
