@@ -3,7 +3,7 @@
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
-"""Issue #51 Slices 1-2: the repository-owned supply-chain contract and its checker.
+"""Issue #51 Slices 1-3: the repository-owned supply-chain contract and its checker.
 
 Hermetic: no network, GitHub CLI, Docker, FreeBSD, signing or SBOM tool. Negative
 cases mutate a temporary copy of the real documents, scripts and workflows.
@@ -25,13 +25,17 @@ PACKAGING = Path("docs/development/packaging.md")
 RELEASE_WF = Path(".github/workflows/release-artifacts.yml")
 PUBLISH_WF = Path(".github/workflows/publish.yml")
 SBOM_GENERATOR = Path("scripts/generate_release_sboms.py")
+SUBJECT_HELPER = Path("scripts/prepare_attestation_subjects.py")
+VERIFIER = Path("scripts/verify_release_attestations.py")
+ATTEST_SHA = "1e69f48acb82d1966a394da916b4c1698aa569d6"
+ATTEST_USES = f"actions/attest@{ATTEST_SHA} # actions/attest v4.2.2"
 
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A copy of just the files the checker reads."""
     for relative in (
-        DOC, PACKAGING, Path("scripts/check_release_artifacts.sh"), SBOM_GENERATOR,
+        DOC, PACKAGING, Path("scripts/check_release_artifacts.sh"), SBOM_GENERATOR, SUBJECT_HELPER, VERIFIER,
         Path("pyproject.toml"), Path("uv.lock"),
     ):
         target = tmp_path / relative
@@ -59,20 +63,25 @@ def test_the_real_repository_satisfies_the_contract() -> None:
     assert contract.run_checks(REPO_ROOT) == []
 
 
-def test_slice_two_reports_sboms_implemented_and_the_rest_deferred(repo: Path) -> None:
+def test_slice_three_reports_attestations_implemented_and_the_rest_deferred(repo: Path) -> None:
     assert contract.run_checks(repo) == []
     status = contract.future_status(repo)
-    assert status[0] == "implemented: SPDX 2.3 JSON SBOM generation (Slice 2)"
-    assert all("not yet implemented" in line for line in status[1:])
-    assert not any("sbom" in line.lower() for line in status[1:])
+    assert status[:2] == [
+        "implemented: SPDX 2.3 JSON SBOM generation (Slice 2)",
+        "implemented: keyless provenance and SPDX SBOM attestations, verified before upload (Slice 3)",
+    ]
+    assert status[2:] == [
+        "deferred: reproducibility measurement (Slice 4): not yet implemented",
+        "deferred: final Tier-1 dry-run release evidence (Slice 5): not yet implemented",
+    ]
 
 
-def test_deferred_attestation_features_being_present_never_fail_the_checker(repo: Path) -> None:
-    """Attestation and reproducibility are reported, not enforced, whichever way they are wired."""
-    extra = repo / ".github" / "workflows" / "future-attest.yml"
+def test_deferred_reproducibility_being_present_never_fails_the_checker(repo: Path) -> None:
+    """Slice 4 and 5 items are reported, not enforced."""
+    extra = repo / ".github" / "workflows" / "future-repro.yml"
     extra.write_text(
-        "name: future\non: workflow_dispatch\njobs:\n  attest:\n    runs-on: ubuntu-latest\n"
-        "    steps:\n      - uses: actions/attest-build-provenance@" + "a" * 40 + "\n",
+        "name: future\non: workflow_dispatch\npermissions:\n  contents: read\njobs:\n  repro:\n"
+        "    runs-on: ubuntu-latest\n    steps:\n      - run: echo reproducibility measurement\n",
         encoding="utf-8",
     )
     assert contract.run_checks(repo) == []
@@ -104,10 +113,11 @@ def test_required_anchors_and_reproducibility_statuses_are_exact() -> None:
     assert not re.search(r"\bX\.Y\.Z\b|pysh[-_]shell[-_]", text)
 
 
-def test_the_policy_claims_sboms_but_not_attestations_exist() -> None:
+def test_the_policy_status_table_marks_slices_one_to_three_implemented() -> None:
     text = " ".join((REPO_ROOT / DOC).read_text(encoding="utf-8").split())
+    assert "Policy, anchors and structural contract check | IMPLEMENTED (Slice 1)" in text
     assert "SPDX 2.3 JSON SBOM generation | IMPLEMENTED (Slice 2)" in text
-    assert "attestations and verification before upload | DEFERRED (Slice 3)" in text
+    assert "SBOM attestations, verified before upload | IMPLEMENTED (Slice 3)" in text
     assert "Reproducibility measurement | DEFERRED (Slice 4)" in text
     assert "Final Tier-1 dry-run release evidence | DEFERRED (Slice 5)" in text
     assert "Not implemented" not in text
@@ -428,7 +438,7 @@ def test_a_signing_secret_in_any_workflow_fails(repo: Path) -> None:
 
 def test_a_missing_generator_fails(repo: Path) -> None:
     (repo / SBOM_GENERATOR).unlink()
-    assert codes(repo) == {"SBOM-GENERATOR"}
+    assert "SBOM-GENERATOR" in codes(repo)
 
 
 @pytest.mark.parametrize(
@@ -552,3 +562,378 @@ def test_runtime_code_using_the_sbom_tooling_fails(repo: Path) -> None:
     runtime.mkdir(parents=True)
     (runtime / "bad.py").write_text("import generate_release_sboms\n", encoding="utf-8")
     assert "SBOM-DEPENDENCY" in codes(repo)
+
+
+# --- Slice 3: keyless attestations and verification before upload -----------------------------------------------------
+
+STEP = "      - name: "
+FINALIZE = "Finalize SHA256SUMS over the complete published set"
+BUNDLE = "Validate the complete release bundle (packages, SBOMs, SHA256SUMS)"
+VERIFY = "Verify every attestation before the hand-off (fail closed)"
+HANDOFF = "Upload validated release assets for the upload job"
+SELF_PROVENANCE = "Attest provenance for SHA256SUMS itself"
+SUBJECTS = "Prepare exact attestation subjects (from the final SHA256SUMS)"
+
+
+def _step_bounds(text: str, name: str) -> tuple[int, int]:
+    start = text.index(STEP + name)
+    following = text.find("\n" + STEP, start)
+    job_end = text.find("\n  upload:", start)
+    ends = [e + 1 for e in (following, job_end) if e != -1]
+    return start, min(ends)
+
+
+def move_step(root: Path, name: str, before: str | None) -> None:
+    """Move one build-and-validate step before another step (``None``: to the end of the job)."""
+    path = root / RELEASE_WF
+    text = path.read_text(encoding="utf-8")
+    start, end = _step_bounds(text, name)
+    chunk = text[start:end]
+    if not chunk.endswith("\n"):
+        chunk += "\n"
+    text = text[:start] + text[end:]
+    target = text.index(STEP + before) if before else text.index("\n  upload:") + 1
+    path.write_text(text[:target] + chunk + text[target:], encoding="utf-8")
+
+
+def remove_step(root: Path, name: str) -> None:
+    path = root / RELEASE_WF
+    text = path.read_text(encoding="utf-8")
+    start, end = _step_bounds(text, name)
+    path.write_text(text[:start] + text[end:], encoding="utf-8")
+
+
+def duplicate_step(root: Path, name: str) -> None:
+    path = root / RELEASE_WF
+    text = path.read_text(encoding="utf-8")
+    start, end = _step_bounds(text, name)
+    path.write_text(text[:end] + "\n" + text[start:end] + text[end:], encoding="utf-8")
+
+
+def test_the_real_workflow_satisfies_every_attestation_rule(repo: Path) -> None:
+    assert [v for v in contract.run_checks(repo) if v.code.startswith("ATT-")] == []
+    text = (repo / RELEASE_WF).read_text(encoding="utf-8")
+    assert text.count("uses: actions/attest@") == 7 and text.count(ATTEST_USES) == 7
+    assert "attest-build-provenance" not in text and "attest-sbom" not in text
+
+
+# -- action pin (negatives 1-3) --
+
+
+def test_a_mutable_attest_tag_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, f"actions/attest@{ATTEST_SHA}", "actions/attest@v4")
+    assert {"ATT-PIN", "SBOM-PIN"} <= codes(repo)
+
+
+def test_a_wrong_attest_sha_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, f"actions/attest@{ATTEST_SHA}", "actions/attest@" + "0" * 40)
+    assert "ATT-PIN" in codes(repo)
+
+
+def test_a_missing_version_comment_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, f"actions/attest@{ATTEST_SHA} # actions/attest v4.2.2", f"actions/attest@{ATTEST_SHA}")
+    assert "ATT-PIN" in codes(repo)
+
+
+def test_the_deprecated_attest_build_provenance_action_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "actions/attest@", "actions/attest-build-provenance@")
+    assert "ATT-ALTERNATIVE" in codes(repo)
+
+
+def test_the_separate_attest_sbom_action_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "actions/attest@", "actions/attest-sbom@")
+    assert "ATT-ALTERNATIVE" in codes(repo)
+
+
+def test_another_workflow_using_a_different_attest_pin_fails(repo: Path) -> None:
+    extra = repo / ".github" / "workflows" / "other.yml"
+    extra.write_text(
+        "name: x\non: workflow_dispatch\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - uses: actions/attest@" + "1" * 40 + "\n",
+        encoding="utf-8",
+    )
+    assert "ATT-PIN" in codes(repo)
+
+
+# -- permission split (negatives 4-8) --
+
+
+def test_a_missing_id_token_permission_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "      id-token: write\n", "")
+    assert "ATT-PERMISSIONS" in codes(repo)
+
+
+def test_a_missing_attestations_permission_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "      attestations: write\n", "")
+    assert "ATT-PERMISSIONS" in codes(repo)
+
+
+def test_a_missing_artifact_metadata_permission_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "      artifact-metadata: write\n", "")
+    assert "ATT-PERMISSIONS" in codes(repo)
+
+
+def test_the_build_job_holding_contents_write_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "      contents: read\n      id-token: write", "      contents: write\n      id-token: write")
+    assert "ATT-PERMISSIONS" in codes(repo)
+
+
+def test_the_build_job_holding_an_extra_write_scope_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "      artifact-metadata: write\n", "      artifact-metadata: write\n      packages: write\n")
+    assert "ATT-PERMISSIONS" in codes(repo)
+
+
+@pytest.mark.parametrize("scope", ["id-token", "attestations", "artifact-metadata"])
+def test_the_upload_job_holding_a_signing_permission_fails(repo: Path, scope: str) -> None:
+    edit(repo, RELEASE_WF, "    permissions:\n      contents: write\n", f"    permissions:\n      contents: write\n      {scope}: write\n")
+    assert "ATT-PERMISSIONS" in codes(repo)
+
+
+def test_a_workflow_wide_write_permission_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "permissions:\n  contents: read\n\njobs:", "permissions:\n  contents: read\n  id-token: write\n\njobs:")
+    assert "ATT-PERMISSIONS" in codes(repo)
+    edit(repo, RELEASE_WF, "  contents: read\n  id-token: write\n\njobs:", "  contents: write\n\njobs:")
+    assert "ATT-PERMISSIONS" in codes(repo)
+
+
+def test_an_unrelated_job_holding_a_write_permission_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "    timeout-minutes: 20\n", "    timeout-minutes: 20\n    permissions:\n      contents: write\n")
+    assert "ATT-PERMISSIONS" in codes(repo)
+
+
+def test_the_upload_job_without_explicit_permissions_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "    permissions:\n      contents: write\n", "")
+    assert "ATT-PERMISSIONS" in codes(repo)
+
+
+# -- ordering (negatives 9-11) --
+
+
+def test_provenance_before_the_final_checksums_fails(repo: Path) -> None:
+    move_step(repo, FINALIZE, VERIFY)
+    assert "ATT-ORDER" in codes(repo)
+
+
+def test_provenance_before_the_validated_bundle_fails(repo: Path) -> None:
+    move_step(repo, BUNDLE, VERIFY)
+    assert "ATT-ORDER" in codes(repo)
+
+
+def test_subjects_prepared_after_the_first_attestation_fails(repo: Path) -> None:
+    move_step(repo, SUBJECTS, VERIFY)
+    assert "ATT-ORDER" in codes(repo)
+
+
+def test_verification_before_an_attestation_fails(repo: Path) -> None:
+    move_step(repo, VERIFY, SELF_PROVENANCE)
+    assert "ATT-ORDER" in codes(repo)
+
+
+def test_verification_after_the_workflow_artifact_handoff_fails(repo: Path) -> None:
+    move_step(repo, VERIFY, None)
+    assert "ATT-ORDER" in codes(repo)
+
+
+def test_the_handoff_before_verification_fails(repo: Path) -> None:
+    move_step(repo, HANDOFF, VERIFY)
+    assert "ATT-ORDER" in codes(repo)
+
+
+def test_a_release_upload_in_the_build_job_before_verification_fails(repo: Path) -> None:
+    path = repo / RELEASE_WF
+    text = path.read_text(encoding="utf-8")
+    early = f'{STEP}Early upload\n        run: gh release upload "$TAG" dist/release-assets/*\n\n'
+    target = text.index(STEP + VERIFY)
+    path.write_text(text[:target] + early + text[target:], encoding="utf-8")
+    assert "WF-UPLOAD-BYPASS" in codes(repo)
+
+
+def test_an_upload_job_that_no_longer_waits_for_the_build_job_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "    needs: build-and-validate\n    if: github.event_name == 'release'", "    needs: freebsd-pkg\n    if: github.event_name == 'release'")
+    assert "WF-RELEASE-GRAPH" in codes(repo)
+
+
+# -- subjects (negatives 12-15) --
+
+
+def test_missing_provenance_for_sha256sums_fails(repo: Path) -> None:
+    remove_step(repo, SELF_PROVENANCE)
+    assert "ATT-SUBJECTS" in codes(repo)
+
+
+def test_missing_provenance_for_the_manifest_subjects_fails(repo: Path) -> None:
+    remove_step(repo, "Attest provenance for the SHA256SUMS subjects (packages and SBOM files)")
+    assert "ATT-SUBJECTS" in codes(repo)
+
+
+def test_provenance_taking_subjects_from_another_file_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "subject-checksums: dist/release-assets/SHA256SUMS", "subject-checksums: dist/SHA256SUMS")
+    assert "ATT-SUBJECTS" in codes(repo)
+
+
+@pytest.mark.parametrize("family", ["wheel", "sdist", "deb", "rpm", "freebsd_pkg"])
+def test_a_missing_package_sbom_attestation_fails(repo: Path, family: str) -> None:
+    remove_step(repo, f"Attest SPDX SBOM ({family})")
+    assert "ATT-SBOM-PAIR" in codes(repo)
+
+
+def test_a_duplicate_package_sbom_attestation_fails(repo: Path) -> None:
+    duplicate_step(repo, "Attest SPDX SBOM (wheel)")
+    assert "ATT-SBOM-PAIR" in codes(repo)
+
+
+def test_a_wrong_package_sbom_pair_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "outputs.deb_sbom_path", "outputs.rpm_sbom_path")
+    assert "ATT-SBOM-PAIR" in codes(repo)
+
+
+def test_an_sbom_attestation_for_the_sbom_file_itself_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "subject-name: ${{ steps.subjects.outputs.wheel_name }}", "subject-name: ${{ steps.subjects.outputs.wheel_sbom_path }}")
+    assert "ATT-SBOM-PAIR" in codes(repo)
+
+
+@pytest.mark.parametrize("extra", ["subject-path: dist/release-assets/*", "predicate-type: https://example.invalid/x", "push-to-registry: true"])
+def test_attestation_inputs_that_bypass_the_prepared_subjects_fail(repo: Path, extra: str) -> None:
+    edit(repo, RELEASE_WF, "          subject-checksums: dist/release-assets/SHA256SUMS\n", f"          subject-checksums: dist/release-assets/SHA256SUMS\n          {extra}\n")
+    assert "ATT-SUBJECTS" in codes(repo)
+
+
+def test_a_missing_subject_helper_step_fails(repo: Path) -> None:
+    remove_step(repo, SUBJECTS)
+    assert "ATT-WORKFLOW" in codes(repo)
+
+
+# -- verifier pins (negatives 16-19, 27-28) --
+
+
+def test_a_missing_verification_step_fails(repo: Path) -> None:
+    remove_step(repo, VERIFY)
+    assert "ATT-VERIFY" in codes(repo)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("--repo SSobol77/pysh", "--repo attacker/pysh"),
+        ("--signer-workflow SSobol77/pysh/.github/workflows/release-artifacts.yml", "--signer-workflow SSobol77/pysh/.github/workflows/ci.yml"),
+        ('--source-digest "${GITHUB_SHA}"', "--source-digest main"),
+        ("--assets-dir dist/release-assets", "--assets-dir dist"),
+    ],
+)
+def test_the_verification_step_must_pin_repo_workflow_and_source(repo: Path, old: str, new: str) -> None:
+    anchor = "verify_release_attestations.py \\\n"
+    path = repo / RELEASE_WF
+    text = path.read_text(encoding="utf-8")
+    start = text.index(anchor)
+    head, tail = text[:start], text[start:]
+    assert f"            {old}" in tail
+    path.write_text(head + tail.replace(f"            {old}", f"            {new}", 1), encoding="utf-8")
+    assert "ATT-VERIFY" in codes(repo)
+
+
+def test_a_conditional_or_non_fatal_verification_step_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, f"{STEP}{VERIFY}\n", f"{STEP}{VERIFY}\n        continue-on-error: true\n")
+    assert "ATT-VERIFY" in codes(repo)
+    edit(repo, RELEASE_WF, "        continue-on-error: true\n", "        if: ${{ false }}\n")
+    assert "ATT-VERIFY" in codes(repo)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ('PINNED_REPO = "SSobol77/pysh"', 'PINNED_REPO = "attacker/pysh"'),
+        ('PINNED_SIGNER_WORKFLOW = "SSobol77/pysh/.github/workflows/release-artifacts.yml"', 'PINNED_SIGNER_WORKFLOW = "SSobol77/pysh/.github/workflows/ci.yml"'),
+        ('SPDX_PREDICATE_TYPE = "https://spdx.dev/Document/v2.3"', 'SPDX_PREDICATE_TYPE = "https://spdx.dev/Document/v2.2"'),
+        ('"--source-digest", source_digest', '"--no-source-digest", source_digest'),
+        ('"--signer-workflow", signer_workflow', '"--no-signer-workflow", signer_workflow'),
+        ('"--repo", repo', '"--no-repo", repo'),
+        ('"--predicate-type", predicate_type', '"--no-predicate-type", predicate_type'),
+    ],
+)
+def test_the_verifier_must_pin_its_identities(repo: Path, old: str, new: str) -> None:
+    edit(repo, VERIFIER, old, new)
+    assert "ATT-VERIFY" in codes(repo)
+
+
+def test_an_unbounded_retry_fails(repo: Path) -> None:
+    edit(repo, VERIFIER, "MAX_ATTEMPTS = 6", "MAX_ATTEMPTS = 1000000")
+    assert "ATT-RETRY" in codes(repo)
+    edit(repo, VERIFIER, "MAX_ATTEMPTS = 1000000", "MAX_ATTEMPTS = 6")
+    path = repo / VERIFIER
+    path.write_text(path.read_text(encoding="utf-8") + "\n\ndef spin():\n    while True:\n        pass\n", encoding="utf-8")
+    assert "ATT-RETRY" in codes(repo)
+
+
+def test_a_retry_that_would_hide_identity_or_signature_failures_fails(repo: Path) -> None:
+    edit(repo, VERIFIER, 'NOT_VISIBLE_PATTERN = r"\\bno attestations? found\\b"', 'NOT_VISIBLE_PATTERN = r".*"')
+    assert "ATT-VERIFY" in codes(repo)
+
+
+def test_a_verifier_with_a_shell_or_signing_logic_fails(repo: Path) -> None:
+    path = repo / VERIFIER
+    path.write_text(path.read_text(encoding="utf-8") + '\nrun(["cosign", "sign-blob"], shell=True)\n', encoding="utf-8")
+    assert {"ATT-VERIFY", "ATT-ALTERNATIVE"} <= codes(repo)
+
+
+def test_a_missing_verifier_or_helper_fails(repo: Path) -> None:
+    (repo / VERIFIER).unlink()
+    assert "ATT-VERIFY" in codes(repo)
+    (repo / SUBJECT_HELPER).unlink()
+    assert "ATT-SUBJECTS" in codes(repo)
+
+
+def test_a_network_or_subprocess_subject_helper_fails(repo: Path) -> None:
+    path = repo / SUBJECT_HELPER
+    path.write_text(path.read_text(encoding="utf-8") + "\nimport subprocess\n", encoding="utf-8")
+    assert "ATT-SUBJECTS" in codes(repo)
+
+
+# -- keys and alternative signers (negatives 29-30) --
+
+
+def test_a_signing_private_key_secret_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "        env:\n          GH_TOKEN: ${{ github.token }}\n", "        env:\n          GH_TOKEN: ${{ github.token }}\n          SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}\n")
+    assert "WF-SECRETS" in codes(repo)
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        "      - run: cosign sign-blob dist/release-assets/SHA256SUMS\n",
+        "      - uses: sigstore/cosign-installer@" + "2" * 40 + "\n",
+        "      - run: gpg --detach-sign dist/release-assets/SHA256SUMS\n",
+        "      - uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@" + "3" * 40 + "\n",
+    ],
+)
+def test_a_second_signing_mechanism_fails(repo: Path, step: str) -> None:
+    path = repo / RELEASE_WF
+    text = path.read_text(encoding="utf-8")
+    target = text.index(STEP + VERIFY)
+    path.write_text(text[:target] + step + text[target:], encoding="utf-8")
+    assert "ATT-ALTERNATIVE" in codes(repo)
+
+
+# -- documentation --
+
+
+@pytest.mark.parametrize(
+    "needle",
+    [
+        "actions/attest v4.2.2",
+        ATTEST_SHA,
+        "--signer-workflow SSobol77/pysh/.github/workflows/release-artifacts.yml",
+        "--source-digest",
+        "--predicate-type https://spdx.dev/Document/v2.3",
+        "gh attestation trusted-root",
+        "sha256sum -c SHA256SUMS",
+    ],
+)
+def test_the_user_verification_documentation_is_required(repo: Path, needle: str) -> None:
+    path = repo / DOC
+    path.write_text(path.read_text(encoding="utf-8").replace(needle, "REDACTED"), encoding="utf-8")
+    assert "ATT-DOC" in codes(repo)
+
+
+def test_slice_three_status_must_read_implemented(repo: Path) -> None:
+    edit(repo, DOC, "SBOM attestations, verified before upload | IMPLEMENTED (Slice 3)", "SBOM attestations, verified before upload | DEFERRED (Slice 3)")
+    assert "DOC-STATUS" in codes(repo)

@@ -66,8 +66,10 @@ provenance, `SHA256SUMS`) may use; see
 [`supply-chain.md`](../security/supply-chain.md). SPDX 2.3 JSON SBOMs are
 generated for every package artifact (Issue #51 Slice 2) and named by appending
 `.spdx.json` to the artifact basename, for example
-`pysh-shell_X.Y.Z-1_all.deb.spdx.json`; keyless provenance attestations are
-implemented in a later slice.
+`pysh-shell_X.Y.Z-1_all.deb.spdx.json`. Keyless GitHub OIDC provenance
+attestations (all eleven public release files) and signed SPDX SBOM attestations
+(the five packages) are created and verified by the release workflow before the
+bundle is handed to the upload job (Issue #51 Slice 3).
 
 ## Output directories
 
@@ -240,6 +242,26 @@ reconstruction:
 gh release download vX.Y.Z
 sha256sum -c SHA256SUMS
 ```
+
+Checksums prove integrity only. Each of the eleven release files also has a keyless
+GitHub OIDC provenance attestation, and each package has a signed SPDX SBOM
+attestation:
+
+```bash
+gh attestation verify pysh-shell_X.Y.Z-1_all.deb \
+  --repo SSobol77/pysh \
+  --signer-workflow SSobol77/pysh/.github/workflows/release-artifacts.yml
+
+gh attestation verify pysh-shell_X.Y.Z-1_all.deb \
+  --repo SSobol77/pysh \
+  --signer-workflow SSobol77/pysh/.github/workflows/release-artifacts.yml \
+  --predicate-type https://spdx.dev/Document/v2.3
+```
+
+Add `--source-digest <release-source-SHA>` to pin the exact source commit. Checksum
+validation, provenance verification and SBOM verification are complementary and none
+replaces another; the offline trust-root procedure is in
+[`supply-chain.md`](../security/supply-chain.md).
 
 ## Install layout for `.deb` / `.rpm`
 

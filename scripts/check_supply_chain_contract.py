@@ -4,7 +4,7 @@
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
-"""Structural supply-chain contract check for Issue #51 (Slice 1).
+"""Structural supply-chain contract check for Issue #51 (Slices 1-3).
 
 Read-only, deterministic and offline: it validates the repository-owned policy
 (``docs/security/supply-chain.md``), its agreement with the packaging contract, and
@@ -16,9 +16,11 @@ Two classes of requirements are kept apart:
 
 * CURRENT structural invariants must hold now; a violation fails the check. Since
   Slice 2 they include real SBOM generation (the generator, its pinned tool, its
-  position in the release workflow and the checksum policy).
-* FUTURE implementation requirements (attestations, reproducibility measurement, ...)
-  are only *reported* as deferred or present, never enforced.
+  position in the release workflow and the checksum policy); since Slice 3 they include
+  keyless provenance and SBOM attestations with verification before upload (the pinned
+  attestation action, the permission split, the step ordering and the verifier pins).
+* FUTURE implementation requirements (reproducibility measurement, the final evidence
+  run) are only *reported* as deferred or present, never enforced.
 
 Exit codes: 0 contract holds, 1 contract violation, 2 command-line misuse.
 """
@@ -79,6 +81,8 @@ DOC = Path("docs/security/supply-chain.md")
 PACKAGING_DOC = Path("docs/development/packaging.md")
 ARTIFACT_CHECKER = Path("scripts/check_release_artifacts.sh")
 SBOM_GENERATOR = Path("scripts/generate_release_sboms.py")
+SUBJECT_HELPER = Path("scripts/prepare_attestation_subjects.py")
+ATTESTATION_VERIFIER = Path("scripts/verify_release_attestations.py")
 WORKFLOWS = Path(".github/workflows")
 RELEASE_WORKFLOW = WORKFLOWS / "release-artifacts.yml"
 PUBLISH_WORKFLOW = WORKFLOWS / "publish.yml"
@@ -100,6 +104,29 @@ KEY_REQUIREMENT_RE = re.compile(
     r"(?:requires?|needs?|stored in|uploaded to)\b[^.\n]*\b(?:private|long-lived|maintainer)\b[^.\n]*\bkey\b", re.I
 )
 SECRET_KEY_TOKEN_RE = re.compile(r"\b(?:COSIGN|GPG|SIGNING|PRIVATE)_[A-Z_]*KEY\b|secrets\.[A-Z_]*(?:KEY|GPG|COSIGN)\b")
+
+
+#: The one reviewed attestation action: actions/attest v4.2.2 at an immutable commit.
+ATTEST_ACTION = "actions/attest"
+ATTEST_SHA = "1e69f48acb82d1966a394da916b4c1698aa569d6"
+ATTEST_VERSION = "v4.2.2"
+SIGNER_WORKFLOW = "SSobol77/pysh/.github/workflows/release-artifacts.yml"
+SPDX_PREDICATE_TYPE = "https://spdx.dev/Document/v2.3"
+#: Permissions of build-and-validate (the only job that signs) and of upload (the only job that writes).
+BUILD_PERMISSIONS = {
+    "contents": "read", "id-token": "write", "attestations": "write", "artifact-metadata": "write",
+}
+UPLOAD_PERMISSIONS = {"contents": "write"}
+#: Any other signing mechanism, deprecated attestation action or key-based path.
+ALTERNATIVE_SIGNING_RE = re.compile(
+    r"cosign|sigstore/|slsa-framework/|attest-build-provenance|attest-sbom|minisign"
+    r"|\bgpg\b[^\n]*--(?:detach-)?sign|ssh-keygen\s+-Y\s+sign|openssl\s+(?:dgst|pkeyutl)[^\n]*-sign",
+    re.I,
+)
+#: Inputs that would let an attestation step bypass the repository-owned subject derivation.
+FORBIDDEN_ATTEST_INPUTS_RE = re.compile(
+    r"^\s+(?:subject-path|predicate-type|predicate-path|predicate|push-to-registry):", re.M
+)
 
 
 @dataclass(frozen=True, order=True)
@@ -239,7 +266,7 @@ def check_documentation(root: Path) -> list[Violation]:
             break
         position = found
     if "later slices" not in " ".join(sections.get("PYSH-SC-SCOPE", "").lower().split()):
-        out.append(Violation("DOC-PIPELINE", "the scope must state that real SBOM/provenance generation is implemented in later slices"))
+        out.append(Violation("DOC-PIPELINE", "the scope must state that reproducibility measurement and the final evidence run are implemented in later slices"))
 
     pypi = sections.get("PYSH-SC-PYPI", "")
     if "Trusted Publishing" not in pypi or "publish.yml" not in pypi or "second PyPI publisher" not in pypi:
@@ -398,21 +425,24 @@ def check_publication_and_secrets(root: Path) -> list[Violation]:
 
 
 def future_status(root: Path) -> list[str]:
-    """Deferred implementation items and whether each is already present (informational)."""
+    """Implemented and deferred items (informational; only the deferred ones are not enforced)."""
     directory = root / WORKFLOWS
     corpus = "\n".join(
         _code(p.read_text(encoding="utf-8")) for p in sorted(directory.glob("*.y*ml"))
     ) if directory.is_dir() else ""
-    items = (
-        ("keyless artifact attestation (Slice 3)", r"actions/attest|attest-build-provenance"),
-        ("attestation verification before upload (Slice 3)", r"gh\s+attestation\s+verify"),
+    deferred = (
         ("reproducibility measurement (Slice 4)", r"reproducib"),
+        ("final Tier-1 dry-run release evidence (Slice 5)", r"tier-?1[ -]evidence"),
     )
     lines = [
         f"deferred: {name}: " + ("present" if re.search(pattern, corpus, re.I) else "not yet implemented")
-        for name, pattern in items
+        for name, pattern in deferred
     ]
-    return ["implemented: SPDX 2.3 JSON SBOM generation (Slice 2)", *lines]
+    return [
+        "implemented: SPDX 2.3 JSON SBOM generation (Slice 2)",
+        "implemented: keyless provenance and SPDX SBOM attestations, verified before upload (Slice 3)",
+        *lines,
+    ]
 
 
 #: Actions/tools that produce supply-chain material; any ``uses:`` of them must be SHA-pinned.
@@ -421,7 +451,7 @@ SBOM_DEPENDENCY_RE = re.compile(r"syft|anchore|spdx|cyclonedx|sbom", re.I)
 STATUS_ROWS = (
     ("policy, anchors and structural contract check", "IMPLEMENTED (Slice 1)"),
     ("spdx 2.3 json sbom generation", "IMPLEMENTED (Slice 2)"),
-    ("keyless artifact attestations", "DEFERRED (Slice 3)"),
+    ("keyless provenance and spdx sbom attestations", "IMPLEMENTED (Slice 3)"),
     ("reproducibility measurement", "DEFERRED (Slice 4)"),
     ("final tier-1 dry-run release evidence", "DEFERRED (Slice 5)"),
 )
@@ -527,8 +557,224 @@ def check_sbom_implementation(root: Path) -> list[Violation]:
     return out
 
 
+def _permissions(text: str, indent: int) -> dict[str, str] | None:
+    """The ``permissions:`` mapping at ``indent`` (``None`` when absent, ``{"*": v}`` when scalar)."""
+    pad = " " * indent
+    match = re.search(rf"^{pad}permissions:[ \t]*(.*)$", text, re.M)
+    if match is None:
+        return None
+    inline = match.group(1).strip()
+    if inline:
+        return {"*": inline}
+    found: dict[str, str] = {}
+    for line in text[match.end():].splitlines()[1:]:
+        child = re.match(rf"^{pad}  ([a-z-]+):\s*([a-z-]+)\s*$", line)
+        if child is None:
+            break
+        found[child.group(1)] = child.group(2)
+    return found
+
+
+def _steps(job: str) -> list[tuple[int, str]]:
+    """``(offset, text)`` of each step of a job body."""
+    starts = [m.start() for m in re.finditer(r"^      - ", job, re.M)]
+    return [(start, job[start:(starts[i + 1] if i + 1 < len(starts) else len(job))]) for i, start in enumerate(starts)]
+
+
+def _check_permissions(code: str, jobs: dict[str, str]) -> list[Violation]:
+    out: list[Violation] = []
+    top = _permissions(code.split("\njobs:", 1)[0], 0)
+    if top is None or "write" in " ".join(top.values()) or "*" in top:
+        out.append(Violation("ATT-PERMISSIONS", "the workflow-level permissions must be an explicit read-only mapping"))
+    for name, expected in (("build-and-validate", BUILD_PERMISSIONS), ("upload", UPLOAD_PERMISSIONS)):
+        actual = _permissions(jobs.get(name, ""), 4)
+        if actual is None:
+            out.append(Violation("ATT-PERMISSIONS", f"job {name!r} must declare its permissions explicitly"))
+            continue
+        for key, value in sorted(expected.items()):
+            if actual.get(key) != value:
+                out.append(Violation("ATT-PERMISSIONS", f"job {name!r} needs {key}: {value} (found {actual.get(key)!r})"))
+        for key in sorted(set(actual) - set(expected)):
+            out.append(Violation("ATT-PERMISSIONS", f"job {name!r} must not hold {key}: {actual[key]} (least privilege)"))
+    for name, body in jobs.items():
+        if name in {"build-and-validate", "upload"}:
+            continue
+        extra = _permissions(body, 4) or {}
+        if "write" in " ".join(extra.values()):
+            out.append(Violation("ATT-PERMISSIONS", f"job {name!r} must not hold a write permission"))
+    return out
+
+
+def check_attestation_implementation(root: Path) -> list[Violation]:
+    """Slice 3: keyless provenance and SBOM attestations, verified before the hand-off."""
+    out: list[Violation] = []
+    raw = _read(root, RELEASE_WORKFLOW)
+    if raw is None:
+        return [Violation("ATT-WORKFLOW", f"{RELEASE_WORKFLOW} is missing")]
+    code = _code(raw)
+    jobs = split_jobs(code)
+    build = jobs.get("build-and-validate", "")
+    out += _check_permissions(code, jobs)
+
+    directory = root / WORKFLOWS
+    for path in sorted(directory.glob("*.y*ml")) if directory.is_dir() else []:
+        text = path.read_text(encoding="utf-8")
+        body = _code(text)
+        for action, ref in re.findall(r"^\s*-?\s*uses:\s*([^\s@]+)@(\S+)", body, re.M):
+            if action == ATTEST_ACTION and ref != ATTEST_SHA:
+                out.append(Violation("ATT-PIN", f"{path.relative_to(root)}: {ATTEST_ACTION}@{ref} must be exactly @{ATTEST_SHA} ({ATTEST_VERSION})"))
+            if re.search(r"attest-build-provenance|attest-sbom", action):
+                out.append(Violation("ATT-ALTERNATIVE", f"{path.relative_to(root)}: {action} is not allowed; use {ATTEST_ACTION}"))
+        if ALTERNATIVE_SIGNING_RE.search(body):
+            out.append(Violation("ATT-ALTERNATIVE", f"{path.relative_to(root)}: a second signing mechanism is not allowed (GitHub OIDC attestation only)"))
+        for line in text.splitlines():
+            if re.match(r"^\s*-?\s*uses:\s*actions/attest@", line) and not re.search(
+                rf"@{ATTEST_SHA}\s+#\s*{re.escape(ATTEST_ACTION)} {re.escape(ATTEST_VERSION)}\s*$", line
+            ):
+                out.append(Violation("ATT-PIN", f"{path.relative_to(root)}: every {ATTEST_ACTION} reference must carry the comment '# {ATTEST_ACTION} {ATTEST_VERSION}'"))
+
+    steps = _steps(build)
+    attest = [(at, text) for at, text in steps if re.search(r"uses:\s*actions/attest@", text)]
+    prepare = _stage_index(build, "prepare_attestation_subjects.py")
+    verify = _stage_index(build, "verify_release_attestations.py")
+    finalize = _stage_index(build, "check_release_artifacts.sh --finalize-release-assets")
+    bundle = _stage_index(build, "generate_release_sboms.py validate-bundle")
+    handoff = _stage_index(build, "name: release-assets")
+    generate = _stage_index(build, "generate_release_sboms.py generate")
+    if not attest:
+        out.append(Violation("ATT-WORKFLOW", "build-and-validate has no attestation step"))
+    if prepare < 0 or "id: subjects" not in build:
+        out.append(Violation("ATT-WORKFLOW", "build-and-validate must derive the subjects with scripts/prepare_attestation_subjects.py (id: subjects)"))
+    if verify < 0:
+        out.append(Violation("ATT-VERIFY", "build-and-validate must verify every attestation with scripts/verify_release_attestations.py"))
+    if attest and min(finalize, bundle, generate) >= 0:
+        first, last = attest[0][0], attest[-1][0]
+        if first < max(finalize, bundle):
+            out.append(Violation("ATT-ORDER", "attestations must come after the final SHA256SUMS and the validated bundle"))
+        if first < generate:
+            out.append(Violation("ATT-ORDER", "attestations must come after SBOM generation"))
+        if prepare >= 0 and not max(finalize, bundle) < prepare < first:
+            out.append(Violation("ATT-ORDER", "the subjects must be prepared after the validated bundle and before the first attestation"))
+        if verify >= 0 and verify < last:
+            out.append(Violation("ATT-ORDER", "verification must come after every attestation"))
+        if handoff >= 0 and verify >= 0 and handoff < verify:
+            out.append(Violation("ATT-ORDER", "the workflow-artifact hand-off must come after attestation verification"))
+        if handoff < 0:
+            out.append(Violation("ATT-ORDER", "the release-assets hand-off is missing"))
+
+    provenance_a = [t for _, t in attest if "subject-checksums:" in t]
+    sbom_steps = [t for _, t in attest if "sbom-path:" in t]
+    self_steps = [t for _, t in attest if "subject-checksums:" not in t and "sbom-path:" not in t]
+    if len(provenance_a) != 1 or not re.search(r"subject-checksums:\s*dist/release-assets/SHA256SUMS\s*$", provenance_a[0], re.M):
+        out.append(Violation("ATT-SUBJECTS", "exactly one provenance attestation must take its subjects from dist/release-assets/SHA256SUMS"))
+    if len(self_steps) != 1 or not (
+        re.search(r"subject-name:\s*(?:SHA256SUMS|\$\{\{\s*steps\.subjects\.outputs\.checksums_name\s*\}\})\s*$", self_steps[0], re.M)
+        and re.search(r"subject-digest:\s*sha256:\$\{\{\s*steps\.subjects\.outputs\.checksums_sha256\s*\}\}\s*$", self_steps[0], re.M)
+    ):
+        out.append(Violation("ATT-SUBJECTS", "SHA256SUMS itself needs exactly one separate provenance attestation (name and digest from the prepared subjects)"))
+    families = [f.family_id for f in FAMILIES if f.requires_sbom]
+    paired: list[str] = []
+    for step in sbom_steps:
+        refs = [
+            re.search(rf"{key}:\s*{prefix}\$\{{\{{\s*steps\.subjects\.outputs\.([a-z_]+)_{suffix}\s*\}}\}}\s*$", step, re.M)
+            for key, prefix, suffix in (
+                ("subject-name", "", "name"), ("subject-digest", "sha256:", "sha256"), ("sbom-path", "", "sbom_path")
+            )
+        ]
+        found = {m.group(1) for m in refs if m is not None}
+        if None in refs or len(found) != 1 or not found <= set(families):
+            out.append(Violation("ATT-SBOM-PAIR", "each SBOM attestation must pair one package's name, digest and SBOM path"))
+        else:
+            paired.append(next(iter(found)))
+    if sorted(paired) != sorted(families) or len(sbom_steps) != len(families):
+        out.append(Violation("ATT-SBOM-PAIR", f"exactly one SBOM attestation per package family is required: expected {sorted(families)}, found {sorted(paired)}"))
+    for _, text in attest:
+        if FORBIDDEN_ATTEST_INPUTS_RE.search(text):
+            out.append(Violation("ATT-SUBJECTS", "attestation steps must use subject-checksums, subject-name/digest and sbom-path only"))
+    for _, text in [*attest, *[(0, t) for _, t in steps if "verify_release_attestations.py" in t or "prepare_attestation_subjects.py" in t]]:
+        if re.search(r"^\s+(?:continue-on-error:\s*true|if:)", text, re.M):
+            out.append(Violation("ATT-VERIFY", "attestation, subject and verification steps must be unconditional and fail closed"))
+    verify_steps = [t for _, t in steps if "verify_release_attestations.py" in t]
+    if verify_steps:
+        step = verify_steps[0]
+        if "--assets-dir dist/release-assets" not in step:
+            out.append(Violation("ATT-VERIFY", "the verifier must read dist/release-assets"))
+        if not re.search(r"--repo\s+SSobol77/pysh(?:\s|\\|$)", step):
+            out.append(Violation("ATT-VERIFY", f"the verifier must pin the repository {REPOSITORY_IDENTITY}"))
+        if not re.search(rf"--signer-workflow\s+{re.escape(SIGNER_WORKFLOW)}(?:\s|\\|$)", step):
+            out.append(Violation("ATT-VERIFY", f"the verifier must pin the signer workflow {SIGNER_WORKFLOW}"))
+        if not re.search(r'--source-digest\s+"?(?:\$\{GITHUB_SHA\}|\$GITHUB_SHA|\$\{\{\s*github\.sha\s*\}\})"?', step):
+            out.append(Violation("ATT-VERIFY", "the verifier must pin the exact source commit (GITHUB_SHA)"))
+
+    out += _check_attestation_scripts(root)
+    out += _check_attestation_documentation(root)
+    return out
+
+
+def _check_attestation_scripts(root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    verifier = _read(root, ATTESTATION_VERIFIER)
+    helper = _read(root, SUBJECT_HELPER)
+    if verifier is None:
+        out.append(Violation("ATT-VERIFY", f"{ATTESTATION_VERIFIER} is missing"))
+    else:
+        body = _code(verifier)
+        for needle, why in (
+            (f'PINNED_REPO = "{REPOSITORY_IDENTITY}"', "pin the repository identity"),
+            (f'PINNED_SIGNER_WORKFLOW = "{SIGNER_WORKFLOW}"', "pin the signer workflow"),
+            (f'SPDX_PREDICATE_TYPE = "{SPDX_PREDICATE_TYPE}"', "pin the SPDX 2.3 predicate type"),
+            ('"--source-digest", source_digest', "pass the exact source digest to gh"),
+            ('"--signer-workflow", signer_workflow', "pass the signer workflow to gh"),
+            ('"--repo", repo', "pass the repository to gh"),
+            ('"--predicate-type", predicate_type', "pass the predicate type to gh"),
+            ('NOT_VISIBLE_PATTERN = r"\\bno attestations? found\\b"', "retry only the narrowly classified 'not visible yet' answer"),
+            ("range(1, MAX_ATTEMPTS)", "bound the retry loop"),
+        ):
+            if needle not in body:
+                out.append(Violation("ATT-VERIFY", f"{ATTESTATION_VERIFIER} must {why}"))
+        attempts = re.search(r"^MAX_ATTEMPTS = (\d+)$", body, re.M)
+        if attempts is None or not 1 <= int(attempts.group(1)) <= 10:
+            out.append(Violation("ATT-RETRY", f"{ATTESTATION_VERIFIER}: MAX_ATTEMPTS must be a literal between 1 and 10"))
+        if re.search(r"\bwhile\b", body):
+            out.append(Violation("ATT-RETRY", f"{ATTESTATION_VERIFIER}: no unbounded loop is allowed"))
+        if "shell=True" in body:
+            out.append(Violation("ATT-VERIFY", f"{ATTESTATION_VERIFIER} must never use shell=True"))
+        if ALTERNATIVE_SIGNING_RE.search(body) or re.search(r'"attestation",\s*"(?:create|sign)"', body):
+            out.append(Violation("ATT-ALTERNATIVE", f"{ATTESTATION_VERIFIER} must contain no signing logic"))
+        for pattern in RELEASE_UPLOAD_PATTERNS:
+            if re.search(pattern, body):
+                out.append(Violation("WF-UPLOAD-BYPASS", f"{ATTESTATION_VERIFIER}: must never upload release assets ({pattern})"))
+    if helper is None:
+        out.append(Violation("ATT-SUBJECTS", f"{SUBJECT_HELPER} is missing"))
+    else:
+        body = _code(helper)
+        if "subprocess" in body or re.search(r"\b(?:urllib|socket|requests|http)\b", body):
+            out.append(Violation("ATT-SUBJECTS", f"{SUBJECT_HELPER} must be offline and run no subprocess"))
+        if "SUBJECT_COUNT = 11" not in body:
+            out.append(Violation("ATT-SUBJECTS", f"{SUBJECT_HELPER} must derive exactly eleven release subjects"))
+    return out
+
+
+def _check_attestation_documentation(root: Path) -> list[Violation]:
+    doc = " ".join((_read(root, DOC) or "").split())
+    out: list[Violation] = []
+    for needle, why in (
+        (f"{ATTEST_ACTION} {ATTEST_VERSION}", "name the reviewed attestation action version"),
+        (ATTEST_SHA, "record the immutable attestation action commit"),
+        (f"--signer-workflow {SIGNER_WORKFLOW}", "document the pinned signer workflow"),
+        ("--source-digest", "document source-commit pinning"),
+        (f"--predicate-type {SPDX_PREDICATE_TYPE}", "document SPDX SBOM attestation verification"),
+        ("gh attestation trusted-root", "document the offline trust root"),
+        ("sha256sum -c SHA256SUMS", "keep checksum verification"),
+    ):
+        if needle not in doc:
+            out.append(Violation("ATT-DOC", f"{DOC} must {why}: {needle!r}"))
+    return out
+
+
 CURRENT_CHECKS = (
     check_sbom_implementation,
+    check_attestation_implementation,
     check_documentation,
     check_packaging_agreement,
     check_release_workflow,

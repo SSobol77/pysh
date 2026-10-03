@@ -9,8 +9,12 @@ on:
     types: [published]
   workflow_dispatch:
 
+# Least privilege (Issue #51, Slice 3): the workflow default is read-only. Each job
+# below declares exactly what it needs; attestation and OIDC rights exist ONLY in
+# build-and-validate, and the only write to repository contents (the release upload)
+# exists ONLY in the upload job.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   freebsd-pkg:
@@ -84,6 +88,14 @@ jobs:
     name: Build artifacts & validate release contract
     runs-on: ubuntu-latest
     needs: freebsd-pkg
+    # Keyless attestation needs the GitHub OIDC token (id-token), the Artifact
+    # Attestations API (attestations) and the artifact metadata record
+    # (artifact-metadata). No contents: write, no packages, no other scope.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Checkout
@@ -164,6 +176,79 @@ jobs:
       - name: Validate the complete release bundle (packages, SBOMs, SHA256SUMS)
         run: python scripts/generate_release_sboms.py validate-bundle --dir dist/release-assets
 
+      # Issue #51 (Slice 3): keyless GitHub OIDC attestations over the FINAL bytes only.
+      # Trust model: GitHub Actions workflow identity + GitHub OIDC token + a short-lived
+      # Sigstore certificate + the GitHub Artifact Attestations service. There is no
+      # long-lived signing key, no GPG secret and no second signing path. The subjects
+      # come from the final SHA256SUMS through scripts/prepare_attestation_subjects.py,
+      # never from a hardcoded file-name list. Nothing here uploads release assets.
+      - name: Prepare exact attestation subjects (from the final SHA256SUMS)
+        id: subjects
+        run: |
+          python scripts/prepare_attestation_subjects.py \
+            --assets-dir dist/release-assets \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Attest provenance for the SHA256SUMS subjects (packages and SBOM files)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-checksums: dist/release-assets/SHA256SUMS
+
+      - name: Attest provenance for SHA256SUMS itself
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.checksums_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.checksums_sha256 }}
+
+      - name: Attest SPDX SBOM (wheel)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.wheel_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.wheel_sha256 }}
+          sbom-path: ${{ steps.subjects.outputs.wheel_sbom_path }}
+
+      - name: Attest SPDX SBOM (sdist)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.sdist_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.sdist_sha256 }}
+          sbom-path: ${{ steps.subjects.outputs.sdist_sbom_path }}
+
+      - name: Attest SPDX SBOM (deb)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.deb_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.deb_sha256 }}
+          sbom-path: ${{ steps.subjects.outputs.deb_sbom_path }}
+
+      - name: Attest SPDX SBOM (rpm)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.rpm_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.rpm_sha256 }}
+          sbom-path: ${{ steps.subjects.outputs.rpm_sbom_path }}
+
+      - name: Attest SPDX SBOM (freebsd_pkg)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.freebsd_pkg_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.freebsd_pkg_sha256 }}
+          sbom-path: ${{ steps.subjects.outputs.freebsd_pkg_sbom_path }}
+
+      # Verification-before-upload: all eleven provenance attestations and all five SBOM
+      # attestations must verify against the pinned repository, the pinned signer
+      # workflow and this exact source commit BEFORE the bundle is handed off. A failure
+      # here means the upload job has nothing to download.
+      - name: Verify every attestation before the hand-off (fail closed)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/verify_release_attestations.py \
+            --assets-dir dist/release-assets \
+            --repo SSobol77/pysh \
+            --signer-workflow SSobol77/pysh/.github/workflows/release-artifacts.yml \
+            --source-digest "${GITHUB_SHA}"
+
       # The validated, flat dist/release-assets/ tree is the ONLY thing the
       # upload job can see: it never has repository source, never rebuilds
       # anything, and cannot run until this job succeeds. This is the
@@ -183,6 +268,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-validate
     if: github.event_name == 'release'
+    # The only job that may write release assets. No OIDC token, no attestation
+    # rights: it never signs, rebuilds or verifies anything.
+    permissions:
+      contents: write
 
     steps:
       - name: Download validated release assets
