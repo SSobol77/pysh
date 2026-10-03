@@ -73,6 +73,16 @@ def test_real_profiles_are_platform_specific_and_never_pending_masquerading_as_v
             assert profile.version and profile.package_version
 
 
+def _shipped_with_one_pending_profile() -> dict[str, Any]:
+    """The shipped schema shape with a pending first profile and no mappings (schema tests only)."""
+    raw = json.loads(migration.DEFAULT_METADATA.read_text(encoding="utf-8"))
+    raw["cases"] = []
+    raw["legacy_profiles"] = [dict(
+        raw["legacy_profiles"][0], version=None, package_version=None, version_status="pending",
+    )]
+    return raw
+
+
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
@@ -91,7 +101,7 @@ def test_real_profiles_are_platform_specific_and_never_pending_masquerading_as_v
     ],
 )
 def test_profile_schema_rejects_invalid_profiles(overrides: dict[str, Any], message: str) -> None:
-    raw = json.loads(migration.DEFAULT_METADATA.read_text(encoding="utf-8"))
+    raw = _shipped_with_one_pending_profile()
     raw["legacy_profiles"] = [dict(raw["legacy_profiles"][0], **overrides)]
     with pytest.raises(migration.MigrationError, match=re.escape(message)):
         migration.parse_migration(
@@ -100,7 +110,7 @@ def test_profile_schema_rejects_invalid_profiles(overrides: dict[str, Any], mess
 
 
 def test_a_pinned_profile_is_accepted_when_it_carries_both_versions() -> None:
-    raw = json.loads(migration.DEFAULT_METADATA.read_text(encoding="utf-8"))
+    raw = _shipped_with_one_pending_profile()
     raw["legacy_profiles"] = [dict(
         raw["legacy_profiles"][0], version_status="pinned", version="GNU bash, version 0.0",
         package_version="0.0-1",
@@ -656,3 +666,110 @@ def test_startup_wording_does_not_overclaim() -> None:
     assert "Hermetic execution." not in doc
     guarantee = POLICIES["zsh-no-rcs-v1"].global_startup_limitation
     assert guarantee and "hermetic" not in guarantee.lower()
+
+
+# --- reviewed Tier-1 baseline (v1 corpus contract) ------------------------------------------------
+
+
+def _applicable(profile: LegacyProfile):
+    return [c for c in lab.load_reference_cases() if profile.legacy_shell in c.shells]
+
+
+def test_every_pinned_profile_has_exactly_one_reviewed_mapping_per_applicable_case() -> None:
+    data = migration.load_migration()
+    by_pair: dict[tuple[str, str], list[MigrationCase]] = {}
+    for mapping in data.cases:
+        by_pair.setdefault((mapping.case_id, mapping.legacy_profile), []).append(mapping)
+    for profile in data.profiles.values():
+        if profile.version_status != "pinned":
+            continue
+        for case in _applicable(profile):
+            found = by_pair.get((case.case_id, profile.profile_id), [])
+            assert len(found) == 1, f"{profile.profile_id}/{case.case_id}: {len(found)} mappings"
+            assert found[0].compared_dimensions == case.dimensions, (
+                f"{profile.profile_id}/{case.case_id}: compared dimensions differ from the selection"
+            )
+    # And no mapping exists for a case that does not apply to that profile's shell.
+    applicable = {(c.case_id, p.profile_id) for p in data.profiles.values() for c in _applicable(p)}
+    assert {(m.case_id, m.legacy_profile) for m in data.cases} <= applicable
+
+
+def test_the_v1_reviewed_baseline_has_six_pinned_profiles_and_84_mappings() -> None:
+    data = migration.load_migration()
+    assert len(data.profiles) == 6
+    assert all(p.version_status == "pinned" for p in data.profiles.values())
+    derived = sum(len(_applicable(p)) for p in data.profiles.values())
+    assert derived == 84 and len(data.cases) == 84
+    per_profile = {
+        pid: sum(1 for m in data.cases if m.legacy_profile == pid) for pid in data.profiles
+    }
+    for pid, count in per_profile.items():
+        shell = data.profiles[pid].legacy_shell
+        assert count == {"bash": 15, "zsh": 15, "fish": 12}[shell], pid
+
+
+def test_reviewed_mappings_are_plain_matches_that_copy_no_observation() -> None:
+    raw = json.loads(migration.DEFAULT_METADATA.read_text(encoding="utf-8"))
+    assert len(raw["cases"]) == 84
+    for mapping in raw["cases"]:
+        assert set(mapping) == migration.CASE_FIELDS  # no stdout/stderr/status/pysh_expected
+        assert mapping["classification"] == "match"
+        assert mapping["migration_anchor"] is None and mapping["guidance"] is None
+        text = mapping["rationale"]
+        assert "#48 remains normative" in text and "define PySH semantics" not in text
+    data = migration.load_migration()
+    assert all(m.declared is Declared.MATCH for m in data.cases)
+
+
+def test_pins_are_exact_strings_and_any_drift_fails_before_acceptance() -> None:
+    data = migration.load_migration()
+    bash = data.profiles["bash-debian13-amd64"]
+    exact = lab.Probe(bash.version, bash.package_version)
+    lab.check_version(bash, exact)  # matching pin -> accepted
+    drifted = [
+        lab.Probe(bash.version.replace("5.2.37", "5.2.38"), bash.package_version),
+        lab.Probe(bash.version + " ", bash.package_version),
+        lab.Probe(bash.version.lower(), bash.package_version),
+        lab.Probe(bash.version, "5.2.37-2+b11"),
+        lab.Probe(bash.version, "5.2.37-2"),  # no revision normalization
+        lab.Probe(bash.version, "1:" + bash.package_version),  # no epoch normalization
+        lab.Probe(bash.version, None),
+    ]
+    for probe in drifted:
+        with pytest.raises(lab.VersionDriftError):
+            lab.check_version(bash, probe)
+    fish = data.profiles["fish-freebsd14.4-amd64"]
+    assert fish.package_version == "4.9.1_1"
+    with pytest.raises(lab.VersionDriftError):
+        lab.check_version(fish, lab.Probe(fish.version, "4.9.1"))  # no FreeBSD suffix normalization
+
+
+def test_pinned_values_are_the_reviewed_tier1_baseline() -> None:
+    data = migration.load_migration()
+    expected = {
+        "bash-debian13-amd64": ("/usr/bin/bash", "GNU bash, version 5.2.37(1)-release (x86_64-pc-linux-gnu)", "5.2.37-2+b10"),
+        "zsh-debian13-amd64": ("/usr/bin/zsh", "zsh 5.9 (x86_64-debian-linux-gnu)", "5.9-8+b24"),
+        "fish-debian13-amd64": ("/usr/bin/fish", "fish, version 4.0.2", "4.0.2-1"),
+        "bash-freebsd14.4-amd64": ("/usr/local/bin/bash", "GNU bash, version 5.3.20(0)-release (amd64-portbld-freebsd14.4)", "5.3.20"),
+        "zsh-freebsd14.4-amd64": ("/usr/local/bin/zsh", "zsh 5.9.2 (amd64-portbld-freebsd14.4)", "5.9.2"),
+        "fish-freebsd14.4-amd64": ("/usr/local/bin/fish", "fish, version 4.9.1", "4.9.1_1"),
+    }
+    assert {pid: (p.executable, p.version, p.package_version) for pid, p in data.profiles.items()} == expected
+    startup = {pid: p.startup_policy for pid, p in data.profiles.items()}
+    assert set(startup.values()) == {"bash-noprofile-norc-v1", "zsh-no-rcs-v1", "fish-no-config-v1"}
+
+
+def test_documentation_records_the_reviewed_pins_without_overclaiming() -> None:
+    text = " ".join((REPO_ROOT / "docs" / "compatibility" / "legacy-shell-migration.md").read_text(encoding="utf-8").split())
+    for phrase in (
+        "Reviewed Tier-1 baseline",
+        "37138273140",
+        "test-reference pins only",
+        "merge-blocking until it is reviewed",
+        "All 84 applicable case/profile pairs",
+        "no `INTENDED_DIVERGENCE` was needed",
+        "external shells still do not define PySH semantics",
+        "does not prove the global `zshenv` did not run",
+        "requires exactly one reviewed mapping",
+    ):
+        assert phrase in text, phrase

@@ -122,7 +122,8 @@ shell on one Tier-1 platform (`bash-debian13-amd64`, `zsh-freebsd14.4-amd64`,
 path), `startup_policy`, `version` (the executable's first `--version` line),
 `package_version` (the OS package version) and `version_status`. Exact versions
 are `pending` until established from the controlled Tier-1 CI environments and
-reviewed into the file; the developer workstation's shell is never an authority.
+reviewed into the file (the six Tier-1 profiles have now been pinned, see
+below); the developer workstation's shell is never an authority.
 
 <a id="PYSH-MIG-DIVERGENCE-REGISTRY"></a>
 
@@ -278,8 +279,46 @@ and `scripts/run_legacy_shell_differential.py` is its entry point.
 - **Not part of it.** `run_script` shebang delegation is unrelated to the
   laboratory, and the laboratory never executes user scripts.
 
-Status: the laboratory and CI jobs are in place. The Tier-1 versions are pinned
-only after the first successful run of those jobs, from their uploaded evidence.
+### Reviewed Tier-1 baseline
+
+The initial discovery run (GitHub Actions run 37138273140, source commit
+`15aae5f3f6e24919f53de0f3d73575276ff87e71`) was reviewed and its observations
+pinned in `migration-v1.json`. Six platform-specific reference profiles are
+`pinned`, each with the executable's first `--version` line and the OS package
+version, compared as exact strings (no normalization of epochs, revisions or
+build strings):
+
+| Profile | Executable | `--version` | Package |
+| --- | --- | --- | --- |
+| `bash-debian13-amd64` | `/usr/bin/bash` | `GNU bash, version 5.2.37(1)-release (x86_64-pc-linux-gnu)` | `5.2.37-2+b10` |
+| `zsh-debian13-amd64` | `/usr/bin/zsh` | `zsh 5.9 (x86_64-debian-linux-gnu)` | `5.9-8+b24` |
+| `fish-debian13-amd64` | `/usr/bin/fish` | `fish, version 4.0.2` | `4.0.2-1` |
+| `bash-freebsd14.4-amd64` | `/usr/local/bin/bash` | `GNU bash, version 5.3.20(0)-release (amd64-portbld-freebsd14.4)` | `5.3.20` |
+| `zsh-freebsd14.4-amd64` | `/usr/local/bin/zsh` | `zsh 5.9.2 (amd64-portbld-freebsd14.4)` | `5.9.2` |
+| `fish-freebsd14.4-amd64` | `/usr/local/bin/fish` | `fish, version 4.9.1` | `4.9.1_1` |
+
+- These versions are test-reference pins only. They are not PySH dependencies,
+  and no runtime or package dependency exists.
+- Version drift is merge-blocking until it is reviewed: a package or executable
+  version change fails the job before any semantic result is interpreted.
+- All 84 applicable case/profile pairs (Bash 15 and Zsh 15 per platform, Fish 12
+  per platform) matched on their compared dimensions, every startup-isolation
+  check passed on both platforms, and no `REGRESSION` or undeclared difference
+  was observed. Each pair is recorded in `migration-v1.json` as a reviewed
+  `match` with no anchor and no guidance; no `INTENDED_DIVERGENCE` was needed by
+  this initial corpus.
+- The metadata declares only the reviewed classification. Observations stay
+  generated CI evidence, and PySH #48 remains the only normative expectation:
+  external shells still do not define PySH semantics.
+- A pinned profile now requires exactly one reviewed mapping for every selected
+  case that applies to its shell, with the same compared dimensions. Adding a
+  selected case, pinning a profile or changing a dimension without updating the
+  mappings fails a contract test before CI.
+- The Zsh baseline is still the scoped one described above: it shows no
+  observable contamination, and does not prove the global `zshenv` did not run.
+
+Completion of Issue #54 additionally requires the same workflow to pass again
+with the pinned profiles.
 
 <a id="PYSH-MIG-EVIDENCE"></a>
 
