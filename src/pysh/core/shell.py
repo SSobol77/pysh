@@ -111,6 +111,7 @@ from pysh.migration.script import (
     analyze_migration_file,
     render_migration_report,
 )
+from pysh.parsing.expansion import in_substitution_domain
 from pysh.parsing.heredoc import (
     HereDocBody,
     collect_heredoc_bodies,
@@ -496,6 +497,10 @@ class PyShell:
         self.last_status: int = 0
         self.trace = trace if trace is not None else DiagnosticTrace()
         self.startup_policy = startup_policy
+        # Internal execution context (not a user feature): True when this shell is
+        # a nested command-substitution evaluation. Granted only by a validated
+        # inherited capability (expansion.CAPABILITY_ENV), never by environment text alone.
+        self._descendants_contained = in_substitution_domain()
         self.script_name: str = ""
         self.script_args: list[str] = []
         self._script_context: tuple[Path, int] | None = None
@@ -1517,7 +1522,8 @@ class PyShell:
                     raise
                 if pid == 0:
                     try:
-                        os.setpgid(0, pipeline_pgid or 0)
+                        if not self._descendants_contained:
+                            os.setpgid(0, pipeline_pgid or 0)
                         reset_child_job_control_signals()
                     except OSError:
                         pass
@@ -1543,10 +1549,11 @@ class PyShell:
 
                 if pipeline_pgid is None:
                     pipeline_pgid = pid
-                try:
-                    os.setpgid(pid, pipeline_pgid)
-                except OSError:
-                    pass
+                if not self._descendants_contained:
+                    try:
+                        os.setpgid(pid, pipeline_pgid)
+                    except OSError:
+                        pass
                 pids.append(pid)
                 if previous_read is not None:
                     os.close(previous_read)
@@ -1646,7 +1653,9 @@ class PyShell:
         stderr_f: IO[bytes] | None = None
         stderr_arg: IO[bytes] | int | None
 
-        jc_available = has_job_control()
+        # Inside a command-substitution domain every descendant stays in the
+        # domain's process group so the whole tree can be terminated as a unit.
+        jc_available = has_job_control() and not self._descendants_contained
         preexec_fn: Callable[[], None] | None = make_child_preexec if jc_available else None
 
         try:

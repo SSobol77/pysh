@@ -109,20 +109,6 @@
       "notes": "Removing the fallback means removing this and the trigger branches."
     },
     {
-      "id": "command-substitution-system-sh",
-      "category": "AUTOMATIC_LEGACY_FALLBACK",
-      "production_path": "src/pysh/parsing/expansion.py",
-      "symbols": [
-        "_default_runner"
-      ],
-      "trigger": "Every `$(...)` / backtick substitution evaluated with the default runner runs `/bin/sh -c <text>`.",
-      "automatic": true,
-      "product_dependency": false,
-      "semantic_authority": false,
-      "policy": "UNEXPECTED FINDING, not a conditional fallback: the production implementation of command substitution hands the substituted text to the system POSIX shell, so the nested command's semantics come from /bin/sh. Contradicts the replacement architecture; requires an explicit pre-1.0 decision. Not changed in Slice 2.",
-      "notes": "Category D is the nearest of the six fixed categories (automatic hand-off to a legacy shell); it is always on and has no switch. The fuzz harness replaces this runner with a fake."
-    },
-    {
       "id": "script-shebang-delegation",
       "category": "EXPLICIT_SHEBANG_DELEGATION",
       "production_path": "src/pysh/script_runner.py",
@@ -225,6 +211,20 @@
       "semantic_authority": false,
       "policy": "Describes the bridges; no execution.",
       "notes": "Documentation never counts as a drift signal."
+    },
+    {
+      "id": "substitution-fallback-isolation",
+      "category": "PYSH_NATIVE",
+      "production_path": "src/pysh/parsing/expansion.py",
+      "symbols": [
+        "<module>"
+      ],
+      "trigger": "Every command substitution.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Defensive only: names the fallback environment variable so the nested PySH is started with it removed. Executes nothing and never reaches a legacy shell.",
+      "notes": "The only legacy-related token in the substitution module; pinned by test_command_substitution_native."
     }
   ]
 }

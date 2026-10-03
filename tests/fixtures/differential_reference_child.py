@@ -26,6 +26,15 @@ def main(argv: list[str]) -> int:
         print(json.dumps({name: os.environ.get(name) for name in data}))
     elif mode == "envkeys":
         print(json.dumps(sorted(os.environ)))
+    elif mode == "openfds":
+        open_fds = []
+        for fd in range(64):
+            try:
+                os.fstat(fd)
+            except OSError:
+                continue
+            open_fds.append(fd)
+        print(json.dumps(open_fds))
     elif mode == "cwd":
         print(os.getcwd())
     elif mode == "listdir":

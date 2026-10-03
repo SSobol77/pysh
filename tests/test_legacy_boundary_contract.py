@@ -54,8 +54,15 @@ def test_automatic_fallback_entry_points_are_pinned_exactly() -> None:
         ("src/pysh/core/shell.py", "PyShell._run_pipeline"),
         ("src/pysh/core/shell.py", "PyShell._run_external"),
         ("src/pysh/core/shell.py", "PyShell._run_zsh_fallback"),
-        ("src/pysh/parsing/expansion.py", "_default_runner"),
     }
+
+
+def test_command_substitution_is_no_longer_a_legacy_boundary() -> None:
+    inventory = bnd.load_inventory()
+    mine = [b for b in inventory if b.production_path == "src/pysh/parsing/expansion.py"]
+    # Only the defensive environment scrub is inventoried: no bridge, shebang or fallback.
+    assert [(b.category, b.symbols) for b in mine] == [("PYSH_NATIVE", ("<module>",))]
+    assert bnd.scan_tree()["src/pysh/parsing/expansion.py"] == frozenset({"<module>"})
 
 
 def test_explicit_bridge_and_shebang_entry_points_are_distinct_from_automatic_ones() -> None:
@@ -225,7 +232,7 @@ def test_policies_and_the_unresolved_decision_are_documented() -> None:
         "is **not** part of the target PySH 1.0 architecture",
         "(A) remove it, (B) deprecate then remove it, or (C) retain it only as",
         "No option is chosen here",
-        "`/bin/sh -c`",
+        "no longer a legacy boundary",
     ):
         assert phrase in text, phrase
 

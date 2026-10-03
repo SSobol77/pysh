@@ -185,13 +185,23 @@ changed by Issue #54:
   that variable arms a fallback that is off by default. While armed, a path
   expansion error, an unresolved external command in a pipeline, and a
   process-creation `FileNotFoundError` are handed to `zsh -lc`.
-- Command substitution (`$(...)`) with the default runner is executed by
-  `/bin/sh -c`. This is not conditional and has no switch; it is the
-  production implementation of substitution, so the nested command's
-  semantics currently come from the system POSIX shell.
 
-Both are migration-era technical debt. Before PySH 1.0 each needs one explicit
-decision: (A) remove it, (B) deprecate then remove it, or (C) retain it only as
+Command substitution (`$(...)` and backticks) is **PySH-native** and no longer
+a legacy boundary: the default runner evaluates the nested command in an
+isolated nested PySH execution (no user startup configuration, no zsh
+fallback armed, all descendants contained in one process group and terminated
+with it), never `/bin/sh`. (Before Issue #54 Slice 2.5 it ran `/bin/sh -c`.)
+The zsh fallback above is **not** resolved by this change.
+
+Containment limit (known, not hidden): containment covers descendants that stay
+in the substitution's execution domain and process group. A descendant that
+deliberately leaves it with its own `setsid()` or `setpgid()` (for example a
+daemon) escapes portable POSIX process-group containment and is not terminated.
+No Linux-only mechanism (`/proc`, cgroups, subreaper, process-name scanning) is
+used.
+
+The zsh fallback is migration-era technical debt. Before PySH 1.0 it needs one
+explicit decision: (A) remove it, (B) deprecate then remove it, or (C) retain it only as
 a clearly separated compatibility feature with no default enablement. No option
 is chosen here.
 

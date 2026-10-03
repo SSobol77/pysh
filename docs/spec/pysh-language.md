@@ -201,17 +201,19 @@ the relevant metacharacter suppresses expansion. Brace expansion is unsupported
 and brace text remains literal.
 
 <a id="PYSH-LANG-SUBST-COMMAND"></a>
-**PYSH-LANG-SUBST-COMMAND.** `$(command)` and backtick command substitution run
-through `/bin/sh -c`, capture stdout, remove all trailing newline characters,
-and insert the remaining text before chain splitting. Substitution is active
+**PYSH-LANG-SUBST-COMMAND.** `$(command)` and backtick command substitution
+evaluate `command` with PySH command semantics, take its standard output as the
+substitution payload, remove all trailing newline characters, and insert the
+remaining text before chain splitting. Evaluation MUST NOT be delegated to
+`/bin/sh`, Bash, Zsh, Fish, or any other external shell-language implementation,
+and MUST NOT be influenced by user startup or rc files. Substitution is active
 unquoted and within double quotes, and suppressed within single quotes. Each
 substitution is bounded by the implementation timeout (currently five seconds);
 timeout or launch failure diagnoses the event and substitutes an empty string.
 
-The `/bin/sh` language inside substitution is an explicit delegated language,
-not PySH grammar. Nested/pathological substitution, substitution stderr text,
-and malformed unmatched substitution delimiters are not portable v1 contracts;
-unmatched forms currently remain literal.
+Nested/pathological substitution, substitution stderr text, and malformed
+unmatched substitution delimiters are not portable v1 contracts; unmatched
+forms currently remain literal.
 
 ## 7. Heredocs and here-strings
 
