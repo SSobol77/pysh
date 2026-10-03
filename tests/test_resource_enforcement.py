@@ -39,6 +39,7 @@ from pysh.plugins.isolated.resources import (
     resolve_resource_budget,
 )
 from pysh.plugins.isolated.runtime import IsolatedPluginRuntime, IsolatedPluginState
+from tests.fuzz_support import fdprobe
 
 PROBE = (Path(__file__).parent / "fixtures" / "resource_probe.py").resolve()
 PY = str(Path(sys.executable).resolve())
@@ -218,12 +219,11 @@ def test_address_space_limit_blocks_allocation_beyond_budget() -> None:
 
 
 def test_descriptor_limit_is_hit_and_parent_stays_healthy() -> None:
-    before = len(os.listdir("/dev/fd")) if os.path.isdir("/dev/fd") else None
+    before = fdprobe.open_fds()
     result = _report("open_fds", limits=ResourceBudget(file_descriptors=16))
     assert result["errno"] == result["emfile"]
     assert 0 < result["opened"] <= 16
-    if before is not None:
-        assert len(os.listdir("/dev/fd")) <= before + 1
+    assert fdprobe.open_fds() == before, "descriptors leaked by a contained plugin"
 
 
 def test_descriptor_limit_never_relaxes_a_lower_inherited_hard_limit() -> None:

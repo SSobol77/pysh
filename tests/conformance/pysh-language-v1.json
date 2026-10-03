@@ -58,6 +58,15 @@
       "contract_ref": "PYSH-LANG-QUOTE-RULES"
     },
     {
+      "id": "quoting-single-preserves-whitespace",
+      "category": "quoting",
+      "surface": "command",
+      "input": "fixture-echo 'a  b' 'x\t y'",
+      "pysh_expected": {"status": 0, "stdout": {"match": "exact", "value": "a  b x\t y\n"}, "stderr": {"match": "exact", "value": ""}, "diagnostic": "none"},
+      "reference_behavior": {"classification": "equivalent", "note": "Single quotes preserve repeated spaces and tabs in every reference shell."},
+      "contract_ref": "PYSH-LANG-QUOTE-RULES"
+    },
+    {
       "id": "quoting-operators-literal",
       "category": "quoting",
       "surface": "command",

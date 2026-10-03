@@ -22,6 +22,8 @@ RPM_SMOKE = REPO_ROOT / "scripts" / "smoke_rpm_package.sh"
 FREEBSD_CONFIG = REPO_ROOT / "scripts" / "_freebsd_python.sh"
 FREEBSD_BUILDER = REPO_ROOT / "scripts" / "build_freebsd_pkg.sh"
 EVIDENCE_SCRIPT = REPO_ROOT / "scripts" / "check_resource_governor_evidence.sh"
+FUZZ_EVIDENCE_SCRIPT = REPO_ROOT / "scripts" / "check_fuzz_evidence.sh"
+FUZZ_NIGHTLY = REPO_ROOT / ".github" / "workflows" / "fuzz-nightly.yml"
 FREEBSD_SMOKE = REPO_ROOT / "scripts" / "smoke_freebsd_package.sh"
 
 
@@ -336,3 +338,100 @@ def test_contract_does_not_overstate_capsicum_or_plugin_isolation() -> None:
 
     assert "does **not** implement or claim Capsicum confinement" in normalized
     assert "not a filesystem or network sandbox" in normalized
+
+
+FUZZ_ENTRYPOINT = "scripts/check_fuzz_evidence.sh"
+
+
+def test_both_tier1_jobs_run_the_repository_owned_fuzz_evidence() -> None:
+    """Debian and FreeBSD each invoke the single script; the script owns the list."""
+    workflow = CI.read_text(encoding="utf-8")
+    assert FUZZ_EVIDENCE_SCRIPT.is_file()
+
+    for name, venv in (("platform-debian", ".venv-debian"), ("platform-freebsd", ".venv-freebsd")):
+        job = _job(workflow, name)
+        assert job.count(FUZZ_ENTRYPOINT) == 1, name
+        assert 'PYSH_PYTEST="python -m pytest"' in job
+        assert job.index(venv) < job.index(FUZZ_ENTRYPOINT)
+        assert "continue-on-error" not in job
+        # The script, not the workflow, owns the fuzz test list.
+        assert "tests/test_fuzz_" not in job
+        assert "tests/test_fd_robustness.py" not in job
+        assert "tests/test_parser_properties.py" not in job
+        # Portable evidence never needs the coverage-guided engine.
+        assert "atheris" not in job.lower()
+        assert "--group fuzz" not in job
+        assert "fuzz_atheris" not in job
+
+    freebsd = _job(workflow, "platform-freebsd")
+    # Normal (privileged-VM) context: before the unprivileged governor account exists.
+    assert freebsd.index(FUZZ_ENTRYPOINT) < freebsd.index("pw useradd pyshci")
+
+
+def test_portable_fuzz_evidence_is_free_of_linux_only_fd_assumptions() -> None:
+    """FreeBSD portable evidence uses the os.fstat probe, never /proc or /dev/fd."""
+    script = FUZZ_EVIDENCE_SCRIPT.read_text(encoding="utf-8")
+    assert "tests/test_fd_robustness.py" in script
+    assert "test_fuzz_atheris_smoke" not in script
+    code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+    assert "atheris" not in code.lower()
+    assert "/proc" not in code and "/dev/fd" not in code
+
+    probe = (REPO_ROOT / "tests" / "fuzz_support" / "fdprobe.py").read_text(encoding="utf-8")
+    probe_code = probe.split('"""', 2)[2]  # drop the module docstring that explains the policy
+    assert "os.fstat" in probe_code
+    for forbidden in ("/proc/self/fd", "/dev/fd", "listdir"):
+        assert forbidden not in probe_code
+
+    for relative in (
+        "tests/test_fd_robustness.py",
+        "tests/fixtures/fd_child.py",
+        "tests/fixtures/fd_limit_child.py",
+        "tests/fuzz_support/execution.py",
+    ):
+        source = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        body = source.split('"""', 2)[2] if source.count('"""') >= 2 else source
+        assert "/proc/self/fd" not in body, relative
+        assert "/dev/fd" not in body, relative
+
+
+def test_atheris_is_documented_as_linux_x86_64_coverage_guided_evidence_only() -> None:
+    """Coverage-guided evidence is Linux-only and never a FreeBSD/platform-support claim."""
+    text = " ".join(CONTRACT.read_text(encoding="utf-8").split())
+    section = text.split("### Fuzz and property evidence (Issue #49)", maxsplit=1)[1]
+    section = section.split("## Native package compatibility", maxsplit=1)[0]
+
+    assert "Tier 1 portable required evidence" in section
+    assert "Linux reference additional evidence" in section
+    assert "Linux x86_64 development dependency" in section
+    assert "no coverage-guided claim" in section
+    assert "Coverage-guided engine availability is not platform support" in section
+    assert "does not downgrade its Tier 1 status" in section
+    assert "Issue #48 is the only language oracle" in section
+    for portable in (
+        "deterministic parser property tests",
+        "permanent regression-record replay",
+        "`os.fstat()` scan",
+    ):
+        assert portable in section
+
+
+def test_scheduled_fuzz_workflow_exists_and_is_kept_out_of_normal_ci() -> None:
+    """The long campaign is schedule/manual only and never part of PR CI."""
+    assert FUZZ_NIGHTLY.is_file()
+    nightly = "\n".join(
+        line
+        for line in FUZZ_NIGHTLY.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert "schedule:" in nightly and "workflow_dispatch:" in nightly
+    triggers = re.search(r"(?ms)^on:\n(?P<body>.*?)(?=^\S)", nightly).group("body")
+    for forbidden in ("pull_request", "push:", "release:", "tags:"):
+        assert forbidden not in triggers
+    for forbidden in ("gh release", "twine", "contents: write", "publish"):
+        assert forbidden not in nightly
+
+    ci = CI.read_text(encoding="utf-8")
+    assert "fuzz_atheris.py" not in ci
+    assert "max-total-time" not in ci
+    assert "--group fuzz" not in ci

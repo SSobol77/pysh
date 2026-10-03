@@ -36,6 +36,7 @@ from pysh.plugins.isolated.supervisor import (
     ConcurrencyGovernor,
     WallClockWatchdog,
 )
+from tests.fuzz_support import fdprobe
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PROBE = (FIXTURES / "resource_probe.py").resolve()
@@ -277,7 +278,7 @@ def test_descendants_are_killed_with_the_plugin_process_group() -> None:
 
 def test_descriptor_exhaustion_is_contained_to_the_plugin() -> None:
     reports: list[str] = []
-    before = len(os.listdir("/dev/fd")) if os.path.isdir("/dev/fd") else None
+    before = fdprobe.open_fds()
     runtime = _runtime(PROBE, "open_fds", reports=reports,
                        resource_limits=ResourceBudget(file_descriptors=16))
     runtime.start()
@@ -285,8 +286,7 @@ def test_descriptor_exhaustion_is_contained_to_the_plugin() -> None:
     result = json.loads(reports[0])
     assert result["errno"] == result["emfile"] and result["opened"] <= 16
     runtime.close()
-    if before is not None:
-        assert len(os.listdir("/dev/fd")) <= before + 1
+    assert fdprobe.open_fds() == before, "descriptors leaked by a contained plugin"
     _assert_session_healthy()
 
 

@@ -70,3 +70,6 @@ dev = [
     "ruff>=0.15.15",
     "twine>=5.0",
 ]
+fuzz = [
+    "atheris>=3.1.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]

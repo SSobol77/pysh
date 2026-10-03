@@ -301,6 +301,39 @@ def _tilde_expand_spec(spec: RedirectionSpec) -> RedirectionSpec:
     return expanded
 
 
+def _terminate_and_reap(pids: list[int], *, grace: float = 1.0) -> None:
+    """SIGTERM already-forked pipeline children, then reap them (SIGKILL after ``grace``).
+
+    Used when pipeline setup fails part-way: children that were started must not
+    be left as zombies. Only pids this shell forked are signalled or waited for.
+    """
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    deadline = time.monotonic() + grace
+    pending = list(pids)
+    while pending and time.monotonic() < deadline:
+        still_running: list[int] = []
+        for pid in pending:
+            try:
+                reaped, _status = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                continue
+            if reaped == 0:
+                still_running.append(pid)
+        pending = still_running
+        if pending:
+            time.sleep(0.01)
+    for pid in pending:
+        try:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+        except OSError:
+            pass
+
+
 @contextmanager
 def _redirect_standard_fds(
     spec: RedirectionSpec,
@@ -311,11 +344,15 @@ def _redirect_standard_fds(
     """Apply ordered redirections to fd 0/1/2 and restore them on return."""
     sys.stdout.flush()
     sys.stderr.flush()
-    saved = {fd: os.dup(fd) for fd in (0, 1, 2)}
+    # Saved duplicates are created inside the try so a failure part-way (for
+    # example EMFILE on the second os.dup) still closes the ones already made.
+    saved: dict[int, int] = {}
     opened: list[int] = []
     original_streams = (sys.stdin, sys.stdout, sys.stderr)
     redirected_streams: list[IO[str]] = []
     try:
+        for fd in (0, 1, 2):
+            saved[fd] = os.dup(fd)
         if stdin_fd is not None:
             os.dup2(stdin_fd, 0)
         if stdout_fd is not None:
@@ -359,14 +396,27 @@ def _redirect_standard_fds(
         sys.stdin, sys.stdout, sys.stderr = original_streams
         for stream in redirected_streams:
             stream.close()
+        restore_error: OSError | None = None
         for fd, duplicate in saved.items():
-            os.dup2(duplicate, fd)
-            os.close(duplicate)
+            # Every saved duplicate is closed even if restoring one descriptor
+            # fails; the first restore failure is raised after cleanup.
+            try:
+                os.dup2(duplicate, fd)
+            except OSError as exc:
+                if restore_error is None:
+                    restore_error = exc
+            finally:
+                try:
+                    os.close(duplicate)
+                except OSError:
+                    pass
         for opened_fd in opened:
             try:
                 os.close(opened_fd)
             except OSError:
                 pass
+        if restore_error is not None:
+            raise restore_error
 
 
 def _write_execution_stderr(
@@ -1454,7 +1504,17 @@ class PyShell:
                 next_write: int | None = None
                 if not is_last:
                     next_read, next_write = os.pipe()
-                pid = os.fork()
+                try:
+                    pid = os.fork()
+                except OSError:
+                    # This iteration's pipe is not yet owned by anything else.
+                    for fd in (next_read, next_write):
+                        if fd is not None:
+                            try:
+                                os.close(fd)
+                            except OSError:
+                                pass
+                    raise
                 if pid == 0:
                     try:
                         os.setpgid(0, pipeline_pgid or 0)
@@ -1532,11 +1592,7 @@ class PyShell:
             return _raw_to_exit(raw_statuses[pids[-1]])
         except OSError as exc:
             print(f"pysh: pipeline: {exc}", file=sys.stderr)
-            for pid in pids:
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except OSError:
-                    pass
+            _terminate_and_reap(pids)
             return ExitCode.GENERAL_ERROR
         finally:
             if previous_read is not None:

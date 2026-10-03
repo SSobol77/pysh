@@ -267,6 +267,7 @@ Documentation for contributors, maintainers, and the release process.
 | -------- | ----------- |
 | [api-stability.md](development/api-stability.md) | Normative Issue #45 public/internal inventory, embedding API, SemVer, version-domain, and deprecation contract |
 | [performance.md](development/performance.md) | Normative Issue #47 benchmark definitions, versioned budgets, noise model, and Linux/FreeBSD CI gates |
+| [fuzzing.md](development/fuzzing.md) | Issue #49 parser/tokenizer fuzzing and property evidence: portable vs Linux-only Atheris engines, replay, regression and finding workflow |
 | [development.md](development/development.md) | Test suite, linting, build commands, repository layout |
 | [prompt-engine.md](development/prompt-engine.md) | Prompt Engine 2.0 implementation invariants and validation |
 | [completion-engine.md](development/completion-engine.md) | Completion Engine 2.0 architecture, cache contract, manual validation |
