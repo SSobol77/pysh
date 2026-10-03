@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "legacy_profiles": [
+    {"profile_id": "bash-pending", "legacy_shell": "bash", "version": null, "version_status": "pending", "platform": null},
+    {"profile_id": "zsh-pending", "legacy_shell": "zsh", "version": null, "version_status": "pending", "platform": null},
+    {"profile_id": "fish-pending", "legacy_shell": "fish", "version": null, "version_status": "pending", "platform": null}
+  ],
+  "cases": []
+}

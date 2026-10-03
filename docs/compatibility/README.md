@@ -36,6 +36,7 @@ test-backed. Aspirational claims are not permitted in this documentation.
 | Document | Purpose |
 | -------- | ------- |
 | [platform-tiers.md](platform-tiers.md) | Normative runtime-family, Python-version, reference-CI, and native-package ABI policy |
+| [legacy-shell-migration.md](legacy-shell-migration.md) | Issue #54 migration-away-from-legacy-shells contract: PySH-owned authority, outcome model, anchor registry |
 | [shell-compatibility-contract.md](shell-compatibility-contract.md) | Contract language, categories, and governing rules |
 | [feature-matrix.md](feature-matrix.md) | Per-feature matrix: status, category, evidence, owner issue |
 | [posix-sh-scope.md](posix-sh-scope.md) | POSIX sh scope: what PySH supports, what it does not |
