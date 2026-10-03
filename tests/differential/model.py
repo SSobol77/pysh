@@ -40,17 +40,22 @@ class GuidanceKind(enum.Enum):
 
 @dataclass(frozen=True, slots=True)
 class LegacyProfile:
-    """Reference identity: test metadata, never a dependency.
+    """Reference identity for one shell on one Tier-1 platform: test metadata, never a dependency.
 
-    ``version`` and ``platform`` stay ``None`` (``version_status == "pending"``)
-    until established from a controlled Tier-1 reference environment.
+    ``pending`` profiles have no version evidence yet (discovery only). ``pinned``
+    profiles carry the executable-reported ``version`` (first ``--version`` line)
+    and the OS ``package_version``, both established in the controlled Tier-1
+    environment and enforced on every run.
     """
 
     profile_id: str
     legacy_shell: str
+    platform: str
+    executable: str
+    startup_policy: str
     version: str | None
+    package_version: str | None
     version_status: str
-    platform: str | None
 
 
 @dataclass(frozen=True, slots=True)

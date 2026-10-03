@@ -1,9 +1,66 @@
 {
   "schema_version": 1,
   "legacy_profiles": [
-    {"profile_id": "bash-pending", "legacy_shell": "bash", "version": null, "version_status": "pending", "platform": null},
-    {"profile_id": "zsh-pending", "legacy_shell": "zsh", "version": null, "version_status": "pending", "platform": null},
-    {"profile_id": "fish-pending", "legacy_shell": "fish", "version": null, "version_status": "pending", "platform": null}
+    {
+      "profile_id": "bash-debian13-amd64",
+      "legacy_shell": "bash",
+      "platform": "debian13-amd64",
+      "executable": "/usr/bin/bash",
+      "startup_policy": "bash-noprofile-norc-v1",
+      "version": null,
+      "package_version": null,
+      "version_status": "pending"
+    },
+    {
+      "profile_id": "zsh-debian13-amd64",
+      "legacy_shell": "zsh",
+      "platform": "debian13-amd64",
+      "executable": "/usr/bin/zsh",
+      "startup_policy": "zsh-no-rcs-v1",
+      "version": null,
+      "package_version": null,
+      "version_status": "pending"
+    },
+    {
+      "profile_id": "fish-debian13-amd64",
+      "legacy_shell": "fish",
+      "platform": "debian13-amd64",
+      "executable": "/usr/bin/fish",
+      "startup_policy": "fish-no-config-v1",
+      "version": null,
+      "package_version": null,
+      "version_status": "pending"
+    },
+    {
+      "profile_id": "bash-freebsd14.4-amd64",
+      "legacy_shell": "bash",
+      "platform": "freebsd14.4-amd64",
+      "executable": "/usr/local/bin/bash",
+      "startup_policy": "bash-noprofile-norc-v1",
+      "version": null,
+      "package_version": null,
+      "version_status": "pending"
+    },
+    {
+      "profile_id": "zsh-freebsd14.4-amd64",
+      "legacy_shell": "zsh",
+      "platform": "freebsd14.4-amd64",
+      "executable": "/usr/local/bin/zsh",
+      "startup_policy": "zsh-no-rcs-v1",
+      "version": null,
+      "package_version": null,
+      "version_status": "pending"
+    },
+    {
+      "profile_id": "fish-freebsd14.4-amd64",
+      "legacy_shell": "fish",
+      "platform": "freebsd14.4-amd64",
+      "executable": "/usr/local/bin/fish",
+      "startup_policy": "fish-no-config-v1",
+      "version": null,
+      "package_version": null,
+      "version_status": "pending"
+    }
   ],
   "cases": []
 }

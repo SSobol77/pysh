@@ -51,7 +51,7 @@ EXPECTED: dict[str, Any] = {
 def _metadata(**case_overrides: Any) -> dict[str, Any]:
     case: dict[str, Any] = {
         "case_id": "path-glob-sorted",
-        "legacy_profile": "bash-pending",
+        "legacy_profile": "bash-debian13-amd64",
         "classification": "match",
         "compared_dimensions": ["status", "stdout"],
         "migration_anchor": None,
@@ -62,8 +62,10 @@ def _metadata(**case_overrides: Any) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "legacy_profiles": [
-            {"profile_id": "bash-pending", "legacy_shell": "bash", "version": None,
-             "version_status": "pending", "platform": None},
+            {"profile_id": "bash-debian13-amd64", "legacy_shell": "bash",
+             "platform": "debian13-amd64", "executable": "/usr/bin/bash",
+             "startup_policy": "bash-noprofile-norc-v1", "version": None,
+             "package_version": None, "version_status": "pending"},
         ],
         "cases": [case],
     }
@@ -104,8 +106,15 @@ def _obs(status: int = 7, stdout: str = "ok\n", stderr: str = "") -> Observation
 def test_shipped_metadata_is_valid_layered_over_the_language_corpus() -> None:
     data = migration.load_migration()
     assert {p.legacy_shell for p in data.profiles.values()} == {"bash", "zsh", "fish"}
-    # Versions are pending until proven in a controlled Tier-1 environment.
-    assert all(p.version is None and p.version_status == "pending" for p in data.profiles.values())
+    assert {p.platform for p in data.profiles.values()} == {"debian13-amd64", "freebsd14.4-amd64"}
+    assert len(data.profiles) == 6
+    for profile in data.profiles.values():
+        assert profile.profile_id == f"{profile.legacy_shell}-{profile.platform}"
+        # A pending profile never masquerades as verified; a pinned one carries both versions.
+        if profile.version_status == "pending":
+            assert profile.version is None and profile.package_version is None
+        else:
+            assert profile.version and profile.package_version
     raw = json.loads(migration.DEFAULT_METADATA.read_text(encoding="utf-8"))
     assert "pysh_expected" not in json.dumps(raw)  # never a second normative corpus
     assert all(case.case_id in CASE_IDS for case in data.cases)
@@ -135,7 +144,7 @@ def _mut(**kw: Any):
         (_mut(compared_dimensions=["status", "fuzzy"]), "compared_dimensions"),
         (_mut(compared_dimensions=[]), "compared_dimensions"),
         (_mut(compared_dimensions=["status", "status"]), "compared_dimensions"),
-        (_mut(legacy_profile="fish-pending"), "unknown profile"),
+        (_mut(legacy_profile="fish-debian13-amd64"), "unknown profile"),
         (_mut(extra_field=1), "unknown fields"),
         (_mut(migration_anchor="PYSH-MIG-DIV-SYNTHETIC-EXAMPLE"), "carries no anchor"),
         (_mut(**_divergence(migration_anchor="TODO")), "PYSH-MIG-DIV-"),
@@ -333,7 +342,9 @@ def test_only_the_executor_module_may_spawn_a_process_and_none_may_locate_one() 
             elif isinstance(node, ast.ImportFrom):
                 assert (node.module or "").split(".")[0] not in banned, path
             elif isinstance(node, ast.Attribute):
-                assert node.attr not in forbidden_calls, (path, node.attr)
+                owner = node.value.id if isinstance(node.value, ast.Name) else None
+                if owner != "platform":  # platform.system() only names the OS
+                    assert node.attr not in forbidden_calls, (path, node.attr)
             elif isinstance(node, ast.keyword) and node.arg == "shell":
                 assert isinstance(node.value, ast.Constant) and node.value.value is False, path
 

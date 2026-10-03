@@ -116,10 +116,13 @@ Guidance is one of: a PySH-native replacement (`legacy_construct` plus
 `reason`). Changing a documented divergence requires changing this document
 and the metadata in the same change.
 
-A legacy profile (`profile_id`, `legacy_shell`, `version`, `version_status`,
-`platform`) is **test metadata**, not a dependency. Exact versions are
-`pending` until established from controlled Tier-1 reference environments; the
-developer workstation's shell is never an authority.
+A legacy profile is **test metadata**, not a dependency. It is specific to one
+shell on one Tier-1 platform (`bash-debian13-amd64`, `zsh-freebsd14.4-amd64`,
+...) and records `profile_id`, `legacy_shell`, `platform`, `executable` (absolute
+path), `startup_policy`, `version` (the executable's first `--version` line),
+`package_version` (the OS package version) and `version_status`. Exact versions
+are `pending` until established from the controlled Tier-1 CI environments and
+reviewed into the file; the developer workstation's shell is never an authority.
 
 <a id="PYSH-MIG-DIVERGENCE-REGISTRY"></a>
 
@@ -215,26 +218,68 @@ used.
 
 <a id="PYSH-MIG-LAB"></a>
 
-## Future isolated legacy laboratory (requirements only)
+## Legacy-shell differential laboratory
 
-Not implemented. Any later legacy-shell process is external test equipment in
-isolated differential CI, never PySH runtime machinery, and must run with:
+Bash, Zsh and Fish are used **only** as reference equipment in dedicated CI jobs
+and tests; they are installed there as test packages, never by PySH, and no
+runtime or package dependency exists (the Debian and RPM metadata and
+`pyproject.toml` are unchanged). The laboratory lives in `tests/differential`,
+and `scripts/run_legacy_shell_differential.py` is its entry point.
 
-- a controlled `HOME` and cwd, and a controlled environment;
-- startup files disabled (`--noprofile --norc`, `-f`, `--no-config` style);
-- a hard timeout, and no network dependency;
-- test-owned input files only, never user scripts;
-- deterministic stdout/stderr/status capture;
-- no access to developer rc or configuration files.
+- **Where it runs.** Two Tier-1 jobs, `legacy-shell differential evidence
+  (debian-13, ...)` and `(freebsd-14.4, ...)`, in `.github/workflows/ci.yml`.
+  Both require all three shells; a missing shell fails the job. Locally, the
+  real-shell tests are skipped unless `PYSH_LEGACY_LAB` is set.
+- **PySH stays normative.** For each selected #48 command case PySH runs first
+  under `--no-rc` and is checked against its #48 `pysh_expected`. A violation is
+  a `REGRESSION` that no reference result can excuse (the reference is not even
+  run). Only then is the reference observation compared, on the dimensions the
+  case declares, and classified `MATCH`, `INTENDED_DIVERGENCE` or `REGRESSION`
+  by the oracle above. Legacy output is never an oracle.
+- **Selection.** `tests/differential/reference-cases-v1.json` selects a small set
+  of existing #48 cases with explicit shell applicability and compared
+  dimensions. It copies no expectation. Reviewed accepted states live in
+  `migration-v1.json`.
+- **Controlled execution and user-startup isolation.** The reference runs
+  through the executor with an explicit absolute executable, a private `HOME`
+  containing hostile startup files, a private cwd, a fixture-only `PATH`, a fixed
+  locale, a timeout and bounded output, with user startup files disabled. The
+  executor is hermetic with respect to the environment and files it controls:
+  it builds the environment from scratch, and a variable that names startup code
+  (`BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `ZDOTDIR`, `XDG_CONFIG_HOME`,
+  `XDG_DATA_HOME`) is rejected by the laboratory. The startup policies
+  (`bash --noprofile --norc`, `zsh -f`, `fish --no-config`) are accepted only
+  after a live self-test on the installed version: a positive control proves
+  the hostile files (including Fish `config.fish` and `conf.d/*.fish`) are
+  executed when isolation is off, the isolated run must not execute them, a
+  hostile `BASH_ENV`/`ZDOTDIR`/`XDG_CONFIG_HOME` set in the host process must
+  neither be inherited nor executed, and a deliberately forced hook proves the
+  hook would otherwise run.
+- **Platform-global Zsh startup is an explicit baseline limitation.** The
+  guarantee is *user* startup isolation, not complete system startup isolation:
+  Zsh reads the installation-wide `zshenv` before `-f` can suppress later startup
+  files, and the laboratory does not edit it or require root. For every shell
+  an empty isolated run must print nothing, and for Zsh the shell must also see
+  the controlled `PATH`, `HOME` and no `ZDOTDIR`; otherwise the profile fails its
+  isolation check instead of producing contaminated evidence. A clean probe does
+  not prove the global file did not execute; it shows only that platform-global
+  startup caused no observable contamination relevant to the observations.
+- **Version drift fails CI.** A `pinned` profile whose executable version line or
+  package version differs from the committed pin fails the job before any
+  semantic result is interpreted, reporting the profile, platform, expected and
+  actual values. A `pending` profile (no pin yet) is discovery only: the run
+  prints a pin proposal and an unreviewed difference is reported, not accepted.
+  Changing a pin or an accepted state requires an explicit reviewed change.
+- **Evidence.** Each run writes `legacy-shell-differential-<platform>.json`
+  (rewritten as the run progresses, so the version and pin information survives a
+  later failure; canonical, sorted, no timestamps, `HOME`, user names, environment or absolute
+  paths; fixture paths appear as `{{WORK}}`-style placeholders) and uploads it as
+  a CI artifact.
+- **Not part of it.** `run_script` shebang delegation is unrelated to the
+  laboratory, and the laboratory never executes user scripts.
 
-Legacy shell input there is test data.
-
-`tests/differential/executor.py` is the test-only foundation for that
-laboratory: it runs an explicitly supplied executable and argv (never a shell,
-never found through `PATH`) with an allowlisted environment, a private `HOME`
-and working directory, a hard process-group timeout and bounded output. It is
-exercised only with a repository-owned fake interpreter; startup flags for
-real shells are supplied later as `argv_prefix` and are not defined yet.
+Status: the laboratory and CI jobs are in place. The Tier-1 versions are pinned
+only after the first successful run of those jobs, from their uploaded evidence.
 
 <a id="PYSH-MIG-EVIDENCE"></a>
 

@@ -25,6 +25,7 @@ from tests.differential.model import (
     LegacyProfile,
     MigrationCase,
 )
+from tests.differential.startup import POLICIES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_METADATA = Path(__file__).with_name("migration-v1.json")
@@ -32,14 +33,18 @@ DEFAULT_DOC = REPO_ROOT / "docs" / "compatibility" / "legacy-shell-migration.md"
 SCHEMA_VERSION = 1
 
 TOP_FIELDS = frozenset({"schema_version", "legacy_profiles", "cases"})
-PROFILE_FIELDS = frozenset({"profile_id", "legacy_shell", "version", "version_status", "platform"})
+PROFILE_FIELDS = frozenset({
+    "profile_id", "legacy_shell", "platform", "executable", "startup_policy",
+    "version", "package_version", "version_status",
+})
 CASE_FIELDS = frozenset({
     "case_id", "legacy_profile", "classification", "compared_dimensions",
     "migration_anchor", "guidance", "rationale",
 })
 LEGACY_SHELLS = frozenset({"bash", "zsh", "fish"})
 VERSION_STATUSES = frozenset({"pending", "pinned"})
-PROFILE_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
+PROFILE_ID_RE = re.compile(r"[a-z][a-z0-9.]*(?:-[a-z0-9.]+)*\Z")
+PLATFORM_RE = re.compile(r"[a-z]+[0-9][0-9.]*-[a-z0-9_]+\Z")
 DIVERGENCE_ANCHOR_RE = re.compile(r"PYSH-MIG-DIV-[A-Z0-9]+(?:-[A-Z0-9]+)*\Z")
 ANCHOR_DEFINITION_RE = re.compile(r'<a id="(PYSH-MIG-[A-Z0-9-]+)"></a>')
 
@@ -120,13 +125,27 @@ def parse_migration(
         status = _text(item["version_status"], f"{context}.version_status")
         if status not in VERSION_STATUSES:
             raise MigrationError(f"{context}.version_status: unknown value {status!r}")
+        platform = _text(item["platform"], f"{context}.platform")
+        if not PLATFORM_RE.fullmatch(platform):
+            raise MigrationError(f"{context}.platform: invalid platform ID {platform!r}")
+        if profile_id != f"{shell}-{platform}":
+            raise MigrationError(f"{context}.profile_id: expected '{shell}-{platform}'")
+        executable = _text(item["executable"], f"{context}.executable")
+        if not executable.startswith("/") or ".." in executable.split("/"):
+            raise MigrationError(f"{context}.executable: expected a normalized absolute path")
+        policy_id = _text(item["startup_policy"], f"{context}.startup_policy")
+        policy = POLICIES.get(policy_id)
+        if policy is None or policy.shell != shell:
+            raise MigrationError(f"{context}.startup_policy: {policy_id!r} is not a {shell} policy")
         version = _optional_text(item["version"], f"{context}.version")
-        platform = _optional_text(item["platform"], f"{context}.platform")
-        if (status == "pending") != (version is None):
-            raise MigrationError(f"{context}: a pending profile has no version; a pinned one must")
-        if status == "pinned" and platform is None:
-            raise MigrationError(f"{context}: a pinned profile requires a platform")
-        profiles[profile_id] = LegacyProfile(profile_id, shell, version, status, platform)
+        package_version = _optional_text(item["package_version"], f"{context}.package_version")
+        if status == "pending" and (version is not None or package_version is not None):
+            raise MigrationError(f"{context}: a pending profile carries no version evidence")
+        if status == "pinned" and (version is None or package_version is None):
+            raise MigrationError(f"{context}: a pinned profile needs version and package_version")
+        profiles[profile_id] = LegacyProfile(
+            profile_id, shell, platform, executable, policy_id, version, package_version, status
+        )
 
     if not isinstance(root["cases"], list):
         raise MigrationError("cases: expected a list")

@@ -21,6 +21,7 @@ controlled reference environment.
 """
 from __future__ import annotations
 
+import contextlib
 import enum
 import errno
 import os
@@ -29,7 +30,7 @@ import signal
 import subprocess
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -194,6 +195,37 @@ def _decode(data: bytearray) -> str:
     return bytes(data).decode("utf-8", errors="replace")
 
 
+@dataclass(frozen=True, slots=True)
+class HermeticTree:
+    """The private directories of one hermetic run (all under a removed-on-exit root)."""
+
+    root: Path
+    home: Path
+    work: Path
+    bin: Path
+    tmp: Path
+
+
+@contextlib.contextmanager
+def hermetic_tree() -> Iterator[HermeticTree]:
+    """Create an empty private tree; it is removed on exit."""
+    with tempfile.TemporaryDirectory(prefix="pysh-differential-") as root_name:
+        root = Path(root_name)
+        home, work, empty_bin, tmp = (root / n for n in ("home", "work", "bin", "tmp"))
+        for directory in (home, work, empty_bin, tmp):
+            directory.mkdir()
+        yield HermeticTree(root, home, work, empty_bin, tmp)
+
+
+def _write_files(base: Path, files: Mapping[str, bytes], what: str) -> None:
+    for name, content in files.items():
+        if Path(name).is_absolute() or ".." in Path(name).parts:
+            raise ExecutorError(f"{what} escapes its directory: {name!r}")
+        target = base / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+
+
 def run_hermetic(
     executable: str | os.PathLike[str],
     args: Sequence[str] = (),
@@ -202,6 +234,8 @@ def run_hermetic(
     stdin: bytes = b"",
     environment: Mapping[str, str] | None = None,
     input_files: Mapping[str, bytes] | None = None,
+    home_files: Mapping[str, bytes] | None = None,
+    tree: HermeticTree | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
 ) -> ExecutionResult:
@@ -209,9 +243,19 @@ def run_hermetic(
 
     ``environment`` entries are added to the minimal base environment
     (``HOME``, ``PATH``, ``TMPDIR``, ``LANG``, ``LC_ALL``). ``input_files`` are
-    test-owned files created in the private working directory before the run.
-    Raises :class:`ExecutorError` subclasses for infrastructure failures.
+    test-owned files created in the private working directory and ``home_files``
+    in the private ``HOME`` (for example hostile startup files) before the run.
+    A caller-built ``tree`` (see :func:`hermetic_tree`) is used as is and is not
+    removed, so several runs can share prepared fixtures. Raises
+    :class:`ExecutorError` subclasses for infrastructure failures.
     """
+    if tree is None:
+        with hermetic_tree() as private:
+            return run_hermetic(
+                executable, args, argv_prefix=argv_prefix, stdin=stdin,
+                environment=environment, input_files=input_files, home_files=home_files,
+                tree=private, timeout=timeout, max_output_bytes=max_output_bytes,
+            )
     if timeout <= 0 or max_output_bytes <= 0:
         raise ExecutorError("timeout and max_output_bytes must be positive")
     path = Path(executable)
@@ -221,61 +265,52 @@ def run_hermetic(
     if any("\0" in item for item in argv):
         raise ExecutorError("argv entries may not contain NUL")
 
-    with tempfile.TemporaryDirectory(prefix="pysh-differential-") as root_name:
-        root = Path(root_name)
-        home, work, empty_bin, tmp = (root / n for n in ("home", "work", "bin", "tmp"))
-        for directory in (home, work, empty_bin, tmp):
-            directory.mkdir()
-        for name, content in (input_files or {}).items():
-            target = work / name
-            if Path(name).is_absolute() or ".." in Path(name).parts:
-                raise ExecutorError(f"input file escapes the working directory: {name!r}")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
-        env = {
-            "HOME": str(home),
-            "PATH": str(empty_bin),
-            "TMPDIR": str(tmp),
-            "LANG": LOCALE,
-            "LC_ALL": LOCALE,
-            **extra,
-        }
-        try:
-            process = subprocess.Popen(  # noqa: S603 - explicit executable and argv, no shell
-                argv,
-                cwd=work,
-                env=env,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=True,  # own process group: timeout cleanup reaches grandchildren
-                close_fds=True,
-                shell=False,
-            )
-        except FileNotFoundError as error:
-            raise ExecutableNotFoundError(f"executable not found: {path.name}") from error
-        except OSError as error:
-            raise ExecutableNotRunnableError(
-                f"cannot execute {path.name}: {errno.errorcode.get(error.errno or 0, 'OSError')}"
-            ) from error
+    _write_files(tree.work, input_files or {}, "input file")
+    _write_files(tree.home, home_files or {}, "home file")
+    env = {
+        "HOME": str(tree.home),
+        "PATH": str(tree.bin),
+        "TMPDIR": str(tree.tmp),
+        "LANG": LOCALE,
+        "LC_ALL": LOCALE,
+        **extra,
+    }
+    try:
+        process = subprocess.Popen(  # noqa: S603 - explicit executable and argv, no shell
+            argv,
+            cwd=tree.work,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,  # own process group: timeout cleanup reaches grandchildren
+            close_fds=True,
+            shell=False,
+        )
+    except FileNotFoundError as error:
+        raise ExecutableNotFoundError(f"executable not found: {path.name}") from error
+    except OSError as error:
+        raise ExecutableNotRunnableError(
+            f"cannot execute {path.name}: {errno.errorcode.get(error.errno or 0, 'OSError')}"
+        ) from error
 
-        deadline = time.monotonic() + timeout
-        try:
-            state, out, err = _pump(process, stdin, deadline, max_output_bytes)
-            if state == "eof" and not _wait_exited(process, deadline - time.monotonic()):
-                state = "timeout"
-            if state != "eof":
-                _terminate_group(process)
-            # Nothing may outlive the run, including background grandchildren.
+    deadline = time.monotonic() + timeout
+    try:
+        state, out, err = _pump(process, stdin, deadline, max_output_bytes)
+        if state == "eof" and not _wait_exited(process, deadline - time.monotonic()):
+            state = "timeout"
+        if state != "eof":
+            _terminate_group(process)
+        # Nothing may outlive the run, including background grandchildren.
+        _signal_group(process.pid, signal.SIGKILL)
+        returncode = process.wait()
+    finally:
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is not None and not stream.closed:
+                stream.close()
+        if process.poll() is None:  # pragma: no cover - defensive: never leave a child
             _signal_group(process.pid, signal.SIGKILL)
-            returncode = process.wait()
-        finally:
-            for stream in (process.stdin, process.stdout, process.stderr):
-                if stream is not None and not stream.closed:
-                    stream.close()
-            if process.poll() is None:  # pragma: no cover - defensive: never leave a child
-                _signal_group(process.pid, signal.SIGKILL)
-                process.wait()
+            process.wait()
 
     stdout, stderr = _decode(out), _decode(err)
     if state == "timeout":
