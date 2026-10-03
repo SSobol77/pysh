@@ -65,7 +65,7 @@ shell feature area in the current PySH release. Category definitions are in
 | Builtins | `source_sh_aliases` | Supported | Transition | `tests/test_profile_importer.py` | — |
 | Builtins | `compat_check` | Supported | Transition | `tests/test_profile_importer.py` | — |
 | Builtins | `run_script` | Partial | Delegated | `tests/test_script_runner.py` | #14 |
-| Builtins | `zsh` (explicit delegation) | Supported | Delegated | `tests/test_zsh_bridge.py` | — |
+| Builtins | `zsh` | Removed before 1.0 (ordinary external program) | Unsupported | `tests/test_no_production_zsh_bridge.py` | #54 |
 | Diagnostics | `--debug`, `--trace` stderr trace | Supported | Native | `tests/test_observability_diagnostics.py` | #13 |
 | Diagnostics | Diagnostic redaction policy | Supported | Native | `tests/test_observability_diagnostics.py`, `tests/test_security_trust_model.py` | #13 |
 | Diagnostics | Structured diagnostics JSONL (`--diagnostics-json`, schema v1) | Supported | Native | `tests/test_structured_diagnostics.py`, `tests/test_diagnostics_jsonl.py` | #50 |
@@ -320,7 +320,7 @@ shell feature area in the current PySH release. Category definitions are in
 | ---- | ------- | ------ | -------- | -------- | ----------- |
 | Security | Foreign profile execution by default | Unsupported | Forbidden by default | `tests/test_security_trust_model.py` | #7 |
 | Security | Static profile import (no execution) | Supported | Transition | `tests/test_security_trust_model.py` | #7 |
-| Security | Explicit delegation (`zsh`, `run_script`) | Supported | Delegated | `tests/test_security_trust_model.py` | #7 |
+| Security | Explicit shebang delegation (`run_script`) | Supported | Delegated | `tests/test_security_trust_model.py` | #7 |
 | Security | No automatic zsh fallback | Supported | Native | `tests/test_no_automatic_legacy_fallback.py` | #54 |
 | Security | Normal command does not use PTY bridge | Supported | Native | `tests/test_security_trust_model.py` | #7 |
 | Security | `secure <cmd>` explicit PTY bridge opt-in | Supported | Native | `tests/test_secure_runner.py` | #7 |
@@ -403,13 +403,11 @@ shell feature area in the current PySH release. Category definitions are in
 | bash/sh import | Skips bash-specific syntax | Supported | Transition | `tests/test_profile_importer.py` | — |
 | bash/sh import | Full bash profile execution | Unsupported | Forbidden by default | — | #7 |
 
-## Explicit zsh delegation
+## zsh migration helpers
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| zsh delegation | `zsh COMMAND` | Supported | Delegated | `tests/test_zsh_bridge.py` | — |
-| zsh delegation | Returns 127 when zsh is not installed | Supported | Delegated | `tests/test_zsh_bridge.py` | — |
-| zsh delegation | Exit status forwarded | Supported | Delegated | `tests/test_zsh_bridge.py` | — |
+| zsh | `zsh COMMAND` builtin | Removed before 1.0; `zsh` is an ordinary external program | Unsupported | `tests/test_no_production_zsh_bridge.py` | #54 |
 | zsh delegation | `compat_check FILE` (static report) | Supported | Transition | `tests/test_profile_importer.py` | — |
 | zsh delegation | `run_script FILE [args]` (shebang dispatch) | Supported | Delegated | `tests/test_script_runner.py` | #14 |
 

@@ -56,7 +56,6 @@ BUILTIN_NAMES: frozenset[str] = frozenset(
         "sys_info",
         "unalias",
         "which_all",
-        "zsh",
     }
 )
 

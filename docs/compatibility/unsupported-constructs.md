@@ -140,7 +140,7 @@ Implemented in Issue #9.
 | ----- | ----- |
 | Construct | `<(cmd)`, `>(cmd)` |
 | Current behavior | Not supported. |
-| Required user action | Use named pipes (`mkfifo`) or temporary files, or delegate via `zsh <cmd>`. |
+| Required user action | Use named pipes (`mkfifo`) or temporary files, or run the work in a script with its own interpreter. |
 | Owner issue | Not on current roadmap |
 
 ### Brace expansion

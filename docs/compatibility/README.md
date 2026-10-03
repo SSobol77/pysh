@@ -83,14 +83,15 @@ it reports an error or notifies the user.
 `source_zsh_profile`, and `source_sh_aliases` builtins read files as text
 and extract static alias/export/assignment entries without executing any code.
 
-**Explicit delegation** vs **implicit fallback**
+**No legacy-shell bridge and no fallback**
 
-`zsh <command>` is explicit: the user types the `zsh` prefix. The command
-is forwarded to `zsh -lc <command>`.
-
-PySH has no automatic fallback to zsh: the former `zsh_fallback` builtin and
-`PYSH_ZSH_FALLBACK` variable were removed before PySH 1.0. A command PySH cannot
-run is a PySH diagnostic, never a silent retry through zsh.
+PySH has no `zsh` builtin and no automatic fallback to zsh: the former
+`zsh_fallback` builtin, `PYSH_ZSH_FALLBACK` variable and `zsh <command>` builtin
+were removed before PySH 1.0. A command PySH cannot run is a PySH diagnostic,
+never a silent retry through another shell. A program named `zsh` is an ordinary
+external program; a script may request its own interpreter through a shebang
+with `run_script`. Shell comparison for migration evidence lives in the test/CI
+differential tooling, not the runtime.
 
 **Static profile import** is not the same as sourcing a profile.
 `source_zsh_profile ~/.zshrc` extracts aliases, exports, and assignments

@@ -328,9 +328,9 @@ non-mutating. Ordinary authentication programs own their terminal input.
 
 Foreign profiles are static input. Importers extract supported literal aliases,
 exports, and assignments without executing `eval`, `source`, functions, or
-command substitutions. Explicit delegation (`zsh`, supported shebang execution,
-or enabled fallback) crosses into an external interpreter and must remain
-visible user intent.
+command substitutions. Supported shebang execution through `run_script` crosses into an external
+interpreter and must remain visible script intent; PySH has no zsh builtin and
+no automatic fallback.
 
 ## Threat register
 

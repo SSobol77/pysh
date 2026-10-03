@@ -12,19 +12,19 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Zsh compatibility and migration
 
-> **Compatibility scope**: this document describes the zsh transition layer
-> workflow. For the authoritative zsh compatibility scope table, see the
+> **Compatibility scope**: this document describes the zsh migration
+> workflow. PySH has no zsh bridge or builtin. For the authoritative zsh compatibility scope table, see the
 > [zsh scope document](../compatibility/zsh-scope.md). For the
 > complete feature matrix, see the
 > [feature matrix](../compatibility/feature-matrix.md).
 
-PySH includes the **Zsh Transition Layer** and a safe profile
-import path. The design goal is migration, not full zsh emulation:
+PySH includes safe zsh migration helpers (static import and
+analysis). The design goal is migration, not full zsh emulation:
 
 - PySH remains a Python-first shell with its own native execution engine.
 - zsh compatibility is explicit, deterministic and testable.
 - Static alias/profile import never executes arbitrary zsh files.
-- Real zsh may be used as an optional bridge when it is installed.
+- PySH never runs zsh for you: there is no zsh builtin and no fallback.
 - Native PySH builtins and native command errors are not hidden by default.
 
 ## Migrating from zsh to PySH
@@ -57,7 +57,7 @@ Common zsh user expectations map to PySH as follows:
 | history | persistent PySH history; reverse search remains PySH-native |
 | command completion | PySH-native builtin, alias, command and path completion |
 | prompt virtualenv/git visibility | PySH prompt renders its own environment and git metadata |
-| legacy zsh-only command | explicit `zsh '<command>'` delegation when real zsh is installed |
+| legacy zsh-only command | keep it in a script with a `#!/bin/zsh` shebang run through `run_script`, or rewrite it natively |
 | shell-script rewrite | `migrate <file>` for Python-first analysis and guidance |
 
 Unsupported zsh-specific syntax is diagnosed where PySH can identify it
@@ -101,8 +101,8 @@ Replacement guidance:
 - Use `source_zsh_profile` for static extraction from old profile files; it
   reads text and never executes plugin managers, command substitution or
   dynamic `source` lines.
-- Use explicit `zsh '<command>'` only as a temporary bridge for commands that
-  truly require zsh semantics.
+- Keep commands that truly require zsh semantics in a script with its own
+  `#!/bin/zsh` shebang (run through `run_script`) until they are rewritten.
 
 ## Safe alias import
 
@@ -190,11 +190,12 @@ For bash/sh-oriented files, use `source_sh_aliases <file>`; it uses the same
 static model but is documented for `.bash_aliases`, `.profile` and simple
 POSIX-style alias/export files.
 
-## CI behavior
+## Migration evidence
 
-The GitHub Actions CI workflow installs zsh before running tests so the
-transition-layer tests cover real zsh delegation on `ubuntu-latest`. Local
-tests that require zsh skip cleanly when zsh is not installed.
+Comparison of PySH with real zsh, bash and fish for migration purposes is done
+by the test/CI differential tooling under `tests/differential`, never by the
+shell runtime. No test in this repository requires a legacy shell to be
+installed.
 
 ## Static compatibility check
 
@@ -210,32 +211,12 @@ The checker does not execute the file. It classifies lines as `supported`,
 returns 0 when no risky constructs are found, 2 when risky constructs are
 present, and 1 for file read errors.
 
-## Explicit zsh delegation
+## No fallback and no zsh builtin
 
-Use `zsh <command>` when an old command needs real zsh behavior:
-
-```sh
-zsh 'echo $ZSH_VERSION'
-zsh 'source ~/.zshrc; my_old_alias'
-zsh 'print -r -- hello'
-```
-
-PySH executes the command as:
-
-```sh
-zsh -lc '<command>'
-```
-
-stdout and stderr are forwarded to the PySH user. The builtin returns the
-underlying zsh exit code. If zsh is unavailable, PySH returns 127 and prints:
-
-```text
-pysh: zsh: command not found
-```
-
-## Automatic fallback was removed
-
-PySH no longer falls back to zsh. The `zsh_fallback` builtin was removed before
-PySH 1.0, and setting `PYSH_ZSH_FALLBACK` has no effect. A command PySH cannot
-run produces a PySH diagnostic. Use `zsh <command>` for an explicit, one-off
-delegation to real zsh, and move stable automation to PySH-native constructs.
+PySH no longer falls back to zsh, and it has no `zsh` builtin. The
+`zsh_fallback` builtin and the `zsh <command>` builtin were removed before PySH
+1.0, and setting `PYSH_ZSH_FALLBACK` has no effect. A command PySH cannot run
+produces a PySH diagnostic. If zsh is installed it can still be run like any
+other program, with exactly the arguments you type; PySH adds no flags or
+semantics. A script that declares `#!/bin/zsh` may request that interpreter
+through `run_script`. Move stable automation to PySH-native constructs.

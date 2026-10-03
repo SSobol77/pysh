@@ -243,7 +243,6 @@ Aliases are expanded only for the first word of each pipeline stage.
 | `paste_run` | Explicitly execute captured bracketed multiline paste. |
 | `paste_cancel` | Discard captured bracketed multiline paste. |
 | `compat_check` | Print a static migration report for a shell file.      |
-| `zsh`      | Execute one command through real `zsh -lc`.                |
 | `py`       | Execute Python code in the persistent PySH runtime.        |
 | `sys_info` | Print platform / Python / user / shell / PATH summary.     |
 | `env_audit` | Print a redacted environment audit summary.               |
@@ -270,8 +269,6 @@ source_zsh_profile ~/.zshrc
 source_sh_aliases ~/.bash_aliases
 compat_check ~/scripts/maintenance.sh
 run_script ~/scripts/maintenance.sh --dry-run
-zsh 'source ~/.zshrc; my_old_alias'
-zsh 'print -r -- hello'
 ```
 
 `source_zsh <file>` statically imports supported simple aliases without
@@ -296,13 +293,11 @@ script with a `zsh`, `bash` or `sh` shebang is delegated to the real
 interpreter using an argv list. A script with no shebang is run line-by-line
 through PySH's native execution engine where possible.
 
-`zsh <command>` runs the command through `zsh -lc <command>` when zsh is
-installed. If zsh is unavailable, it returns 127 and reports
-`pysh: zsh: command not found`.
-
-PySH never delegates to zsh automatically. The `zsh_fallback` builtin and the
-`PYSH_ZSH_FALLBACK` variable were removed before 1.0; the variable has no
-effect. Unknown commands report `command not found` (127).
+PySH never delegates to zsh. The `zsh_fallback` builtin, the `zsh <command>`
+builtin and the `PYSH_ZSH_FALLBACK` variable were removed before 1.0; the
+variable has no effect. `zsh` is an ordinary program name: if it is installed
+it runs like any external command with exactly the arguments you type, and if
+not, PySH reports `command not found` (127).
 
 ## Python runtime
 
@@ -489,8 +484,8 @@ completion scripts, or mutates shell state.
 ## Limitations
 
 - No full POSIX shell grammar — only the constructs documented here.
-- No full zsh compatibility. The zsh bridge is a transition layer and
-  delegates to real zsh only when explicitly requested or fallback is enabled.
+- No full zsh compatibility. PySH has static alias import only; it has no zsh
+  bridge and never runs zsh for you.
 - No full POSIX script compatibility. `run_script` delegates legacy scripts
   to their real interpreter when a supported shebang is present.
 - Native glob expansion (`*`, `?`, `[...]`, `**`) is supported for unquoted arguments. Brace expansion (`{a,b}`) is not supported.

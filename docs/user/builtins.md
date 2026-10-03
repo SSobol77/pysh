@@ -13,8 +13,8 @@ Copyright (C) 2026 Siergej Sobolewski
 # Builtins
 
 PySH builtins are dispatched by the shell process. State-changing builtins
-modify the current shell directly; transition builtins such as `zsh` and
-`run_script` may explicitly delegate to real interpreters as documented.
+modify the current shell directly; `run_script` may delegate to the interpreter a script's own shebang names, as
+documented. There is no `zsh` builtin.
 
 Unless stated otherwise, builtins return 0 on success, 1 on general runtime
 error and 2 on usage error.
@@ -693,24 +693,6 @@ normal command substitution phase.
 Limitations: `migrate` provides deterministic analysis and guidance. It does
 not automatically convert shell scripts to Python and does not claim complete
 POSIX, bash or zsh grammar coverage.
-
-## `zsh`
-
-Syntax: `zsh COMMAND...`
-
-Purpose: Execute one command through real `zsh -lc` as an explicit
-transition bridge.
-
-Example:
-
-```sh
-zsh 'print -r -- $ZSH_VERSION'
-```
-
-Return behavior: returns zsh's exit code. Returns 127 if zsh is unavailable
-and 2 when no command is supplied.
-
-Limitations: this delegates to real zsh; it does not make PySH a zsh clone.
 
 ## `py`
 

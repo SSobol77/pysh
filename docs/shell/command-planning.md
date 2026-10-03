@@ -48,8 +48,7 @@ contains sensitive assignments or known sensitive environment values.
 `plan` assigns a coarse risk:
 
 - `low` — ordinary builtins, external commands, simple pipelines.
-- `medium` — command substitution, `zsh` delegation,
-  `run_script` delegation.
+- `medium` — command substitution, `run_script` delegation.
 - `high` — commands matching `sudo` or `eval`, or redirection that targets
   a system path such as `/etc`, `/usr`, `/bin`, `/sbin`, `/boot`, `/lib`.
 
@@ -63,7 +62,6 @@ plan alias ll='ls -la'
 plan py print("x")
 plan source_zsh_profile ~/.zshrc
 plan run_script ./x.sh
-plan zsh 'echo hi'
 plan ls -la
 plan ls | head
 plan echo a && echo b

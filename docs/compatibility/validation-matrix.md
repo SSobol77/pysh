@@ -73,7 +73,7 @@ Current release line: **PySH 0.9.1**.
 | Static importer does not spawn subprocess | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
 | `eval` lines classified RISKY (not executed) | Unit test | `tests/test_security_trust_model.py` | None | #7 |
 | No automatic zsh fallback | Unit test | `tests/test_no_automatic_legacy_fallback.py` | None | #54 |
-| `zsh <cmd>` uses `zsh -lc` | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
+| No dedicated `zsh` builtin; a program named `zsh` is an ordinary external command | Unit test (fake zsh) | `tests/test_no_production_zsh_bridge.py` | None | #54 |
 | Normal command does not use PTY bridge | Unit test (spy) | `tests/test_security_trust_model.py` | None | #7 |
 | `env_audit` redacts sensitive variable names | Unit test | `tests/test_security_trust_model.py` | None | #7 |
 | `apt_check` / `apt_search` do not use sudo | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
@@ -163,8 +163,6 @@ Current release line: **PySH 0.9.1**.
 
 | Claim | Required evidence | Current evidence | Gap | Owner issue |
 | ----- | ----------------- | ---------------- | --- | ----------- |
-| `zsh COMMAND` delegates to `zsh -lc` | Unit test with real zsh | `tests/test_zsh_bridge.py` | None | — |
-| `zsh COMMAND` returns 127 when zsh is absent | Unit test | `tests/test_zsh_bridge.py` | None | — |
 | `run_script` delegates bash/zsh/sh shebangs | Script fixture test | `tests/test_script_runner.py` | None | #14 |
 | `zsh_fallback` removed; `PYSH_ZSH_FALLBACK` has no effect | Unit test (fake zsh) | `tests/test_no_automatic_legacy_fallback.py` | None | #54 |
 | Unknown commands are never delegated to zsh | Unit test (fake zsh) | `tests/test_zsh_transition.py`, `tests/test_no_automatic_legacy_fallback.py` | None | #54 |

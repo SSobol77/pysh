@@ -138,17 +138,6 @@ def test_batch_cli_with_the_old_variable_does_not_fall_back(fake_zsh) -> None:
     assert "FAKE-ZSH-RAN" not in done.stdout and _invocations(fake_zsh) == []
 
 
-def test_explicit_zsh_builtin_still_reaches_the_bridge_and_only_it(fake_zsh, capfd) -> None:
-    shell = _shell()
-    status, out, _err = _run(shell, capfd, "zsh echo hello")
-    assert status == 0 and "FAKE-ZSH-RAN" in out
-    assert _invocations(fake_zsh) == ["['-lc', 'echo hello']"]
-    # An ordinary unknown command afterwards is still PySH-owned.
-    status, out, err = _run(shell, capfd, "no_such_command_xyz_7")
-    assert status == 127 and "FAKE-ZSH-RAN" not in out
-    assert _invocations(fake_zsh) == ["['-lc', 'echo hello']"]
-
-
 def test_explicit_zsh_shebang_delegation_stays_separate(fake_zsh, capfd, tmp_path: Path) -> None:
     script = tmp_path / "legacy.sh"
     script.write_text("#!/bin/zsh\necho from-script\n", encoding="utf-8")

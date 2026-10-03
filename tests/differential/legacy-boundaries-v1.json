@@ -2,67 +2,6 @@
   "schema_version": 1,
   "boundaries": [
     {
-      "id": "zsh-builtin-bridge",
-      "category": "EXPLICIT_MIGRATION_BRIDGE",
-      "production_path": "src/pysh/core/shell.py",
-      "symbols": [
-        "PyShell._builtin_zsh",
-        "PyShell._run_zsh_command",
-        "PyShell._dispatch_builtin"
-      ],
-      "trigger": "The user types `zsh <command>`.",
-      "automatic": false,
-      "product_dependency": false,
-      "semantic_authority": false,
-      "policy": "Explicit interoperability request. Never defines PySH language semantics and is never used internally for ordinary execution. Retained in Slice 2.",
-      "notes": "Reached only through the explicit `zsh` builtin; no automatic path calls _run_zsh_command."
-    },
-    {
-      "id": "zsh-bridge-executor",
-      "category": "EXPLICIT_MIGRATION_BRIDGE",
-      "production_path": "src/pysh/compat/zsh_bridge.py",
-      "symbols": [
-        "ZshBridge",
-        "ZshBridge.__init__",
-        "ZshBridge.execute"
-      ],
-      "trigger": "Called with an explicit command; runs `zsh -lc` if zsh is on PATH, else a controlled status-127 diagnostic.",
-      "automatic": false,
-      "product_dependency": false,
-      "semantic_authority": false,
-      "policy": "Optional external tool; absence is a controlled failure, never a substitution of another shell.",
-      "notes": "argv list, no shell=True. `-l` makes zsh read the user's login startup files; that is outside Slice 2 and noted for the migration review."
-    },
-    {
-      "id": "zsh-bridge-wiring",
-      "category": "EXPLICIT_MIGRATION_BRIDGE",
-      "production_path": "src/pysh/core/shell.py",
-      "symbols": [
-        "<module>",
-        "PyShell.__init__"
-      ],
-      "trigger": "Module import of the bridge class.",
-      "automatic": false,
-      "product_dependency": false,
-      "semantic_authority": false,
-      "policy": "Wiring only; no execution.",
-      "notes": "The bridge instance is created in PyShell.__init__ and is used only by the explicit builtin."
-    },
-    {
-      "id": "zsh-builtin-registry",
-      "category": "EXPLICIT_MIGRATION_BRIDGE",
-      "production_path": "src/pysh/contracts/builtins.py",
-      "symbols": [
-        "<module>"
-      ],
-      "trigger": "Registration of the `zsh` builtin name.",
-      "automatic": false,
-      "product_dependency": false,
-      "semantic_authority": false,
-      "policy": "Name registry only; no execution.",
-      "notes": "Name registry only; no execution."
-    },
-    {
       "id": "script-shebang-delegation",
       "category": "EXPLICIT_SHEBANG_DELEGATION",
       "production_path": "src/pysh/script_runner.py",
@@ -93,35 +32,6 @@
       "semantic_authority": false,
       "policy": "Static analysis only; executes nothing.",
       "notes": "Shebang table is used for reporting."
-    },
-    {
-      "id": "static-profile-import",
-      "category": "PYSH_NATIVE",
-      "production_path": "src/pysh/core/shell.py",
-      "symbols": [
-        "PyShell._import_static_profile"
-      ],
-      "trigger": "`source_zsh`, `source_zsh_profile`, `source_sh_aliases`.",
-      "automatic": false,
-      "product_dependency": false,
-      "semantic_authority": false,
-      "policy": "Reads foreign profiles as text; executes no shell code.",
-      "notes": "See shell-compatibility-contract.md."
-    },
-    {
-      "id": "routing-diagnostics",
-      "category": "PYSH_NATIVE",
-      "production_path": "src/pysh/diagnostics/command_plan.py",
-      "symbols": [
-        "<module>",
-        "classify"
-      ],
-      "trigger": "Command planning / explain output.",
-      "automatic": false,
-      "product_dependency": false,
-      "semantic_authority": false,
-      "policy": "Describes how a command would route; executes nothing.",
-      "notes": "Mentions zsh delegation as a routing label."
     },
     {
       "id": "system-shell-invocation-refusal",

@@ -36,7 +36,6 @@ from pysh.compat.profile_importer import (
     import_profile_file,
 )
 from pysh.compat.zsh_aliases import parse_zsh_aliases
-from pysh.compat.zsh_bridge import ZshBridge
 from pysh.compat.zsh_diagnostics import (
     detect_unsupported_zsh_syntax,
     is_zsh_config_path,
@@ -487,7 +486,6 @@ class PyShell:
         *,
         pid_root: Path | None = None,
         service_client: ServiceClient | None = None,
-        zsh_bridge: ZshBridge | None = None,
         script_runner: ScriptRunner | None = None,
         trace: DiagnosticTrace | None = None,
         startup_policy: StartupPolicy = DEFAULT_STARTUP_POLICY,
@@ -563,7 +561,6 @@ class PyShell:
             aliases=lambda: self.aliases.keys(),
         )
         self.line_reader = RawLineReader()
-        self.zsh_bridge = zsh_bridge if zsh_bridge is not None else ZshBridge()
         self.python_runtime = PythonRuntime()
         self.script_runner = (
             script_runner if script_runner is not None else ScriptRunner(
@@ -1818,7 +1815,6 @@ class PyShell:
             "config_theme": self._builtin_config_theme,
             "deactivate": self._builtin_deactivate,
             "config_alias_pack": self._builtin_config_alias_pack,
-            "zsh": self._builtin_zsh,
             "py": self._builtin_py,
             "sys_info": self._builtin_sys_info,
             "env_audit": self._builtin_env_audit,
@@ -2445,12 +2441,6 @@ class PyShell:
         print(render_migration_report(report))
         return 0
 
-    def _builtin_zsh(self, args: list[str]) -> int:
-        if not args:
-            print("zsh: command argument required", file=sys.stderr)
-            return 2
-        return self._run_zsh_command(" ".join(args))
-
     def _builtin_py(self, args: list[str]) -> int:
         if not args:
             print("py: code argument required", file=sys.stderr)
@@ -2825,14 +2815,6 @@ class PyShell:
         from pysh.python_layer.mode import PythonCommandMode  # noqa: PLC0415
         mode = PythonCommandMode(cwd_provider=Path.cwd)
         return mode.run()
-
-    def _run_zsh_command(self, command: str) -> int:
-        result = self.zsh_bridge.execute(command)
-        if result.stdout:
-            print(result.stdout, end="")
-        if result.stderr:
-            print(result.stderr, end="", file=sys.stderr)
-        return result.returncode
 
     def _run_python_code(self, code: str) -> int:
         return self.python_runtime.execute(code)

@@ -36,10 +36,10 @@ def _pairs(inventory: tuple[bnd.Boundary, ...], category: str) -> set[tuple[str,
 # --- inventory ---------------------------------------------------------------------------------
 
 
-def test_shipped_inventory_is_valid_and_covers_every_category() -> None:
+def test_shipped_inventory_is_valid_and_non_empty() -> None:
     inventory = bnd.load_inventory()
-    # The automatic-fallback category exists in the schema but must stay empty.
-    assert {b.category for b in inventory} == bnd.CATEGORIES - {bnd.AUTOMATIC_CATEGORY}
+    # The automatic-fallback and migration-bridge categories exist in the schema but stay empty.
+    assert {b.category for b in inventory} <= bnd.CATEGORIES - {bnd.AUTOMATIC_CATEGORY}
     assert not any(b.automatic for b in inventory)
     assert all(b.policy and b.trigger and b.notes for b in inventory)
 
@@ -57,16 +57,24 @@ def test_command_substitution_is_no_longer_a_legacy_boundary() -> None:
     assert "src/pysh/parsing/expansion.py" not in bnd.scan_tree()
 
 
-def test_explicit_bridge_and_shebang_entry_points_are_distinct_from_automatic_ones() -> None:
+def test_no_production_migration_bridge_boundary_exists() -> None:
     inventory = bnd.load_inventory()
-    bridge = _pairs(inventory, "EXPLICIT_MIGRATION_BRIDGE")
+    assert _pairs(inventory, "EXPLICIT_MIGRATION_BRIDGE") == set()
+    assert {b.category for b in inventory} == {
+        "EXPLICIT_SHEBANG_DELEGATION", "PYSH_NATIVE", "BUILD_OR_TEST_TOOLING", "DOCUMENTATION_ONLY",
+    }
+
+
+def test_shebang_delegation_is_the_only_legacy_interpreter_boundary() -> None:
+    inventory = bnd.load_inventory()
     shebang = _pairs(inventory, "EXPLICIT_SHEBANG_DELEGATION")
-    assert ("src/pysh/core/shell.py", "PyShell._builtin_zsh") in bridge
-    assert ("src/pysh/compat/zsh_bridge.py", "ZshBridge.execute") in bridge
-    assert ("src/pysh/script_runner.py", "ScriptRunner._run_interpreter_script") in shebang
     assert ("src/pysh/script_runner.py", "ScriptRunner.run") in shebang
-    assert not bridge & shebang
-    assert not (bridge | shebang) & _pairs(inventory, "AUTOMATIC_LEGACY_FALLBACK")
+    assert ("src/pysh/script_runner.py", "ScriptRunner._run_interpreter_script") in shebang
+    assert {path for path, _ in shebang} == {"src/pysh/script_runner.py"}
+
+
+def test_inventory_has_no_stale_python_entries() -> None:
+    assert bnd.stale_entries(bnd.load_inventory(), bnd.scan_tree()) == []
 
 
 def test_every_classified_symbol_belongs_to_exactly_one_category() -> None:
@@ -118,22 +126,21 @@ def test_production_has_no_automatic_fallback_signal_of_any_kind() -> None:
     assert bnd.scan_forbidden() == {}, "an automatic legacy-shell fallback was reintroduced"
 
 
-def test_bridge_machinery_is_referenced_only_by_the_explicit_bridge_entries() -> None:
-    inventory = bnd.load_inventory()
-    explicit = {
-        (b.production_path, symbol)
-        for b in inventory if b.category == "EXPLICIT_MIGRATION_BRIDGE" for symbol in b.symbols
-    }
-    referenced = {
-        (path, symbol) for path, symbols in bnd.scan_bridge_references().items() for symbol in symbols
-    }
-    assert referenced <= explicit, sorted(referenced - explicit)
-    # Only the explicit `zsh` builtin reaches the bridge executor.
-    callers = {
-        symbol for path, symbols in bnd.scan_bridge_references().items()
-        if path == "src/pysh/core/shell.py" for symbol in symbols
-    }
-    assert callers == {"<module>", "PyShell.__init__", "PyShell._builtin_zsh", "PyShell._run_zsh_command"}
+def test_production_has_no_zsh_bridge_reference_of_any_kind() -> None:
+    assert bnd.scan_bridge_references() == {}, "the removed Zsh bridge was reintroduced"
+    assert not (REPO_ROOT / "src" / "pysh" / "compat" / "zsh_bridge.py").exists()
+
+
+def test_no_legacy_shell_is_a_builtin_or_receives_login_flags() -> None:
+    from pysh.contracts.builtins import BUILTIN_NAMES
+
+    assert not BUILTIN_NAMES & {"sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh"}
+    flagged = []
+    for path in (REPO_ROOT / "src").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if any(f'"{flag}"' in text or f"'{flag}'" in text for flag in bnd.LEGACY_FLAG_BUNDLES):
+            flagged.append(path.name)
+    assert flagged == []
 
 
 @pytest.mark.parametrize(
@@ -170,6 +177,8 @@ def test_ordinary_fallback_wording_and_the_explicit_builtin_are_not_flagged(sour
     "source",
     [
         "def f(self, c):\n    return self._run_zsh_command(c)\n",
+        "def _builtin_zsh(self, args):\n    return 0\n",
+        "from pysh.compat.zsh_bridge import ZshBridge\n",
         "def f():\n    return ZshBridge()\n",
         "def f(self):\n    return self.zsh_bridge.execute('x')\n",
     ],
@@ -232,10 +241,10 @@ def test_signal_is_attributed_to_the_enclosing_qualified_name() -> None:
 def test_a_new_signal_in_an_inventoried_file_still_fails_the_guard() -> None:
     inventory = bnd.load_inventory()
     scanned = bnd.scan_tree()
-    scanned["src/pysh/core/shell.py"] = scanned["src/pysh/core/shell.py"] | {"PyShell._brand_new"}
+    scanned["src/pysh/script_runner.py"] = scanned["src/pysh/script_runner.py"] | {"ScriptRunner._brand_new"}
     scanned["src/pysh/brand_new.py"] = frozenset({"<module>"})
     assert bnd.unreviewed_signals(inventory, scanned) == {
-        "src/pysh/core/shell.py": ["PyShell._brand_new"],
+        "src/pysh/script_runner.py": ["ScriptRunner._brand_new"],
         "src/pysh/brand_new.py": ["<module>"],
     }
 
@@ -265,7 +274,7 @@ def test_shell_has_no_fallback_state_even_if_the_old_variable_is_set(
     shell = PyShell()
     assert not hasattr(shell, "zsh_fallback_enabled")
     assert "zsh_fallback" not in PyShell.BUILTINS
-    assert "zsh" in PyShell.BUILTINS  # the explicit bridge stays
+    assert "zsh" not in PyShell.BUILTINS  # no dedicated bridge builtin either
 
 
 def test_direct_script_mode_ignores_the_shebang_and_run_script_delegates() -> None:
@@ -288,8 +297,9 @@ def test_policies_and_the_fallback_removal_are_documented() -> None:
         "is an explicit request by that script for an external interpreter",
         "is **not** a fallback from PySH language semantics",
         "never silently substitutes a different legacy shell",
-        "`zsh <cmd>` is an explicit migration and interoperability request",
-        "is not used internally as a fallback for ordinary PySH execution",
+        "PySH has no dedicated `zsh` builtin and no `ZshBridge`",
+        "ordinary program name",
+        "injects no flags",
         "automatic fallback from PySH language execution to Bash, Zsh or Fish is not part of the PySH 1.0 architecture, and it has been removed",
         "`PYSH_ZSH_FALLBACK` has no meaning",
         "The `zsh_fallback` builtin does not exist",

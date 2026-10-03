@@ -58,11 +58,11 @@ Issue #54 does **not** require, and PySH does not promise:
 Intentional incompatibility is allowed. Unsupported legacy syntax is not
 automatically a bug. An *undocumented* PySH regression is a bug.
 
-Two explicit transition bridges predate this contract (`zsh <cmd>`, and
-`run_script` on a foreign shebang; see
-[shell-compatibility-contract.md](shell-compatibility-contract.md)). Issue #54
-adds none and treats none as a semantic authority. There is no automatic
-fallback (see below).
+The only remaining production hand-off to an external shell is explicit shebang
+delegation by `run_script` (see
+[shell-compatibility-contract.md](shell-compatibility-contract.md)); it is the
+script's own request and is not a semantic authority. PySH has no automatic
+fallback and no dedicated `zsh` builtin (see below).
 
 <a id="PYSH-MIG-OUTCOMES"></a>
 
@@ -141,7 +141,7 @@ exactly one category:
 | Category | Meaning |
 | --- | --- |
 | `PYSH_NATIVE` | Normal PySH behavior, including static analysis that executes nothing. |
-| `EXPLICIT_MIGRATION_BRIDGE` | The user explicitly asks for another interpreter (`zsh <cmd>`). |
+| `EXPLICIT_MIGRATION_BRIDGE` | A dedicated production bridge to another shell. None exists; the category must stay empty. |
 | `EXPLICIT_SHEBANG_DELEGATION` | The script itself names an external interpreter in its shebang. |
 | `AUTOMATIC_LEGACY_FALLBACK` | PySH hands work to a legacy shell without an explicit per-command request. |
 | `BUILD_OR_TEST_TOOLING` | Shell use outside language semantics (for example the OS-package launcher). |
@@ -167,17 +167,21 @@ substitutes a different legacy shell.
 
 <a id="PYSH-MIG-BRIDGE"></a>
 
-### Migration bridge
+### No production migration bridge
 
-`zsh <cmd>` is an explicit migration and interoperability request. It does not
-define PySH language semantics and is not used internally as a fallback for
-ordinary PySH execution. It is retained as an explicit bridge.
+PySH has no dedicated `zsh` builtin and no `ZshBridge` (removed in Issue #54,
+Slice 2.7). `zsh` is an ordinary program name: if an executable named `zsh` is
+on `PATH` it runs through generic external-command execution with exactly the
+arguments the user typed. PySH injects no flags (such as `-lc`) and no
+semantics, and never defines language behavior from it. Migration comparison
+against Bash, Zsh or Fish belongs to the test/CI differential laboratory
+(`tests/differential`), not to the shell runtime.
 
 <a id="PYSH-MIG-AUTOMATIC-FALLBACK"></a>
 
 ### Automatic legacy fallback: removed
 
-Decision (Issue #54, Slice 2.6): automatic fallback from PySH language execution
+Decision (Issue #54, Slices 2.6 and 2.7): automatic fallback from PySH language execution
 to Bash, Zsh or Fish is not part of the PySH 1.0 architecture, and it has been
 removed. Testable facts:
 
@@ -189,10 +193,9 @@ removed. Testable facts:
 - A path-expansion error, an unresolved external command (alone or in a
   pipeline) and a process-creation `FileNotFoundError` produce the ordinary PySH
   diagnostic and status; nothing is retried through zsh.
-- Explicit `zsh <cmd>` remains an explicit migration and interoperability
-  bridge. Explicit legacy shebang execution through `run_script` remains
-  interoperability requested by the script itself. Neither is a fallback and
-  neither defines PySH semantics.
+- The `zsh <cmd>` builtin does not exist either. Explicit legacy shebang
+  execution through `run_script` remains interoperability requested by the
+  script itself; it is not a fallback and does not define PySH semantics.
 - No external legacy shell is required for ordinary PySH operation.
 - The boundary inventory's automatic-fallback category must stay empty, and the
   AST drift guard rejects reintroduced fallback machinery.

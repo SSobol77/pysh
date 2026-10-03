@@ -32,9 +32,9 @@ for the complete POSIX sh scope table and prohibition on `/bin/sh` use.
 
 ## zsh compatibility
 
-PySH is not a full zsh clone. The Zsh Transition Layer provides static alias
-and profile import plus explicit delegation to real zsh. zsh-specific
-features remain the responsibility of real zsh when delegated.
+PySH is not a full zsh clone. The zsh migration helpers provide static alias
+and profile import only. zsh-specific features remain the responsibility of
+real zsh, which PySH never runs on your behalf.
 
 See the [zsh scope document](../compatibility/zsh-scope.md) for the
 complete zsh scope table.
@@ -47,7 +47,7 @@ confinement.  Key security properties:
 - Foreign shell profiles (`.zshrc`, `.bashrc`) are **not** executed automatically.
   `source_zsh`, `source_zsh_profile`, and `source_sh_aliases` parse files as plain
   text and import only safe static constructs.
-- PySH never falls back to zsh automatically (`zsh_fallback` was removed before 1.0). Delegation requires an explicit `zsh <command>`.
+- PySH never falls back to zsh automatically (`zsh_fallback` was removed before 1.0). There is no `zsh` builtin; a program named `zsh` is an ordinary external command.
 - Normal external commands inherit the terminal. PySH does not observe password
   bytes for `sudo`, `ssh`, `su`, or `gpg`.
 - The `secure <cmd>` PTY bridge is opt-in and non-default.
@@ -154,7 +154,7 @@ declared. A no-shebang script is executed through PySH's native script engine.
 
 PySH does not hand commands it cannot parse or execute to zsh. The former
 `zsh_fallback` builtin and `PYSH_ZSH_FALLBACK` variable were removed before
-PySH 1.0. Use the explicit `zsh <command>` bridge when you want real zsh.
+PySH 1.0. The `zsh <command>` builtin was removed too; run zsh as an ordinary program if you need it.
 
 ## Python runtime
 

@@ -6,7 +6,7 @@
 """Command classification foundation used by the ``plan`` builtin.
 
 ``plan`` is advisory only. It inspects a command line, classifies how PySH
-would route it (builtin, external, pipeline, chain, python, zsh delegation,
+would route it (builtin, external, pipeline, chain, python,
 script, unknown) and assigns a coarse risk level. No execution and no state
 mutation happens. Policy enforcement is intentionally out of scope here and
 is planned for a later release.
@@ -22,7 +22,6 @@ from pysh.diagnostics.trace import DEFAULT_REDACTION_POLICY
 from pysh.parsing.multiline import PY_BLOCK_OPENER, is_block_opener
 from pysh.parsing.parser import ChainOp, split_chain, split_pipeline
 
-ZSH_DELEGATION_BUILTINS: frozenset[str] = frozenset({"zsh"})
 SCRIPT_BUILTINS: frozenset[str] = frozenset({"run_script", "source", ".", "source_zsh"})
 
 RISKY_COMMANDS: frozenset[str] = frozenset({"sudo", "eval"})
@@ -128,15 +127,6 @@ def classify(
             execution="none",
             risk="low",
             reason="no command word",
-        )
-
-    if head in ZSH_DELEGATION_BUILTINS:
-        return CommandPlan(
-            original=display_text,
-            kind="zsh-delegation",
-            execution="zsh",
-            risk="medium",
-            reason=f"{head} delegates to real zsh -lc",
         )
 
     if head == "run_script":

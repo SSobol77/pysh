@@ -305,8 +305,14 @@ def unreviewed_signals(
 #: has no automatic hand-off from PySH execution to a legacy shell, so this is
 #: zero and cannot be raised by editing the inventory alone.
 MAX_AUTOMATIC_ENTRIES = 0
-#: Names that only the explicit ``zsh <cmd>`` bridge may reference.
-BRIDGE_NAMES = frozenset({"ZshBridge", "zsh_bridge", "_run_zsh_command"})
+#: Names of the removed production Zsh bridge. PySH 1.0 has no dedicated
+#: legacy-shell builtin or bridge, so these may not appear in ``src/pysh`` at all.
+BRIDGE_NAMES = frozenset({
+    "ZshBridge", "zsh_bridge", "ZshResult", "ZSH_MISSING_STATUS",
+    "_builtin_zsh", "_run_zsh_command", "ZSH_DELEGATION_BUILTINS",
+})
+#: A shell-flag bundle that would make PySH start a legacy shell as login/command shell.
+LEGACY_FLAG_BUNDLES = frozenset({"-lc", "-ic", "-lic", "-ilc"})
 _FALLBACK_NAME_RE = re.compile(
     r"(zsh|bash|fish|legacy|posix_?sh)\w*fallback|fallback\w*(zsh|bash|fish|legacy)",
     re.IGNORECASE,
@@ -366,6 +372,11 @@ def bridge_references(source: str) -> frozenset[str]:
     found: set[str] = set()
 
     class Finder(_Scanner):
+        def _scope(self, node: ast.AST, name: str) -> None:
+            if name in BRIDGE_NAMES:
+                found.add(".".join([*self.stack, name]))
+            super()._scope(node, name)
+
         def visit_Constant(self, node: ast.Constant) -> None:
             return None
 
@@ -410,3 +421,17 @@ def scan_bridge_references(root: Path = SRC_ROOT) -> dict[str, frozenset[str]]:
         if found:
             result[path.relative_to(REPO_ROOT).as_posix()] = found
     return result
+
+
+def stale_entries(
+    inventory: tuple[Boundary, ...], scanned: dict[str, frozenset[str]]
+) -> list[str]:
+    """Inventoried Python entries none of whose symbols carries a legacy signal any more."""
+    stale: list[str] = []
+    for boundary in inventory:
+        if not boundary.production_path.endswith(".py"):
+            continue
+        present = scanned.get(boundary.production_path, frozenset())
+        if not present & set(boundary.symbols):
+            stale.append(boundary.boundary_id)
+    return stale

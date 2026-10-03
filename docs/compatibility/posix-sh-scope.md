@@ -105,8 +105,8 @@ hooks, and init system scripts must continue to use a real POSIX sh
 
 PySH's documented native constructs cover the common interactive shell
 workflow. Native PySH scripts do not change the delegation rule for real POSIX
-scripts. For constructs that will never be native, use `zsh <cmd>` or
-`run_script`.
+scripts. For constructs that will never be native, keep them in a script with its own
+shebang and run it with `run_script`.
 
 ---
 

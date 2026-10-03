@@ -84,11 +84,11 @@ def test_classify_run_script() -> None:
     assert res["execution"] == "subprocess"
 
 
-def test_classify_zsh_delegation() -> None:
+def test_zsh_has_no_special_routing_it_is_an_ordinary_external_command() -> None:
     res = _classify("zsh 'echo hi'")
-    assert res["kind"] == "zsh-delegation"
-    assert res["execution"] == "zsh"
-    assert res["risk"] == "medium"
+    assert res["kind"] == "external"
+    assert res["execution"] == "subprocess"
+    assert res["kind"] != "zsh-delegation"
 
 
 def test_classify_sudo_is_high_risk() -> None:

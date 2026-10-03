@@ -22,9 +22,9 @@ workflow, see [Zsh compatibility guide](../migration/zsh-compatibility.md).
 1. **PySH is not a zsh clone.** PySH does not implement the zsh grammar,
    expansion model, module system, or completion framework.
 
-2. **PySH has a zsh transition layer.** The transition layer provides safe
-   static import of aliases and profile entries, a static compatibility
-   checker, and explicit delegation to real zsh when needed.
+2. **PySH has zsh migration helpers.** They provide safe static import of
+   aliases and profile entries and a static compatibility checker. PySH does
+   not run zsh on the user's behalf.
 
 3. **Static alias/profile import is not execution.** `source_zsh`,
    `source_zsh_profile`, and `source_sh_aliases` read files as text and
@@ -32,9 +32,10 @@ workflow, see [Zsh compatibility guide](../migration/zsh-compatibility.md).
    shell code, run plugin managers, evaluate `eval` expressions, or call
    external commands.
 
-4. **`zsh <command>` is explicit delegation to real `zsh -lc`.** The user
-   types the `zsh` prefix deliberately. PySH does not silently wrap commands
-   in zsh.
+4. **There is no `zsh` builtin.** `zsh` is an ordinary program name: if a
+   `zsh` executable is on PATH it runs like any other external command, with
+   exactly the arguments the user typed. PySH adds no flags (such as `-lc`) and
+   no semantics, and never wraps commands in zsh.
 
 5. **There is no automatic fallback.** The former `zsh_fallback` builtin and
    `PYSH_ZSH_FALLBACK` variable were removed before PySH 1.0; PySH never
@@ -66,7 +67,7 @@ workflow, see [Zsh compatibility guide](../migration/zsh-compatibility.md).
 | zsh themes and prompt expansion | Not supported | Unsupported | — |
 | zsh key binding (`bindkey`) | Not supported | Unsupported | — |
 | zsh options (`setopt`, `unsetopt`) | Not imported | Transition — counted as skipped | — |
-| `zsh COMMAND` (explicit delegation) | Supported | Delegated — `zsh -lc <command>` | — |
+| `zsh COMMAND` | No builtin | Ordinary external program, if installed | #54 |
 | `run_script` (shebang zsh scripts) | Supported | Delegated — real `zsh` via argv | #14 |
 | `zsh_fallback`, `PYSH_ZSH_FALLBACK` | Removed before 1.0 | No automatic fallback exists | #54 |
 | `compat_check FILE` (static report) | Supported | Transition — static analysis only | — |
@@ -88,7 +89,6 @@ It is not a compatibility layer — it does not make PySH behave like zsh.
 - Imports simple aliases from zsh-compatible alias files.
 - Imports simple aliases, exports, and assignments from zsh profile files.
 - Classifies zsh scripts as supported/delegated/skipped/risky without executing them.
-- Delegates specific commands to real zsh on demand.
 
 **What it does not do:**
 - Execute `~/.zshrc` or any zsh profile code.
@@ -107,7 +107,9 @@ The recommended migration path for zsh users:
    manual migration, and what to keep in real zsh.
 2. **Import safe entries**: use `source_zsh_profile ~/.zshrc` to import
    supported aliases and exports into PySH.
-3. **Delegate what remains**: use `zsh <cmd>` for commands that need real zsh.
+3. **Keep what remains in real zsh**: run it as a normal program (or in a
+   script with a `#!/bin/zsh` shebang through `run_script`) for commands that
+   need real zsh behavior.
 4. **Move stable automation to Python**: use `py { ... }` for scripts.
 5. **Do not rely on fallback**: PySH has none; commands PySH cannot run
    report a diagnostic.
@@ -123,8 +125,8 @@ zsh scope claims are validated by:
 
 1. `tests/test_profile_importer.py` — static import behavior, skipped construct
    counts, malformed line reporting.
-2. `tests/test_zsh_bridge.py` — explicit `zsh -lc` delegation, 127 on missing zsh.
-3. `tests/test_zsh_transition.py` and `tests/test_no_automatic_legacy_fallback.py` — no automatic fallback.
-4. CI with real zsh installed (`ubuntu-latest` in GitHub Actions) for delegation tests.
+2. `tests/test_no_production_zsh_bridge.py` — no `zsh` builtin or bridge; `zsh` is an ordinary program.
+3. `tests/test_zsh_transition.py` and `tests/test_no_automatic_legacy_fallback.py` — diagnostics and no automatic fallback.
+4. Zsh/Bash/Fish comparison evidence belongs to the test/CI differential laboratory (`tests/differential`), not the runtime.
 
 See [validation-matrix.md](validation-matrix.md) for the full validation plan.
