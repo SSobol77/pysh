@@ -4,6 +4,7 @@
 # Copyright (C) 2026 Siergej Sobolewski
 
 """Issue #54 Slice 2.5: command substitution executes through PySH, never a legacy shell."""
+
 from __future__ import annotations
 
 import ast
@@ -18,7 +19,17 @@ from pysh.parsing import expansion
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXPANSION = REPO_ROOT / "src" / "pysh" / "parsing" / "expansion.py"
-LEGACY_NAMES = {"sh", "bash", "zsh", "fish", "dash", "ksh", "/bin/sh", "/bin/bash", "/bin/zsh"}
+LEGACY_NAMES = {
+    "sh",
+    "bash",
+    "zsh",
+    "fish",
+    "dash",
+    "ksh",
+    "/bin/sh",
+    "/bin/bash",
+    "/bin/zsh",
+}
 
 
 class _Spy:
@@ -43,7 +54,9 @@ def _spy_on_processes(monkeypatch: pytest.MonkeyPatch) -> _Spy:
     return spy
 
 
-def test_default_runner_does_not_use_a_legacy_shell_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_runner_does_not_use_a_legacy_shell_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Architecture assertion: the production path never launches /bin/sh or another shell."""
     spy = _spy_on_processes(monkeypatch)
     real_run = subprocess.run
@@ -99,7 +112,9 @@ def _out(shell, capfd: pytest.CaptureFixture[str], line: str) -> tuple[int, str,
         ("echo $(printf one; printf two)", "onetwo\n"),
     ],
 )
-def test_substitution_forms_run_through_pysh(shell, capfd, line: str, expected: str) -> None:
+def test_substitution_forms_run_through_pysh(
+    shell, capfd, line: str, expected: str
+) -> None:
     status, out, err = _out(shell, capfd, line)
     assert (status, out, err) == (0, expected, "")
 
@@ -109,7 +124,10 @@ def test_nested_command_is_parsed_by_pysh_not_a_posix_shell(shell, capfd) -> Non
     # a POSIX shell would happily print "x".
     status, out, err = _out(shell, capfd, "echo [$(if true; then printf x; fi)]")
     assert (status, out, err) == (0, "[]\n", "")
-    assert "unsupported syntax" in expansion._run_nested("if true; then printf x; fi", 20.0).stderr
+    assert (
+        "unsupported syntax"
+        in expansion._run_nested("if true; then printf x; fi", 20.0).stderr
+    )
 
 
 def test_nested_redirections_follow_pysh_rules(shell, capfd, tmp_path: Path) -> None:
@@ -133,14 +151,18 @@ def test_exported_environment_and_cwd_are_visible_and_unexported_locals_are_not(
     assert _out(shell, capfd, "echo [$(echo $PYSH_T_LOCAL)]")[1] == "[]\n"
 
 
-def test_nested_cd_and_exports_do_not_change_the_outer_shell(shell, capfd, tmp_path: Path) -> None:
+def test_nested_cd_and_exports_do_not_change_the_outer_shell(
+    shell, capfd, tmp_path: Path
+) -> None:
     (tmp_path / "sub").mkdir()
     _out(shell, capfd, "echo $(cd sub; export PYSH_T_LEAK=1; pwd)")
     assert Path.cwd().resolve() == tmp_path.resolve()
     assert "PYSH_T_LEAK" not in os.environ
 
 
-def test_failures_are_contained_and_nested_stderr_is_not_forwarded(shell, capfd) -> None:
+def test_failures_are_contained_and_nested_stderr_is_not_forwarded(
+    shell, capfd
+) -> None:
     # Nested stderr was captured and discarded before Slice 2.5; that stays true.
     cases = {
         "echo [$(nonexistent_cmd_xyz)]": "command not found",
@@ -155,8 +177,12 @@ def test_failures_are_contained_and_nested_stderr_is_not_forwarded(shell, capfd)
         assert (status, out, err) == (0, "[]\n", ""), (line, err)
         inner = line[line.index("$(") + 2 : line.rindex(")")]
         captured = expansion._run_nested(inner, 20.0)
-        assert diagnostic in captured.stderr and "Traceback" not in captured.stderr, inner
-    assert _out(shell, capfd, "echo $(printf hello)")[1] == "hello\n"  # shell still healthy
+        assert (
+            diagnostic in captured.stderr and "Traceback" not in captured.stderr
+        ), inner
+    assert (
+        _out(shell, capfd, "echo $(printf hello)")[1] == "hello\n"
+    )  # shell still healthy
 
 
 def test_empty_stdout_and_multiple_trailing_newlines(shell, capfd) -> None:
@@ -170,7 +196,9 @@ def test_signal_terminated_nested_command_yields_empty_text(shell, capfd) -> Non
     assert _out(shell, capfd, line) == (0, "[]\n", "")
 
 
-def test_startup_configuration_is_never_read_by_the_nested_process(shell, capfd, tmp_path: Path) -> None:
+def test_startup_configuration_is_never_read_by_the_nested_process(
+    shell, capfd, tmp_path: Path
+) -> None:
     (tmp_path / ".pyshrc.py").write_text('print("RC-LOADED")\n', encoding="utf-8")
     status, out, err = _out(shell, capfd, "echo [$(printf x)]")
     assert (status, out, err) == (0, "[x]\n", "")
@@ -195,7 +223,9 @@ def test_substitution_never_reaches_zsh(
     shell = PyShell(startup_policy=NO_RC_STARTUP_POLICY)
     status, out, err = _out(shell, capfd, "echo [$(nonexistent_cmd_xyz)]")
     assert out == "[]\n" and "ZSH-USED" not in out
-    assert "command not found" in expansion._run_nested("nonexistent_cmd_xyz", 20.0).stderr
+    assert (
+        "command not found" in expansion._run_nested("nonexistent_cmd_xyz", 20.0).stderr
+    )
     assert not marker.exists()
 
 
@@ -205,12 +235,18 @@ def test_substitution_never_reaches_zsh(
 def test_nesting_depth_is_bounded_with_a_controlled_diagnostic(
     shell, capfd, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv(expansion.SUBSTITUTION_DEPTH_ENV, str(expansion.MAX_SUBSTITUTION_DEPTH))
+    monkeypatch.setenv(
+        expansion.SUBSTITUTION_DEPTH_ENV, str(expansion.MAX_SUBSTITUTION_DEPTH)
+    )
     status, out, err = _out(shell, capfd, "echo [$(printf x)]")
     assert (status, out) == (0, "[]\n")
     assert "nesting deeper than" in err and "Traceback" not in err
-    assert os.environ[expansion.SUBSTITUTION_DEPTH_ENV] == str(expansion.MAX_SUBSTITUTION_DEPTH)
-    monkeypatch.setenv(expansion.SUBSTITUTION_DEPTH_ENV, str(expansion.MAX_SUBSTITUTION_DEPTH - 1))
+    assert os.environ[expansion.SUBSTITUTION_DEPTH_ENV] == str(
+        expansion.MAX_SUBSTITUTION_DEPTH
+    )
+    monkeypatch.setenv(
+        expansion.SUBSTITUTION_DEPTH_ENV, str(expansion.MAX_SUBSTITUTION_DEPTH - 1)
+    )
     assert _out(shell, capfd, "echo [$(printf x)]")[1] == "[x]\n"
     monkeypatch.setenv(expansion.SUBSTITUTION_DEPTH_ENV, "garbage")
     assert _out(shell, capfd, "echo [$(printf x)]")[1] == "[x]\n"
@@ -250,14 +286,19 @@ def test_explicit_fake_runner_injection_still_works() -> None:
         seen.append(command)
         return "FAKE"
 
-    assert expansion.expand_command_substitution("echo $(any thing) `x`", runner=fake) == "echo FAKE FAKE"
+    assert (
+        expansion.expand_command_substitution("echo $(any thing) `x`", runner=fake)
+        == "echo FAKE FAKE"
+    )
     assert seen == ["any thing", "x"]
 
 
 def test_patching_the_default_runner_still_isolates_runner_less_callers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(expansion, "_default_runner", lambda command, timeout: f"<{command}>")
+    monkeypatch.setattr(
+        expansion, "_default_runner", lambda command, timeout: f"<{command}>"
+    )
     assert expansion.expand_command_substitution("echo $(hi)") == "echo <hi>"
 
 
@@ -272,16 +313,23 @@ def test_production_substitution_module_has_no_legacy_shell_reference() -> None:
     assert boundaries.scan_source(source) == frozenset()
     tree = ast.parse(source)
     assert not [
-        n.value for n in ast.walk(tree)
-        if isinstance(n, ast.Constant) and isinstance(n.value, str) and boundaries._is_legacy_constant(n.value)
+        n.value
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Constant)
+        and isinstance(n.value, str)
+        and boundaries._is_legacy_constant(n.value)
     ]
     runners = [
-        n for n in tree.body
-        if isinstance(n, ast.FunctionDef) and n.name in {"_default_runner", "_run_nested"}
+        n
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef)
+        and n.name in {"_default_runner", "_run_nested"}
     ]
     assert len(runners) == 2
     constants = {
-        n.value for r in runners for n in ast.walk(r)
+        n.value
+        for r in runners
+        for n in ast.walk(r)
         if isinstance(n, ast.Constant) and isinstance(n.value, str)
     }
     assert {"-P", "-m", "pysh", "--no-rc", "-c"} <= constants
@@ -337,11 +385,15 @@ def test_normal_completion_leaves_no_descendant(tmp_path: Path) -> None:
     beat = tmp_path / "beat"
     command = f"{sys.executable} {FIXTURE} spawn-exit {beat}"
     out = expansion.expand_command_substitution(f"X=$({command})", timeout=30.0)
-    assert out.startswith("X=") and out[2:].strip().isdigit()  # the fixture printed a pid
+    assert (
+        out.startswith("X=") and out[2:].strip().isdigit()
+    )  # the fixture printed a pid
     _assert_beat_stopped(beat)
 
 
-def test_cancellation_leaves_no_descendant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cancellation_leaves_no_descendant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     beat = tmp_path / "beat"
     real_wait = expansion._pump_until_exit
 
@@ -351,7 +403,9 @@ def test_cancellation_leaves_no_descendant(tmp_path: Path, monkeypatch: pytest.M
 
     monkeypatch.setattr(expansion, "_pump_until_exit", cancelled)
     with pytest.raises(KeyboardInterrupt):
-        expansion.expand_command_substitution(f"X=$({sys.executable} {FIXTURE} heartbeat {beat})")
+        expansion.expand_command_substitution(
+            f"X=$({sys.executable} {FIXTURE} heartbeat {beat})"
+        )
     monkeypatch.setattr(expansion, "_pump_until_exit", real_wait)
     _assert_beat_stopped(beat)
 
@@ -368,13 +422,26 @@ def test_launch_failure_is_contained(monkeypatch: pytest.MonkeyPatch, capsys) ->
 PROBE = "import os; print(os.getpid(), os.getpgrp(), os.getppid())"
 
 
-def _probe_groups(env_extra: dict[str, str], pass_fds: tuple[int, ...] = ()) -> tuple[int, int, int]:
+def _probe_groups(
+    env_extra: dict[str, str], pass_fds: tuple[int, ...] = ()
+) -> tuple[int, int, int]:
     """Run an external command under a top-level ``pysh -c`` and report (pid, pgid, ppid)."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYSH_SUBSTITUTION")}
     env.update(env_extra)
     done = subprocess.run(
-        [sys.executable, "-m", "pysh", "--no-rc", "-c", f"{sys.executable} -c '{PROBE}'"],
-        capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, check=True,
+        [
+            sys.executable,
+            "-m",
+            "pysh",
+            "--no-rc",
+            "-c",
+            f"{sys.executable} -c '{PROBE}'",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        check=True,
         pass_fds=pass_fds,
     )
     pid, pgid, ppid = map(int, done.stdout.split())
@@ -401,12 +468,29 @@ def test_forged_capability_values_never_grant_containment() -> None:
     try:
         forged = [
             ({expansion.CAPABILITY_ENV: "garbage"}, ()),
-            ({expansion.CAPABILITY_ENV: f"99:{token}"}, ()),  # descriptor does not exist
-            ({expansion.CAPABILITY_ENV: f"1:{token}"}, ()),  # not a FIFO / wrong content
-            ({expansion.CAPABILITY_ENV: f"{regular}:{token}"}, (regular,)),  # not a FIFO
-            ({expansion.CAPABILITY_ENV: f"{wrong_content_r}:{token}"}, (wrong_content_r,)),  # wrong token
-            ({expansion.CAPABILITY_ENV: f"{wrong_content_r}:{token}",
-              expansion.SUBSTITUTION_DEPTH_ENV: "3"}, (wrong_content_r,)),
+            (
+                {expansion.CAPABILITY_ENV: f"99:{token}"},
+                (),
+            ),  # descriptor does not exist
+            (
+                {expansion.CAPABILITY_ENV: f"1:{token}"},
+                (),
+            ),  # not a FIFO / wrong content
+            (
+                {expansion.CAPABILITY_ENV: f"{regular}:{token}"},
+                (regular,),
+            ),  # not a FIFO
+            (
+                {expansion.CAPABILITY_ENV: f"{wrong_content_r}:{token}"},
+                (wrong_content_r,),
+            ),  # wrong token
+            (
+                {
+                    expansion.CAPABILITY_ENV: f"{wrong_content_r}:{token}",
+                    expansion.SUBSTITUTION_DEPTH_ENV: "3",
+                },
+                (wrong_content_r,),
+            ),
         ]
         for env_extra, fds in forged:
             pid, pgid, _ = _probe_groups(env_extra, fds)
@@ -438,7 +522,9 @@ def test_capability_validation_unit(monkeypatch: pytest.MonkeyPatch) -> None:
     r = pipe_with(good)
     monkeypatch.setenv(expansion.CAPABILITY_ENV, f"{r}:{token}")
     assert expansion._consume_capability() is True
-    assert closed(r) and expansion.CAPABILITY_ENV not in os.environ  # consumed and scrubbed
+    assert (
+        closed(r) and expansion.CAPABILITY_ENV not in os.environ
+    )  # consumed and scrubbed
     r = pipe_with(b"other")
     monkeypatch.setenv(expansion.CAPABILITY_ENV, f"{r}:{token}")
     assert expansion._consume_capability() is False
@@ -446,7 +532,9 @@ def test_capability_validation_unit(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not closed(r) and expansion.CAPABILITY_ENV not in os.environ
     os.close(r)
     r = pipe_with(good)
-    monkeypatch.setenv(expansion.CAPABILITY_ENV, f"{r}:{'cd' * 16}")  # right fd, wrong token
+    monkeypatch.setenv(
+        expansion.CAPABILITY_ENV, f"{r}:{'cd' * 16}"
+    )  # right fd, wrong token
     assert expansion._consume_capability() is False and not closed(r)
     os.close(r)
 
@@ -472,23 +560,38 @@ def test_capability_is_not_visible_to_nested_descendants(shell, capfd) -> None:
 
     out = _out(shell, capfd, f"echo $({sys.executable} {FIXTURE} openfds)")[1]
     assert json.loads(out) == [0, 1, 2]
-    probe = expansion._run_nested(f"{sys.executable} {FIXTURE} env {expansion.CAPABILITY_ENV}", 30.0)
+    probe = expansion._run_nested(
+        f"{sys.executable} {FIXTURE} env {expansion.CAPABILITY_ENV}", 30.0
+    )
     assert json.loads(probe.stdout) == {expansion.CAPABILITY_ENV: None}
     assert expansion.CAPABILITY_ENV not in os.environ
 
 
-def test_deeper_nested_levels_are_killed_with_the_outermost_domain(tmp_path: Path) -> None:
+def test_deeper_nested_levels_are_killed_with_the_outermost_domain(
+    tmp_path: Path,
+) -> None:
     beat = tmp_path / "beat"
     inner = f"{sys.executable} {FIXTURE} heartbeat {beat}"
-    assert expansion.expand_command_substitution(f"X=$(echo $({inner}))", timeout=4.0) == "X="
+    assert (
+        expansion.expand_command_substitution(f"X=$(echo $({inner}))", timeout=4.0)
+        == "X="
+    )
     _assert_beat_stopped(beat)
 
 
-def test_depth_two_substitution_works_and_is_bounded(shell, capfd, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_depth_two_substitution_works_and_is_bounded(
+    shell, capfd, monkeypatch: pytest.MonkeyPatch
+) -> None:
     assert _out(shell, capfd, "echo $(echo $(echo $(printf deep)))")[1] == "deep\n"
-    monkeypatch.setenv(expansion.SUBSTITUTION_DEPTH_ENV, str(expansion.MAX_SUBSTITUTION_DEPTH))
+    monkeypatch.setenv(
+        expansion.SUBSTITUTION_DEPTH_ENV, str(expansion.MAX_SUBSTITUTION_DEPTH)
+    )
     status, out, err = _out(shell, capfd, "echo [$(printf x)]")
-    assert (status, out) == (0, "[]\n") and "nesting deeper than" in err and "Traceback" not in err
+    assert (
+        (status, out) == (0, "[]\n")
+        and "nesting deeper than" in err
+        and "Traceback" not in err
+    )
 
 
 def test_repeated_substitutions_leave_no_temporary_files(
@@ -522,9 +625,12 @@ def test_nested_pysh_ignores_a_hostile_pysh_package_in_the_working_directory(
     hostile.mkdir()
     (hostile / "__init__.py").write_text("", encoding="utf-8")
     (hostile / "__main__.py").write_text(
-        f"import pathlib\npathlib.Path({str(marker)!r}).touch()\nprint('HOSTILE')\n", encoding="utf-8"
+        f"import pathlib\npathlib.Path({str(marker)!r}).touch()\nprint('HOSTILE')\n",
+        encoding="utf-8",
     )
-    monkeypatch.chdir(tmp_path)  # the substitution's working directory contains pysh/__main__.py
+    monkeypatch.chdir(
+        tmp_path
+    )  # the substitution's working directory contains pysh/__main__.py
     out = expansion.expand_command_substitution("X=$(printf real)", timeout=30.0)
     assert out == "X=real"  # the installed PySH ran, not the local package
     assert not marker.exists()
@@ -533,14 +639,21 @@ def test_nested_pysh_ignores_a_hostile_pysh_package_in_the_working_directory(
 def test_the_nested_interpreter_is_started_with_safe_path_before_dash_m() -> None:
     source = EXPANSION.read_text(encoding="utf-8")
     tree = ast.parse(source)
-    run_nested = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_run_nested")
+    run_nested = next(
+        n
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name == "_run_nested"
+    )
     lists = [
         [e.value if isinstance(e, ast.Constant) else None for e in n.elts]
-        for n in ast.walk(run_nested) if isinstance(n, ast.List)
+        for n in ast.walk(run_nested)
+        if isinstance(n, ast.List)
     ]
     argv = next(item for item in lists if "-m" in item)
     assert argv[argv.index("-m") - 1] == "-P", argv  # -P must precede -m
-    assert "-I" not in argv  # isolated mode would change more environment semantics than needed
+    assert (
+        "-I" not in argv
+    )  # isolated mode would change more environment semantics than needed
 
 
 # --- bounded output ---------------------------------------------------------------------------
@@ -556,15 +669,26 @@ FLOOD_STDOUT = _py("import sys; sys.stdout.write('x' * 50000000)")
 FLOOD_STDERR = _py("import sys; sys.stderr.write('e' * 50000000)")
 
 
-def test_output_below_the_limits_is_unchanged_and_stderr_does_not_alter_the_payload() -> None:
-    assert expansion.expand_command_substitution(f"X=$({_py('print(1234)')})") == "X=1234"
+def test_output_below_the_limits_is_unchanged_and_stderr_does_not_alter_the_payload() -> (
+    None
+):
+    assert (
+        expansion.expand_command_substitution(f"X=$({_py('print(1234)')})") == "X=1234"
+    )
     both = _py("import sys; print('out'); sys.stderr.write('diagnostic')")
     assert expansion.expand_command_substitution(f"X=$({both})") == "X=out"
     result = expansion._run_nested(both, 30.0)
-    assert (result.stdout, result.stderr, result.timed_out, result.output_limited) == ("out\n", "diagnostic", False, None)
+    assert (result.stdout, result.stderr, result.timed_out, result.output_limited) == (
+        "out\n",
+        "diagnostic",
+        False,
+        None,
+    )
 
 
-@pytest.mark.parametrize(("flood", "stream"), [(FLOOD_STDOUT, "stdout"), (FLOOD_STDERR, "stderr")])
+@pytest.mark.parametrize(
+    ("flood", "stream"), [(FLOOD_STDOUT, "stdout"), (FLOOD_STDERR, "stderr")]
+)
 def test_a_flood_hits_the_limit_fails_closed_and_substitutes_nothing(
     flood: str, stream: str, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
@@ -579,10 +703,15 @@ def test_a_flood_hits_the_limit_fails_closed_and_substitutes_nothing(
     err = capsys.readouterr().err
     assert f"pysh: substitution: {stream} exceeded" in err and "Traceback" not in err
     result = expansion._run_nested(flood, 30.0, max_stdout=100_000, max_stderr=50_000)
-    assert result.output_limited == stream and (result.stdout, result.stderr) == ("", "")
+    assert result.output_limited == stream and (result.stdout, result.stderr) == (
+        "",
+        "",
+    )
 
 
-def test_capture_growth_itself_is_bounded_not_just_the_read(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_capture_growth_itself_is_bounded_not_just_the_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """No file is used and the in-memory capture never exceeds limit + one read chunk."""
     import tracemalloc
 
@@ -604,17 +733,25 @@ def test_capture_growth_itself_is_bounded_not_just_the_read(monkeypatch: pytest.
         tracemalloc.stop()
     assert result.output_limited == "stdout"
     assert limit < seen["stdout"] <= limit + expansion._READ_CHUNK
-    assert peak < 5 * (limit + expansion._READ_CHUNK)  # nothing near the 50 MB the child tried to write
+    assert peak < 5 * (
+        limit + expansion._READ_CHUNK
+    )  # nothing near the 50 MB the child tried to write
     source = EXPANSION.read_text(encoding="utf-8")
     assert "TemporaryFile" not in source and "tempfile" not in source
 
 
-def test_timeout_does_not_read_or_decode_captured_output(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_timeout_does_not_read_or_decode_captured_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def forbidden(_data):
-        raise AssertionError("captured output must not be decoded on timeout / output limit")
+        raise AssertionError(
+            "captured output must not be decoded on timeout / output limit"
+        )
 
     monkeypatch.setattr(expansion, "_decode", forbidden)
-    slow = _py("import sys, time; sys.stdout.write('partial'); sys.stdout.flush(); time.sleep(30)")
+    slow = _py(
+        "import sys, time; sys.stdout.write('partial'); sys.stdout.flush(); time.sleep(30)"
+    )
     result = expansion._run_nested(slow, 1.5)
     assert result.timed_out and (result.stdout, result.stderr) == ("", "")
     flooded = expansion._run_nested(FLOOD_STDOUT, 30.0, max_stdout=10_000)
@@ -623,8 +760,11 @@ def test_timeout_does_not_read_or_decode_captured_output(monkeypatch: pytest.Mon
 
 def test_output_limit_kills_the_whole_tree(tmp_path: Path) -> None:
     beat = tmp_path / "beat"
-    noisy = f"{sys.executable} {FIXTURE} heartbeat {beat} & {FLOOD_STDOUT}"
+    starter = f"{sys.executable} {FIXTURE} spawn-exit {beat}"
+    noisy = f"{starter} && {FLOOD_STDOUT}"
+
     result = expansion._run_nested(noisy, 30.0, max_stdout=50_000)
+
     assert result.output_limited == "stdout"
     _assert_beat_stopped(beat)
 
@@ -638,11 +778,22 @@ def test_repeated_output_limit_failures_leak_no_descriptors_or_children(
     expansion._run_nested(FLOOD_STDOUT, 30.0, max_stdout=20_000)  # warm up
     before = fdprobe.open_fds()
     for _ in range(6):
-        assert expansion._run_nested(FLOOD_STDOUT, 30.0, max_stdout=20_000).output_limited == "stdout"
-        assert expansion._run_nested(FLOOD_STDERR, 30.0, max_stderr=20_000).output_limited == "stderr"
+        assert (
+            expansion._run_nested(FLOOD_STDOUT, 30.0, max_stdout=20_000).output_limited
+            == "stdout"
+        )
+        assert (
+            expansion._run_nested(FLOOD_STDERR, 30.0, max_stderr=20_000).output_limited
+            == "stderr"
+        )
     assert fdprobe.open_fds() == before
     assert unreaped_child() is None
 
 
 def test_the_documented_limits_are_finite_and_stderr_is_bounded_tighter() -> None:
-    assert 0 < expansion.MAX_SUBSTITUTION_STDERR_BYTES < expansion.MAX_SUBSTITUTION_STDOUT_BYTES < 1 << 30
+    assert (
+        0
+        < expansion.MAX_SUBSTITUTION_STDERR_BYTES
+        < expansion.MAX_SUBSTITUTION_STDOUT_BYTES
+        < 1 << 30
+    )
