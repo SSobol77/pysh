@@ -225,3 +225,48 @@ def test_executor_source_never_uses_a_shell_or_names_a_legacy_shell() -> None:
             assert isinstance(node.value, ast.Constant) and node.value.value is False
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             assert node.value not in {"bash", "zsh", "fish", "sh", "/bin/sh"}
+
+
+def test_exception_after_the_leader_exited_still_sweeps_its_process_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The group leader may be gone while a background descendant lives on in its group.
+
+    An exception raised after the leader exited but before the normal cleanup must still
+    SIGKILL the group (gating the sweep on leader liveness would skip it).
+    """
+    beat = tmp_path / "beat"
+    real_wait = executor._wait_exited
+    seen: dict[str, int] = {}
+
+    def exit_then_fail(process, timeout):
+        assert real_wait(process, 30.0), "the leader should exit by itself"
+        # The descendant is demonstrably alive after the leader exited.
+        deadline = time.monotonic() + 20
+        while _size(beat) == 0:
+            assert time.monotonic() < deadline, "the descendant never started"
+            time.sleep(0.01)
+        first = _size(beat)
+        time.sleep(0.1)
+        seen["alive_growth"] = _size(beat) - first
+        raise RuntimeError("injected failure after the leader exited")
+
+    monkeypatch.setattr(executor, "_wait_exited", exit_then_fail)
+    before = fdprobe.open_fds()
+    with pytest.raises(RuntimeError, match="injected failure"):
+        run("spawn-exit", str(beat), timeout=30.0)
+    assert seen["alive_growth"] > 0, "the descendant must have been alive when the exception hit"
+    _assert_heartbeat_stopped(beat)
+    assert fdprobe.open_fds() == before
+    assert unreaped_child() is None
+
+
+def test_timeout_output_limit_and_success_still_clean_up_after_the_cleanup_change(tmp_path: Path) -> None:
+    beat = tmp_path / "beat"
+    assert run("spawn", str(beat), timeout=1.0).timed_out
+    _assert_heartbeat_stopped(beat)
+    flood = run("flood", "5000000", max_output_bytes=1000, timeout=10.0)
+    assert flood.output_limit_exceeded
+    ok = run("out", "fine")
+    assert (ok.termination, ok.stdout) == (Termination.EXIT, "fine")
+    assert unreaped_child() is None

@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "case_id": "pty-prompt-roundtrip",
+      "anchor": "PYSH-MIG-PTY-ROUNDTRIP",
+      "shells": [
+        "bash",
+        "zsh",
+        "fish"
+      ],
+      "send": [
+        "fixture-echo PYSH-PTY:roundtrip"
+      ],
+      "eof": true,
+      "expected": {
+        "payload": [
+          "PYSH-PTY:roundtrip"
+        ],
+        "status": 0
+      },
+      "rationale": "prompt, one submitted command, its output, then end of input"
+    },
+    {
+      "case_id": "pty-submission-order",
+      "anchor": "PYSH-MIG-PTY-SUBMISSION",
+      "shells": [
+        "bash",
+        "zsh",
+        "fish"
+      ],
+      "send": [
+        "fixture-echo PYSH-PTY:first",
+        "fixture-echo PYSH-PTY:second"
+      ],
+      "eof": true,
+      "expected": {
+        "payload": [
+          "PYSH-PTY:first",
+          "PYSH-PTY:second"
+        ],
+        "status": 0
+      },
+      "rationale": "two commands submitted with Return are executed once each, in order"
+    },
+    {
+      "case_id": "pty-quoted-argument",
+      "anchor": "PYSH-MIG-PTY-QUOTING",
+      "shells": [
+        "bash",
+        "zsh",
+        "fish"
+      ],
+      "send": [
+        "fixture-echo \"PYSH-PTY:a  b\""
+      ],
+      "eof": true,
+      "expected": {
+        "payload": [
+          "PYSH-PTY:a  b"
+        ],
+        "status": 0
+      },
+      "rationale": "a double-quoted argument keeps its inner whitespace when typed interactively"
+    },
+    {
+      "case_id": "pty-exported-variable",
+      "anchor": "PYSH-MIG-PTY-ENVIRONMENT",
+      "shells": [
+        "bash",
+        "zsh"
+      ],
+      "send": [
+        "export PYSH_PTY_VALUE=exported",
+        "fixture-echo PYSH-PTY:$PYSH_PTY_VALUE"
+      ],
+      "eof": true,
+      "expected": {
+        "payload": [
+          "PYSH-PTY:exported"
+        ],
+        "status": 0
+      },
+      "rationale": "a variable exported at the interactive prompt is visible to a later command"
+    },
+    {
+      "case_id": "pty-explicit-exit-status",
+      "anchor": "PYSH-MIG-PTY-EXIT",
+      "shells": [
+        "bash",
+        "zsh",
+        "fish"
+      ],
+      "send": [
+        "exit 7"
+      ],
+      "eof": false,
+      "expected": {
+        "payload": [],
+        "status": 7
+      },
+      "rationale": "an explicit exit with a status ends the session with that status"
+    },
+    {
+      "case_id": "pty-end-of-input-exits-cleanly",
+      "anchor": "PYSH-MIG-PTY-EOF",
+      "shells": [
+        "bash",
+        "zsh",
+        "fish"
+      ],
+      "send": [],
+      "eof": true,
+      "expected": {
+        "payload": [],
+        "status": 0
+      },
+      "rationale": "Ctrl-D at an empty prompt ends the session with status 0"
+    }
+  ],
+  "divergences": []
+}

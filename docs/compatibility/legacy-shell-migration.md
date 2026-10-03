@@ -321,6 +321,72 @@ build strings):
 Completion of Issue #54 additionally requires the same workflow to pass again
 with the pinned profiles.
 
+<a id="PYSH-MIG-PTY"></a>
+
+### Controlled PTY migration evidence
+
+Issue #54 also requires a few interactive migration cases, run only through a
+controlled PTY harness. This evidence is **migration evidence only**: it never
+makes a reference shell normative, and it does not claim interactive
+compatibility. Only a small set of deterministic behaviors is compared.
+Shell-specific line editing, key bindings, completion, history, prompt
+decoration, themes and cursor positioning are out of scope.
+
+- **Corpus.** `tests/differential/pty-cases-v1.json` holds PySH-owned PTY cases,
+  each with a stable ID (`pty-...`), a documentation anchor below, the exact
+  payload lines and exit status an interactive session must produce, and the
+  shells it applies to. #48 defines no interactive behavior, so these cases have
+  their own IDs and anchors and are kept visibly separate from the 84 command
+  mappings in `migration-v1.json`, which are unchanged.
+- **Harness.** `tests/differential/pty_lab.py` reuses the repository PTY helper
+  (`scripts/pty_smoke.py`, extended with opt-in controls). The reference runs by
+  explicit absolute path with a from-scratch environment, a private `HOME` with
+  hostile startup files, the same user-startup-isolation flags as the command
+  laboratory plus interactive flags, a fixed `PTY> ` prompt, a fixed 24x200
+  window, `TERM=dumb`, at most 512 bytes of input, a 25-second wall-clock
+  timeout and 64 KiB of captured output. The child is a session leader with the
+  PTY as controlling terminal, and its whole process group is SIGKILLed before the
+  leader is reaped on every exit path.
+- **Normalization.** Exactly: ANSI/OSC escape sequences are removed, CRLF becomes
+  LF, a carriage-return redraw keeps its final text, the configured `PTY> ` prompt
+  is stripped from the start of a line, and only lines beginning with
+  `PYSH-PTY:` then count as output. Prompts, echoed input and editor redraws never
+  take part. Comparison is exact on the exit status and the payload lines.
+- **Classification.** PySH runs first and must satisfy the case; a violation is a
+  `REGRESSION` and the reference is not run. A reference that satisfies the case
+  is a `MATCH` (no mapping is needed: the expectation is PySH-owned). A difference
+  is an `INTENDED_DIVERGENCE` only when `pty-cases-v1.json` registers it with a
+  `PYSH-MIG-DIV-*` anchor; otherwise it is unreviewed and fails CI. No PTY
+  divergence is registered.
+- **Evidence.** The same per-platform evidence file carries a `pty_records` list
+  per profile, separate from `records`, with the platform, pinned profile and
+  version, PTY case ID, normalized observations, classification and anchors.
+
+<a id="PYSH-MIG-PTY-ROUNDTRIP"></a>
+**`pty-prompt-roundtrip`** (Bash, Zsh, Fish): a prompt appears, one submitted
+command prints its output, and end of input ends the session with status 0.
+
+<a id="PYSH-MIG-PTY-SUBMISSION"></a>
+**`pty-submission-order`** (Bash, Zsh, Fish): two commands submitted with Return
+run once each, in order.
+
+<a id="PYSH-MIG-PTY-QUOTING"></a>
+**`pty-quoted-argument`** (Bash, Zsh, Fish): a double-quoted argument keeps its
+inner whitespace.
+
+<a id="PYSH-MIG-PTY-ENVIRONMENT"></a>
+**`pty-exported-variable`** (Bash, Zsh): a variable exported at the prompt is
+visible to a later command. Fish is not selected because its variable syntax
+differs.
+
+<a id="PYSH-MIG-PTY-EXIT"></a>
+**`pty-explicit-exit-status`** (Bash, Zsh, Fish): `exit 7` ends the session with
+status 7.
+
+<a id="PYSH-MIG-PTY-EOF"></a>
+**`pty-end-of-input-exits-cleanly`** (Bash, Zsh, Fish): Ctrl-D at an empty prompt
+ends the session with status 0.
+
 <a id="PYSH-MIG-EVIDENCE"></a>
 
 ## Evidence record

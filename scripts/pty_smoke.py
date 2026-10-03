@@ -48,11 +48,15 @@ from __future__ import annotations
 
 import dataclasses
 import errno
+import fcntl
 import os
 import pty
 import select
+import signal
+import struct
 import subprocess
 import sys
+import termios
 import time
 
 DEFAULT_TIMEOUT = 10.0
@@ -85,6 +89,8 @@ class PtyResult:
     timed_out: bool
     ready: bool
     input_sent: bool
+    #: Set when the optional ``max_output_bytes`` bound was exceeded (the child was killed).
+    output_limited: bool = False
 
     @property
     def ok(self) -> bool:
@@ -92,6 +98,7 @@ class PtyResult:
             self.ready
             and self.input_sent
             and not self.timed_out
+            and not self.output_limited
             and self.returncode == 0
             and "Traceback" not in self.output
         )
@@ -141,12 +148,63 @@ def _wait_until_deadline(proc: subprocess.Popen[bytes], deadline: float) -> bool
     return True
 
 
+def _become_controlling_tty() -> None:
+    """Runs in the child after ``setsid()``: make the PTY slave (fd 0) the controlling terminal."""
+    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+
+def _exited_noreap(proc: subprocess.Popen[bytes]) -> bool:
+    """Whether the leader has exited, without reaping it (its zombie keeps the group id reserved)."""
+    if hasattr(os, "waitid"):
+        return os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+    return proc.poll() is not None
+
+
+def _sweep_group_and_reap(proc: subprocess.Popen[bytes]) -> None:
+    """SIGKILL the child's whole process group, then reap the leader.
+
+    The group is signalled BEFORE the leader is reaped, so the group id cannot have
+    been recycled; it runs even when the leader already exited, because a background
+    descendant may still be alive in the group. Only valid for a child started with
+    its own session (``controlling_tty=True``).
+    """
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _wait_group_until_deadline(proc: subprocess.Popen[bytes], deadline: float) -> bool:
+    """Group-owning variant of :func:`_wait_until_deadline`; always sweeps the group."""
+    timed_out = False
+    while not _exited_noreap(proc):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            timed_out = True
+            break
+        # Bounded poll: a child's exit is not select()-able without reaping it, and
+        # reaping early would release the process-group id before the sweep.
+        select.select([], [], [], min(remaining, 0.01))
+    _sweep_group_and_reap(proc)
+    return timed_out
+
+
 def run_pty_command(
     argv: list[str],
     input_line: str,
     timeout: float = DEFAULT_TIMEOUT,
     ready_marker: bytes | None = None,
     env: dict[str, str] | None = None,
+    *,
+    input_bytes: bytes | None = None,
+    cwd: str | None = None,
+    controlling_tty: bool = False,
+    max_output_bytes: int | None = None,
+    winsize: tuple[int, int] | None = None,
 ) -> PtyResult:
     """Run *argv* under a real PTY and return within *timeout* seconds no
     matter what the child does.
@@ -176,6 +234,16 @@ def run_pty_command(
     sent (``input_sent`` stays ``False``), the child is killed/reaped, and
     the result reports ``timed_out=True, ready=False``.
 
+    Optional keyword-only controls (all off by default, so existing callers are
+    unchanged): ``input_bytes`` is written verbatim instead of ``input_line`` plus a
+    newline; ``cwd`` sets the child's working directory; ``winsize`` is (rows, cols);
+    ``max_output_bytes`` kills the child and reports ``output_limited`` once more
+    output than that has been read; ``controlling_tty`` starts the child as a session
+    leader with the PTY as its controlling terminal (what an interactive shell with
+    job control expects) and then owns its whole process group: the group is
+    SIGKILLed before the leader is reaped on every exit path, including when the
+    leader exited but a descendant is still alive.
+
     Exactly one absolute deadline covers both the readiness wait and the
     post-input execution -- there is no separate budget reset after the
     marker is observed or after input is sent.
@@ -201,8 +269,12 @@ def run_pty_command(
     drained_after_exit = False
     ready = ready_marker is None
     input_sent = False
+    output_limited = False
+    payload = input_bytes if input_bytes is not None else (input_line + "\n").encode()
 
     try:
+        if winsize is not None:
+            fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, struct.pack("HHHH", winsize[0], winsize[1], 0, 0))
         proc = subprocess.Popen(
             argv,
             stdin=slave_fd,
@@ -210,12 +282,15 @@ def run_pty_command(
             stderr=slave_fd,
             close_fds=True,
             env=child_env,
+            cwd=cwd,
+            start_new_session=controlling_tty,
+            preexec_fn=_become_controlling_tty if controlling_tty else None,
         )
         os.close(slave_fd)
         slave_fd = -1
 
         if ready_marker is None:
-            os.write(master_fd, (input_line + "\n").encode())
+            os.write(master_fd, payload)
             input_sent = True
 
         while True:
@@ -240,12 +315,15 @@ def run_pty_command(
                 if not chunk:
                     break
                 output += chunk
+                if max_output_bytes is not None and len(output) > max_output_bytes:
+                    output_limited = True
+                    break
 
                 if not ready and ready_marker is not None and ready_marker in output:
                     ready = True
 
                 if ready and not input_sent:
-                    os.write(master_fd, (input_line + "\n").encode())
+                    os.write(master_fd, payload)
                     input_sent = True
 
                 continue
@@ -257,10 +335,17 @@ def run_pty_command(
                 continue
             # Nothing readable yet and the child hasn't exited: loop back
             # to re-check the deadline and exit status.
-        timed_out = _wait_until_deadline(proc, deadline)
+        if controlling_tty:
+            timed_out = _wait_group_until_deadline(proc, deadline if not output_limited else 0.0)
+            timed_out = timed_out and not output_limited
+        else:
+            timed_out = _wait_until_deadline(proc, deadline)
     except BaseException:
         if proc is not None:
-            _kill_and_reap(proc)
+            if controlling_tty:
+                _sweep_group_and_reap(proc)
+            else:
+                _kill_and_reap(proc)
         raise
     finally:
         if slave_fd != -1:
@@ -280,6 +365,7 @@ def run_pty_command(
         timed_out=timed_out,
         ready=ready,
         input_sent=input_sent,
+        output_limited=output_limited,
     )
 
 

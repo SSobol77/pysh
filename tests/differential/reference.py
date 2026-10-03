@@ -619,6 +619,8 @@ class ProfileReport:
     probe: Probe | None = None
     checks: list[Check] = field(default_factory=list)
     records: list[CaseRecord] = field(default_factory=list)
+    #: Controlled-PTY records (see ``pty_lab``), kept apart from the command-surface ``records``.
+    pty_records: list[Any] = field(default_factory=list)
     skipped_reason: str | None = None
 
     def to_dict(self) -> dict[str, object]:
@@ -638,6 +640,7 @@ class ProfileReport:
             "isolation_checks": [{"name": c.name, "ok": c.ok} for c in sorted(self.checks, key=lambda c: c.name)],
             "skipped_reason": self.skipped_reason,
             "records": [r.to_dict() for r in sorted(self.records, key=lambda r: r.case_id)],
+            "pty_records": [r.to_dict() for r in sorted(self.pty_records, key=lambda r: r.case_id)],
         }
 
 
@@ -650,6 +653,16 @@ def evidence_document(platform_id: str, reports: list[ProfileReport], commit: st
         "platform": platform_id,
         "profiles": [r.to_dict() for r in sorted(reports, key=lambda r: r.profile.profile_id)],
     }
+
+
+def _evaluate_pty(
+    profile: LegacyProfile, executable: Path, cache: dict[str, Any], corpus: Any
+) -> tuple[list[Any], list[str]]:
+    """Controlled-PTY evidence for one profile (indirection so unit tests can stub it)."""
+    from tests.differential import pty_lab
+
+    cases, divergences = corpus
+    return pty_lab.evaluate_profile(profile, executable, cache, cases, divergences)
 
 
 def lab_mode() -> str:
@@ -696,6 +709,11 @@ def run_lab(
         if progress is not None:
             progress(evidence_document(platform_id, reports, commit))
 
+    from tests.differential import pty_lab
+
+    pty_cases, pty_data = pty_lab.load_pty_corpus()
+    pty_corpus = (pty_cases, pty_lab.declared_divergences(pty_data, pty_cases))
+    pty_cache: dict[str, Any] = {}
     pysh_cache: dict[str, Observation] = {}
     for profile in profiles:
         report = ProfileReport(profile)
@@ -753,4 +771,11 @@ def run_lab(
                 problems.append(
                     f"UNREVIEWED {case.case_id}/{profile.profile_id}: pinned profile without a migration-v1 entry"
                 )
+        # Controlled-PTY migration evidence, recorded apart from the command-surface records.
+        try:
+            report.pty_records, pty_problems = _evaluate_pty(profile, executable, pty_cache, pty_corpus)
+        except (ExecutorError, LabError) as error:
+            pty_problems = [f"PTY {profile.profile_id}: {error}"]
+        problems.extend(pty_problems)
+        publish()
     return evidence_document(platform_id, reports, commit), problems

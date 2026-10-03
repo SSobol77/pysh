@@ -96,3 +96,16 @@ def test_selected_cases_satisfy_the_pysh_oracle_first_and_are_never_excused_by_a
         assert not oracle.mismatches(
             case48["pysh_expected"], pysh_obs, case.dimensions, reference.IDENTITY_PLACEHOLDERS
         ), f"PySH violates #48 for {case.case_id}"
+
+
+def test_controlled_pty_cases_agree_with_the_pysh_owned_expectations(installed) -> None:
+    """Real interactive sessions through the controlled PTY harness (selected, deterministic cases)."""
+    from tests.differential import pty_lab
+
+    profile, executable = installed
+    cases, _data = pty_lab.load_pty_corpus()
+    applicable = [c for c in cases if profile.legacy_shell in c.shells]
+    records, problems = pty_lab.evaluate_profile(profile, executable)
+    assert problems == [], problems
+    assert [r.case_id for r in records] == [c.case_id for c in applicable]
+    assert {r.classification for r in records} == {"MATCH"}  # no PTY divergence is registered

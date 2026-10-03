@@ -316,6 +316,8 @@ def fake_lab(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(lab, "observe_pysh", observe_pysh)
     monkeypatch.setattr(lab, "observe_reference", observe_reference)
     monkeypatch.setattr(lab, "load_reference_cases", lambda path=lab.DEFAULT_CASES: (SELECTED,))
+    state["pty"] = ([], [])
+    monkeypatch.setattr(lab, "_evaluate_pty", lambda profile, executable, cache, corpus: state["pty"])
     return state, calls
 
 
@@ -819,3 +821,321 @@ def test_unrelated_programming_errors_in_discovery_are_not_swallowed(
     monkeypatch.setattr(lab, "probe_reference", broken)
     with pytest.raises(KeyError):
         lab.run_lab(platform_id="debian13-amd64")
+
+
+# --- controlled PTY migration evidence --------------------------------------------------------
+
+from tests.differential import pty_lab  # noqa: E402
+
+FAKE_PTY_SHELL = REPO_ROOT / "tests" / "fixtures" / "fake_pty_shell.py"
+
+
+@pytest.fixture
+def fake_pty_shells(tmp_path: Path):
+    source = FAKE_PTY_SHELL.read_text(encoding="utf-8")
+    body = source.split("\n", 1)[1] if source.startswith("#!") else source
+
+    def make(name: str) -> Path:
+        directory = tmp_path / "ptybin"
+        directory.mkdir(exist_ok=True)
+        path = directory / name
+        path.write_text(f"#!{PYTHON}\n{body}", encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    return make
+
+
+def _bash_profile() -> LegacyProfile:
+    return _profile_for("bash")
+
+
+def _case(case_id: str) -> pty_lab.PtyCase:
+    cases, _data = pty_lab.load_pty_corpus()
+    return next(c for c in cases if c.case_id == case_id)
+
+
+def test_pty_corpus_is_valid_stable_and_separate_from_the_84_command_mappings() -> None:
+    cases, data = pty_lab.load_pty_corpus()
+    ids = [c.case_id for c in cases]
+    assert len(ids) == len(set(ids)) == 6
+    assert all(re.fullmatch(r"pty-[a-z0-9]+(-[a-z0-9]+)*", i) for i in ids)
+    assert not set(ids) & set(CASES48), "PTY cases are never mapped onto #48 command cases"
+    assert data["divergences"] == []
+    assert len(migration.load_migration().cases) == 84  # the command baseline is untouched
+    assert all(c.shells <= {"bash", "zsh", "fish"} for c in cases)
+    assert {c.case_id for c in cases if "fish" not in c.shells} == {"pty-exported-variable"}
+    for case in cases:
+        assert case.input_bytes().count(b"\r") == len(case.send)
+        assert len(case.input_bytes()) <= pty_lab.PTY_MAX_INPUT_BYTES
+        assert all(line.startswith(pty_lab.SENTINEL) for line in case.payload)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda d: d.update(extra=1), "root"),
+        (lambda d: d.update(schema_version=2), "schema_version"),
+        (lambda d: d["cases"][0].update(case_id="Bad_ID"), "invalid stable ID"),
+        (lambda d: d["cases"][0].update(case_id="lexical-unquoted-words"), "invalid stable ID"),
+        (lambda d: d["cases"].append(copy.deepcopy(d["cases"][0])), "duplicate case"),
+        (lambda d: d["cases"][0].update(anchor="PYSH-MIG-PTY-NOT-DOCUMENTED"), "not a documented"),
+        (lambda d: d["cases"][0].update(anchor="PYSH-MIG-OUTCOMES"), "not a documented"),
+        (lambda d: d["cases"][0].update(shells=["sh"]), "subset of bash/zsh/fish"),
+        (lambda d: d["cases"][0].update(shells=["bash", "bash"]), "unique"),
+        (lambda d: d["cases"][0].update(send=["a\nb"]), "single-line"),
+        (lambda d: d["cases"][0].update(send=["\x1b[A"]), "single-line"),
+        (lambda d: d["cases"][0].update(send=[], eof=False), "needs input or eof"),
+        (lambda d: d["cases"][0].update(send=["x" * 600]), "exceeds"),
+        (lambda d: d["cases"][0]["expected"].update(payload=["no sentinel"]), "sentinel"),
+        (lambda d: d["cases"][0]["expected"].update(status=300), "0..255"),
+        (lambda d: d["cases"][0].update(extra=1), "unexpected fields"),
+        (lambda d: d["cases"][0].update(rationale=""), "rationale"),
+        (lambda d: d.update(cases=[]), "non-empty"),
+    ],
+)
+def test_pty_corpus_schema_is_closed(mutate, message: str) -> None:
+    raw = json.loads(pty_lab.DEFAULT_PTY_CASES.read_text(encoding="utf-8"))
+    mutate(raw)
+    from tests.differential.corpus import DEFAULT_DOC
+
+    with pytest.raises(pty_lab.PtyCaseError, match=re.escape(message)):
+        pty_lab.parse_pty_cases(raw, pty_lab.documented_pty_anchors(DEFAULT_DOC))
+
+
+def test_every_pty_anchor_is_documented_exactly_once() -> None:
+    from tests.differential.corpus import DEFAULT_DOC
+
+    text = DEFAULT_DOC.read_text(encoding="utf-8")
+    cases, _ = pty_lab.load_pty_corpus()
+    for case in cases:
+        assert text.count(f'<a id="{case.anchor}"></a>') == 1, case.anchor
+        assert f"`{case.case_id}`" in text
+
+
+def test_pty_normalization_is_exact_and_narrow() -> None:
+    raw = (
+        "\x1b[?2004hPTY> fixture-echo PYSH-PTY:x\r\n"  # echoed input is not output
+        "\x1b[32mPYSH-PTY:one\x1b[0m\r\n"  # ANSI removed, CRLF -> LF
+        "garbage\rPYSH-PTY:redrawn\r\n"  # a redraw keeps the final text
+        " PYSH-PTY:indented\r\n"  # only lines BEGINNING with the sentinel count
+        "x PYSH-PTY:mid\r\n"
+        "\x1b]0;title\x07PYSH-PTY:osc\r\n"
+        "PTY> PTY> PYSH-PTY:after-prompt\r\n"  # the configured prompt itself is stripped
+        "PTY> "
+    )
+    assert pty_lab.normalize_transcript(raw) == (
+        "PYSH-PTY:one", "PYSH-PTY:redrawn", "PYSH-PTY:osc", "PYSH-PTY:after-prompt",
+    )
+    assert pty_lab.normalize_transcript("") == ()
+
+
+def test_pty_constants_are_bounded() -> None:
+    assert 0 < pty_lab.PTY_TIMEOUT_SECONDS <= 60
+    assert 0 < pty_lab.PTY_MAX_OUTPUT_BYTES <= 1 << 20
+    assert 0 < pty_lab.PTY_MAX_INPUT_BYTES <= 4096
+    rows, cols = pty_lab.PTY_WINSIZE
+    assert rows > 0 and cols >= 120  # wide enough that nothing wraps
+
+
+def test_pty_classification_runs_pysh_first_and_never_excuses_a_violation() -> None:
+    case = _case("pty-prompt-roundtrip")
+    profile = _bash_profile()
+    good = pty_lab.PtyObservation(0, ("PYSH-PTY:roundtrip",))
+    bad = pty_lab.PtyObservation(0, ("PYSH-PTY:other",))
+    record = pty_lab.classify_pty(case, profile, bad, None, None)
+    assert record.classification == "REGRESSION" and record.reference is None
+    assert pty_lab.classify_pty(case, profile, bad, bad, None).classification == "REGRESSION"
+    assert pty_lab.classify_pty(case, profile, good, good, None).classification == "MATCH"
+    different = pty_lab.PtyObservation(1, ("PYSH-PTY:roundtrip",))
+    undeclared = pty_lab.classify_pty(case, profile, good, different, None)
+    assert undeclared.classification == lab.UNDECLARED_DIFFERENCE and "unreviewed" in undeclared.detail
+    with pytest.raises(lab.LabError):
+        pty_lab.classify_pty(case, profile, good, None, None)  # a reference is required after PySH passes
+    declared = MigrationCase(
+        case.case_id, profile.profile_id, Declared.INTENDED_DIVERGENCE, pty_lab.DIMENSIONS,
+        "PYSH-MIG-DIV-SYNTHETIC", None, "synthetic",
+    )
+    assert pty_lab.classify_pty(case, profile, good, different, declared).classification == "INTENDED_DIVERGENCE"
+    with pytest.raises(StaleDivergenceError):
+        pty_lab.classify_pty(case, profile, good, good, declared)
+    complete = {pty_lab.classify_pty(case, profile, good, r, d).classification
+                for r, d in ((good, None), (different, None), (different, declared))}
+    assert complete == {"MATCH", lab.UNDECLARED_DIFFERENCE, "INTENDED_DIVERGENCE"}
+
+
+def test_pty_evidence_record_is_deterministic_separate_and_sanitized() -> None:
+    case = _case("pty-explicit-exit-status")
+    profile = _bash_profile()
+    obs = pty_lab.PtyObservation(7, ())
+    one = pty_lab.classify_pty(case, profile, obs, obs, None).to_dict()
+    two = pty_lab.classify_pty(case, profile, obs, obs, None).to_dict()
+    assert one == two
+    assert set(one) == {
+        "case_id", "profile_id", "contract_anchor", "compared_dimensions", "pysh_observation",
+        "reference_observation", "classification", "migration_anchor", "detail",
+    }
+    text = json.dumps(one)
+    for forbidden in ("/home/", "/tmp/", "HOME", "environ", "timestamp"):
+        assert forbidden not in text
+
+
+@pytest.mark.parametrize("case_id", [c.case_id for c in pty_lab.load_pty_corpus()[0]])
+def test_the_harness_reproduces_every_case_with_a_correct_fake_shell(case_id: str, fake_pty_shells) -> None:
+    case = _case(case_id)
+    profile = _bash_profile()
+    observed = pty_lab.observe_reference_pty(profile, fake_pty_shells("bash"), case)
+    assert (observed.status, observed.payload) == (case.status, case.payload)
+
+
+def test_pysh_satisfies_every_pty_case_first() -> None:
+    cases, _ = pty_lab.load_pty_corpus()
+    for case in cases:
+        observed = pty_lab.observe_pysh_pty(case)
+        assert (observed.status, observed.payload) == (case.status, case.payload), case.case_id
+
+
+def test_the_harness_fails_closed_on_hang_flood_and_hostile_startup(
+    fake_pty_shells, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _case("pty-prompt-roundtrip")
+    monkeypatch.setattr(pty_lab, "PTY_TIMEOUT_SECONDS", 2.0)
+    monkeypatch.setattr(pty_lab, "PTY_MAX_OUTPUT_BYTES", 5000)
+    with pytest.raises(pty_lab.PtyError, match="did not complete"):
+        pty_lab.observe_reference_pty(_bash_profile(), fake_pty_shells("bash_hang"), case)
+    with pytest.raises(pty_lab.PtyError, match="output exceeded"):
+        pty_lab.observe_reference_pty(_bash_profile(), fake_pty_shells("bash_flood"), case)
+    with pytest.raises(pty_lab.PtyError, match="hostile startup file was executed"):
+        pty_lab.observe_reference_pty(_bash_profile(), fake_pty_shells("bash_hostile"), case)
+
+
+def test_the_pty_session_sweeps_descendants_left_in_its_group(
+    fake_pty_shells, tmp_path: Path
+) -> None:
+    import time as _time
+
+    from tests.fuzz_support import fdprobe
+    from tests.fuzz_support.execution import unreaped_child
+
+    beat = tmp_path / "beat"
+    case = _case("pty-prompt-roundtrip")
+    before = fdprobe.open_fds()
+    with lab.case_tree() as (tree, env, _ph):
+        child_env = {**lab.reference_environment(env), "TERM": "dumb", "PS1": pty_lab.PROMPT, "FAKE_BEAT": str(beat),
+                     "FAKE_CHILD": str(REPO_ROOT / "tests" / "fixtures" / "differential_reference_child.py")}
+        observed = pty_lab._run_session(
+            [str(fake_pty_shells("bash_orphan"))], child_env, pty_lab.PROMPT.encode(), case, tree
+        )
+    assert observed.payload == case.payload  # the session itself completed normally
+    first = beat.stat().st_size
+    assert first > 0, "the background descendant never ran"
+    _time.sleep(0.4)
+    assert beat.stat().st_size == first, "a descendant of the PTY session survived it"
+    assert fdprobe.open_fds() == before and unreaped_child() is None
+
+
+def test_the_reference_pty_launch_is_controlled(fake_pty_shells, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+    helper = pty_lab.load_pty_helper()
+
+    def fake_run(argv, input_line, **kwargs):
+        captured.update(argv=argv, **kwargs)
+        return helper.PtyResult(0, "", False, True, True)
+
+    monkeypatch.setattr(helper, "run_pty_command", fake_run)
+    monkeypatch.setenv("BASH_ENV", "/host/hostile")
+    monkeypatch.setenv("PYSH_HOST_SECRET", "secret")
+    case = _case("pty-prompt-roundtrip")
+    executable = fake_pty_shells("bash")
+    pty_lab.observe_reference_pty(_bash_profile(), executable, case)
+    argv, env = captured["argv"], captured["env"]
+    assert argv[0] == str(executable) and Path(argv[0]).is_absolute()
+    assert argv[1:] == ["--noprofile", "--norc", "-i"]  # the shared isolation policy + interactive flag
+    assert "BASH_ENV" not in env and "PYSH_HOST_SECRET" not in env
+    assert set(env) <= {"HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "TERM", "PS1",
+                        "PYSH_CONFORMANCE", "PYTHONIOENCODING"}
+    assert env["TERM"] == "dumb" and env["PS1"] == pty_lab.PROMPT
+    assert captured["controlling_tty"] is True and captured["max_output_bytes"] == pty_lab.PTY_MAX_OUTPUT_BYTES
+    assert captured["timeout"] == pty_lab.PTY_TIMEOUT_SECONDS and captured["winsize"] == pty_lab.PTY_WINSIZE
+    assert captured["ready_marker"] == pty_lab.PROMPT.encode()
+    assert captured["input_bytes"] == case.input_bytes()
+    assert "pysh-differential-" in captured["cwd"]
+    for shell, flags in (("zsh", ["-f", "-i"]), ("fish", ["--no-config", "-i", "-C"])):
+        pty_lab.observe_reference_pty(_profile_for(shell), fake_pty_shells(shell), case)
+        assert captured["argv"][1:1 + len(flags)] == flags
+
+
+def test_pty_lab_never_uses_shell_true_or_path_lookup() -> None:
+    import ast
+
+    tree = ast.parse((REPO_ROOT / "tests" / "differential" / "pty_lab.py").read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.keyword) and node.arg == "shell":
+            assert isinstance(node.value, ast.Constant) and node.value.value is False
+        assert not (
+            isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+            and (node.value.id, node.attr) in {("shutil", "which"), ("os", "system"), ("os", "popen")}
+        )
+    assert "subprocess" not in {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+
+
+def test_run_lab_keeps_pty_evidence_separate_and_fails_on_pty_regressions(fake_lab) -> None:
+    state, _calls = fake_lab
+    case = _case("pty-prompt-roundtrip")
+    obs = pty_lab.PtyObservation(0, ("PYSH-PTY:roundtrip",))
+    good = pty_lab.classify_pty(case, state["profile"], obs, obs, None)
+    state["pty"] = ([good], [])
+    document, problems = lab.run_lab(platform_id="debian13-amd64")
+    profile = document["profiles"][0]
+    assert problems == [] and len(profile["pty_records"]) == 1 and len(profile["records"]) == 1
+    assert profile["pty_records"][0]["case_id"] == "pty-prompt-roundtrip"
+    assert "pty-prompt-roundtrip" not in json.dumps(profile["records"])
+    state["pty"] = ([good], ["UNREVIEWED PTY pty-prompt-roundtrip/bash-debian13-amd64: x"])
+    assert any(p.startswith("UNREVIEWED PTY") for p in lab.run_lab(platform_id="debian13-amd64")[1])
+    state["pty"] = ([good], ["REGRESSION PTY pty-prompt-roundtrip/bash-debian13-amd64: x"])
+    assert any(p.startswith("REGRESSION PTY") for p in lab.run_lab(platform_id="debian13-amd64")[1])
+
+
+def test_evaluate_profile_reports_regressions_unreviewed_differences_and_infrastructure_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cases, data = pty_lab.load_pty_corpus()
+    case = _case("pty-prompt-roundtrip")
+    profile = _bash_profile()
+    good = pty_lab.PtyObservation(0, ("PYSH-PTY:roundtrip",))
+    monkeypatch.setattr(pty_lab, "observe_pysh_pty", lambda c: good)
+    monkeypatch.setattr(pty_lab, "observe_reference_pty", lambda p, e, c: pty_lab.PtyObservation(1, ()))
+    records, problems = pty_lab.evaluate_profile(profile, Path("/x"), {}, (case,), {})
+    assert records[0].classification == lab.UNDECLARED_DIFFERENCE
+    assert problems[0].startswith("UNREVIEWED PTY pty-prompt-roundtrip/bash-debian13-amd64")
+    monkeypatch.setattr(pty_lab, "observe_pysh_pty", lambda c: pty_lab.PtyObservation(9, ()))
+    _records, problems = pty_lab.evaluate_profile(profile, Path("/x"), {}, (case,), {})
+    assert problems[0].startswith("REGRESSION PTY")
+
+    def broken(p, e, c):
+        raise pty_lab.PtyError("PTY session did not complete (synthetic)")
+
+    monkeypatch.setattr(pty_lab, "observe_pysh_pty", lambda c: good)
+    monkeypatch.setattr(pty_lab, "observe_reference_pty", broken)
+    records, problems = pty_lab.evaluate_profile(profile, Path("/x"), {}, (case,), {})
+    assert records == [] and "did not complete" in problems[0]
+    assert len(cases) == 6 and data["divergences"] == []
+
+
+def test_ci_and_documentation_cover_the_pty_evidence() -> None:
+    for job in ("legacy-shell-evidence-debian", "legacy-shell-evidence-freebsd"):
+        body = _job(job)
+        assert "tests/test_legacy_shell_lab_integration.py" in body  # includes the PTY integration tests
+        assert "--require-all" in body
+    text = " ".join((REPO_ROOT / "docs" / "compatibility" / "legacy-shell-migration.md").read_text(encoding="utf-8").split())
+    for phrase in (
+        "Controlled PTY migration evidence",
+        "migration evidence only",
+        "never makes a reference shell normative",
+        "does not claim interactive compatibility",
+        "Shell-specific line editing, key bindings, completion, history",
+        "only lines beginning with `PYSH-PTY:` then count as output",
+        "No PTY divergence is registered",
+        "the 84 command mappings",
+    ):
+        assert phrase in text, phrase

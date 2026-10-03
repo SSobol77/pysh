@@ -295,22 +295,22 @@ def run_hermetic(
         ) from error
 
     deadline = time.monotonic() + timeout
+    # From here on this function owns the new session's process group until it has swept
+    # it. The sweep is unconditional and happens BEFORE the leader is reaped (the zombie
+    # leader keeps the group id reserved, so an unrelated recycled group is never hit):
+    # the leader may already be gone while a background descendant is still alive.
     try:
         state, out, err = _pump(process, stdin, deadline, max_output_bytes)
         if state == "eof" and not _wait_exited(process, deadline - time.monotonic()):
             state = "timeout"
         if state != "eof":
             _terminate_group(process)
-        # Nothing may outlive the run, including background grandchildren.
-        _signal_group(process.pid, signal.SIGKILL)
-        returncode = process.wait()
     finally:
+        _signal_group(process.pid, signal.SIGKILL)  # every exit path, leader alive or not
         for stream in (process.stdin, process.stdout, process.stderr):
             if stream is not None and not stream.closed:
                 stream.close()
-        if process.poll() is None:  # pragma: no cover - defensive: never leave a child
-            _signal_group(process.pid, signal.SIGKILL)
-            process.wait()
+        returncode = process.wait()  # reap the leader last
 
     stdout, stderr = _decode(out), _decode(err)
     if state == "timeout":

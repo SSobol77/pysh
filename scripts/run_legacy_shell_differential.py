@@ -34,6 +34,7 @@ EXIT_OK, EXIT_CLASSIFICATION, EXIT_USAGE, EXIT_INFRASTRUCTURE = 0, 1, 2, 3
 INFRASTRUCTURE_MARKERS = (
     "version drift", "startup isolation failed", "is not installed", "no legacy reference profiles",
     "cannot read the version", "cannot execute", "executable not found",
+    "PTY session did not complete", "PTY output exceeded", "hostile startup file",
 )
 
 
@@ -78,6 +79,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    pin proposal: version={profile['observed_version']!r} "
                   f"package_version={profile['observed_package_version']!r}")
         print(f"    cases={len(records)} " + " ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+        pty_counts: dict[str, int] = {}
+        for record in profile["pty_records"]:
+            pty_counts[record["classification"]] = pty_counts.get(record["classification"], 0) + 1
+        print(f"    pty_cases={len(profile['pty_records'])} "
+              + " ".join(f"{k}={v}" for k, v in sorted(pty_counts.items())))
     for problem in problems:
         print(f"PROBLEM: {problem}", file=sys.stderr)
     if not problems:
