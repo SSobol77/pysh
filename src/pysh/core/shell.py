@@ -1482,6 +1482,12 @@ class PyShell:
         """Fork isolated stages connected by OS pipes and return the last status."""
         pids: list[int] = []
         previous_read: int | None = None
+        # Process-group invariant. Normal shell: the first stage's pid is the pipeline's
+        # own process group (every stage joins it with setpgid), and that id is what job
+        # records, terminal handover and group signals use. Substitution containment
+        # domain: stages deliberately stay in the already-established domain group, so no
+        # pipeline group exists and ``pipeline_pgid`` stays None. The first child's pid is
+        # NOT a valid group id there and must never reach add_job/tcsetpgrp/killpg.
         pipeline_pgid: int | None = None
         sys.stdout.flush()
         sys.stderr.flush()
@@ -1530,9 +1536,9 @@ class PyShell:
                         status = ExitCode.GENERAL_ERROR
                     os._exit(int(status))
 
-                if pipeline_pgid is None:
-                    pipeline_pgid = pid
                 if not self._descendants_contained:
+                    if pipeline_pgid is None:
+                        pipeline_pgid = pid
                     try:
                         os.setpgid(pid, pipeline_pgid)
                     except OSError:
@@ -1545,7 +1551,11 @@ class PyShell:
                 previous_read = next_read
 
             if background:
-                assert pipeline_pgid is not None
+                if pipeline_pgid is None:
+                    # Contained domain: no job record (its group id would be invalid and a
+                    # later fg/bg/kill could signal the nested PySH itself). The stages are
+                    # swept with the substitution's process group.
+                    return ExitCode.SUCCESS
                 job = self.job_table.add_job(
                     pipeline_pgid,
                     original_command,
@@ -1556,7 +1566,7 @@ class PyShell:
                 return ExitCode.SUCCESS
 
             raw_statuses: dict[int, int] = {}
-            tty_fd = self._tty_fd
+            tty_fd = self._tty_fd if pipeline_pgid is not None else None
             if tty_fd is not None and pipeline_pgid is not None:
                 if not tcsetpgrp_safely(tty_fd, pipeline_pgid):
                     tty_fd = None
@@ -1569,6 +1579,14 @@ class PyShell:
                         os.killpg(pipeline_pgid, signal.SIGINT)
                     except OSError:
                         pass
+                else:
+                    # Contained domain: signal only the stages this shell forked.
+                    for pid in pids:
+                        if pid not in raw_statuses:
+                            try:
+                                os.kill(pid, signal.SIGINT)
+                            except OSError:
+                                pass
                 for pid in pids:
                     if pid not in raw_statuses:
                         try:
@@ -1706,13 +1724,18 @@ class PyShell:
                     pass
 
             if background:
+                if self._descendants_contained:
+                    # Contained domain: proc.pid is not a group of its own, so no job record
+                    # (see the pipeline invariant above); the process is swept with the domain.
+                    return ExitCode.SUCCESS
                 # Register as background job; return immediately.
                 job = self.job_table.add_job(pgid, cmd_text, [proc.pid], background=True)
                 print(f"[{job.job_id}] {proc.pid}", flush=True)
                 return ExitCode.SUCCESS
 
-            # Foreground: give terminal to child's process group.
-            tty_fd = self._tty_fd
+            # Foreground: give terminal to child's process group (never in a contained
+            # domain, where the child has no group of its own).
+            tty_fd = None if self._descendants_contained else self._tty_fd
             if tty_fd is not None:
                 if not tcsetpgrp_safely(tty_fd, pgid):
                     tty_fd = None

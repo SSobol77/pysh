@@ -130,9 +130,10 @@ below); the developer workstation's shell is never an authority.
 ## Divergence registry
 
 Each verified intentional divergence adds one `<a id="PYSH-MIG-DIV-...">`
-anchor and section here, plus one metadata case. None are registered yet: no
-legacy shell has been executed as evidence, and speculative mappings are not
-recorded.
+anchor and section here, plus one metadata case. No intended divergence is
+registered: the reviewed Tier-1 baseline (see below) produced no difference that
+needed an `INTENDED_DIVERGENCE`, and speculative mappings are not recorded. A
+real divergence still requires a `PYSH-MIG-DIV-*` anchor and guidance.
 
 <a id="PYSH-MIG-BOUNDARIES"></a>
 

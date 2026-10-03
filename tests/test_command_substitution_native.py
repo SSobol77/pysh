@@ -284,7 +284,7 @@ def test_production_substitution_module_has_no_legacy_shell_reference() -> None:
         n.value for r in runners for n in ast.walk(r)
         if isinstance(n, ast.Constant) and isinstance(n.value, str)
     }
-    assert {"-m", "pysh", "--no-rc", "-c"} <= constants
+    assert {"-P", "-m", "pysh", "--no-rc", "-c"} <= constants
     assert not constants & LEGACY_NAMES
     assert sys.executable  # the nested interpreter is the running Python
 
@@ -343,16 +343,16 @@ def test_normal_completion_leaves_no_descendant(tmp_path: Path) -> None:
 
 def test_cancellation_leaves_no_descendant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     beat = tmp_path / "beat"
-    real_wait = expansion._wait_exited
+    real_wait = expansion._pump_until_exit
 
-    def cancelled(process, timeout):
+    def cancelled(process, deadline, buffers, limits):
         _wait_for_beat(beat)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(expansion, "_wait_exited", cancelled)
+    monkeypatch.setattr(expansion, "_pump_until_exit", cancelled)
     with pytest.raises(KeyboardInterrupt):
         expansion.expand_command_substitution(f"X=$({sys.executable} {FIXTURE} heartbeat {beat})")
-    monkeypatch.setattr(expansion, "_wait_exited", real_wait)
+    monkeypatch.setattr(expansion, "_pump_until_exit", real_wait)
     _assert_beat_stopped(beat)
 
 
@@ -509,3 +509,140 @@ def test_depth_state_never_leaks_into_the_outer_environment(shell, capfd) -> Non
     assert expansion.SUBSTITUTION_DEPTH_ENV not in os.environ
     assert _out(shell, capfd, "echo $(echo $(printf x))")[1] == "x\n"
     assert expansion.SUBSTITUTION_DEPTH_ENV not in os.environ
+
+
+# --- safe module lookup for the nested PySH ---------------------------------------------------
+
+
+def test_nested_pysh_ignores_a_hostile_pysh_package_in_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "hostile-executed"
+    hostile = tmp_path / "pysh"
+    hostile.mkdir()
+    (hostile / "__init__.py").write_text("", encoding="utf-8")
+    (hostile / "__main__.py").write_text(
+        f"import pathlib\npathlib.Path({str(marker)!r}).touch()\nprint('HOSTILE')\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)  # the substitution's working directory contains pysh/__main__.py
+    out = expansion.expand_command_substitution("X=$(printf real)", timeout=30.0)
+    assert out == "X=real"  # the installed PySH ran, not the local package
+    assert not marker.exists()
+
+
+def test_the_nested_interpreter_is_started_with_safe_path_before_dash_m() -> None:
+    source = EXPANSION.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    run_nested = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_run_nested")
+    lists = [
+        [e.value if isinstance(e, ast.Constant) else None for e in n.elts]
+        for n in ast.walk(run_nested) if isinstance(n, ast.List)
+    ]
+    argv = next(item for item in lists if "-m" in item)
+    assert argv[argv.index("-m") - 1] == "-P", argv  # -P must precede -m
+    assert "-I" not in argv  # isolated mode would change more environment semantics than needed
+
+
+# --- bounded output ---------------------------------------------------------------------------
+
+
+def _py(code: str) -> str:
+    """A PySH command line running ``code`` with the test interpreter (double-quoted for PySH)."""
+    assert '"' not in code and "$" not in code and "`" not in code
+    return f'{sys.executable} -c "{code}"'
+
+
+FLOOD_STDOUT = _py("import sys; sys.stdout.write('x' * 50000000)")
+FLOOD_STDERR = _py("import sys; sys.stderr.write('e' * 50000000)")
+
+
+def test_output_below_the_limits_is_unchanged_and_stderr_does_not_alter_the_payload() -> None:
+    assert expansion.expand_command_substitution(f"X=$({_py('print(1234)')})") == "X=1234"
+    both = _py("import sys; print('out'); sys.stderr.write('diagnostic')")
+    assert expansion.expand_command_substitution(f"X=$({both})") == "X=out"
+    result = expansion._run_nested(both, 30.0)
+    assert (result.stdout, result.stderr, result.timed_out, result.output_limited) == ("out\n", "diagnostic", False, None)
+
+
+@pytest.mark.parametrize(("flood", "stream"), [(FLOOD_STDOUT, "stdout"), (FLOOD_STDERR, "stderr")])
+def test_a_flood_hits_the_limit_fails_closed_and_substitutes_nothing(
+    flood: str, stream: str, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    import time
+
+    monkeypatch.setattr(expansion, "MAX_SUBSTITUTION_STDOUT_BYTES", 100_000)
+    monkeypatch.setattr(expansion, "MAX_SUBSTITUTION_STDERR_BYTES", 50_000)
+    start = time.monotonic()
+    out = expansion.expand_command_substitution(f"X=$({flood})", timeout=30.0)
+    assert out == "X="  # empty, not a truncated payload
+    assert time.monotonic() - start < 20  # stopped by the limit, not the timeout
+    err = capsys.readouterr().err
+    assert f"pysh: substitution: {stream} exceeded" in err and "Traceback" not in err
+    result = expansion._run_nested(flood, 30.0, max_stdout=100_000, max_stderr=50_000)
+    assert result.output_limited == stream and (result.stdout, result.stderr) == ("", "")
+
+
+def test_capture_growth_itself_is_bounded_not_just_the_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No file is used and the in-memory capture never exceeds limit + one read chunk."""
+    import tracemalloc
+
+    seen: dict[str, int] = {}
+    real = expansion._pump_until_exit
+
+    def spy(process, deadline, buffers, limits):
+        state = real(process, deadline, buffers, limits)
+        seen.update({k: len(v) for k, v in buffers.items()})
+        return state
+
+    monkeypatch.setattr(expansion, "_pump_until_exit", spy)
+    limit = 200_000
+    tracemalloc.start()
+    try:
+        result = expansion._run_nested(FLOOD_STDOUT, 30.0, max_stdout=limit)
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert result.output_limited == "stdout"
+    assert limit < seen["stdout"] <= limit + expansion._READ_CHUNK
+    assert peak < 5 * (limit + expansion._READ_CHUNK)  # nothing near the 50 MB the child tried to write
+    source = EXPANSION.read_text(encoding="utf-8")
+    assert "TemporaryFile" not in source and "tempfile" not in source
+
+
+def test_timeout_does_not_read_or_decode_captured_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    def forbidden(_data):
+        raise AssertionError("captured output must not be decoded on timeout / output limit")
+
+    monkeypatch.setattr(expansion, "_decode", forbidden)
+    slow = _py("import sys, time; sys.stdout.write('partial'); sys.stdout.flush(); time.sleep(30)")
+    result = expansion._run_nested(slow, 1.5)
+    assert result.timed_out and (result.stdout, result.stderr) == ("", "")
+    flooded = expansion._run_nested(FLOOD_STDOUT, 30.0, max_stdout=10_000)
+    assert flooded.output_limited == "stdout" and flooded.stdout == ""
+
+
+def test_output_limit_kills_the_whole_tree(tmp_path: Path) -> None:
+    beat = tmp_path / "beat"
+    noisy = f"{sys.executable} {FIXTURE} heartbeat {beat} & {FLOOD_STDOUT}"
+    result = expansion._run_nested(noisy, 30.0, max_stdout=50_000)
+    assert result.output_limited == "stdout"
+    _assert_beat_stopped(beat)
+
+
+def test_repeated_output_limit_failures_leak_no_descriptors_or_children(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.fuzz_support import fdprobe
+    from tests.fuzz_support.execution import unreaped_child
+
+    expansion._run_nested(FLOOD_STDOUT, 30.0, max_stdout=20_000)  # warm up
+    before = fdprobe.open_fds()
+    for _ in range(6):
+        assert expansion._run_nested(FLOOD_STDOUT, 30.0, max_stdout=20_000).output_limited == "stdout"
+        assert expansion._run_nested(FLOOD_STDERR, 30.0, max_stderr=20_000).output_limited == "stderr"
+    assert fdprobe.open_fds() == before
+    assert unreaped_child() is None
+
+
+def test_the_documented_limits_are_finite_and_stderr_is_bounded_tighter() -> None:
+    assert 0 < expansion.MAX_SUBSTITUTION_STDERR_BYTES < expansion.MAX_SUBSTITUTION_STDOUT_BYTES < 1 << 30

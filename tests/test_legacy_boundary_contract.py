@@ -198,7 +198,6 @@ def test_production_tree_has_no_unreviewed_legacy_execution_signal() -> None:
         "import subprocess\ndef f(c):\n    subprocess.run(['bash', '-c', c])\n",
         "import subprocess\ndef f(c):\n    subprocess.Popen(['/bin/zsh', c])\n",
         "import subprocess\ndef f(c):\n    subprocess.run(['fish', '-c', c])\n",
-        "import subprocess\ndef f(c):\n    subprocess.run(['/usr/bin/env', 'bash'])\n" if False else
         "def f():\n    x = '#!/usr/bin/env bash'\n",
         "import subprocess\ndef f(c):\n    subprocess.run(c, shell=True)\n",
         "import os\ndef f(c):\n    os.system(c)\n",

@@ -73,7 +73,7 @@
       "automatic": false,
       "product_dependency": false,
       "semantic_authority": false,
-      "policy": "Describes the bridges; no execution.",
+      "policy": "Documentation only: describes the explicit shebang delegation boundary and the removed historical zsh bridge; it executes nothing.",
       "notes": "Documentation never counts as a drift signal."
     }
   ]

@@ -292,8 +292,8 @@ class TestDiagnosticsNonMutation:
 
         plan = classify("echo hello")
         assert plan is not None
-        assert plan.kind in {"builtin", "external", "pipeline", "chain",
-                             "python", "zsh-delegation", "script", "unknown"}
+        assert plan.kind in {"builtin", "external", "plugin", "pipeline", "chain",
+                             "python", "script", "unknown"}
 
     def test_env_audit_redacts_secret_variables(self) -> None:
         """env_audit redacts variables with sensitive names."""

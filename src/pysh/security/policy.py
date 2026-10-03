@@ -33,8 +33,9 @@ class TrustLevel(StrEnum):
                        ~/.pyshrc, ~/.pyshrc.py, and ~/.pyshrc.d/*.pysh.
 
     TRUSTED_DELEGATED  Explicit user delegation to an external interpreter.
-                       The delegation command is user-issued.  Examples:
-                       ``zsh <command>``, ``run_script``.
+                       The delegation is explicit and comes from the script's own
+                       shebang through ``run_script``.  PySH has no ``zsh``
+                       builtin or bridge.
 
     STATIC_IMPORT      Read-only text parse of a foreign profile file.  No
                        shell code is executed.  Examples: source_zsh,

@@ -133,6 +133,18 @@ Parser-owned unsupported constructs such as `$((expr))`, `(( expr ))` and
 `let` return a parse diagnostic with status 2. Heredoc parse errors such as a
 missing delimiter word or missing terminator also return status 2.
 
+## Command substitution limits
+
+`$(...)` and backtick substitution are evaluated by an isolated nested PySH. Each
+substitution is bounded by the 5-second timeout and by output limits: the
+captured standard output may not exceed 4 MiB and the (never propagated)
+standard error 256 KiB. A substitution that exceeds the timeout or a limit
+emits a `pysh: substitution: ...` diagnostic and substitutes an empty string;
+output is never silently truncated. Processes started by the substitution are
+terminated when it ends. A process that deliberately starts its own session or
+process group (a daemon) is not contained. Each substitution costs roughly one
+PySH start-up.
+
 ## Static zsh/sh import
 
 `source_zsh`, `source_zsh_profile` and `source_sh_aliases` are static import

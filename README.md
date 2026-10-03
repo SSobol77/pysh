@@ -244,7 +244,7 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 **Migration**
 
 - [Migration](https://github.com/SSobol77/pysh/blob/main/docs/migration/migration.md) — static profile import, script transition runner, and compatibility reporting.
-- [Zsh compatibility](https://github.com/SSobol77/pysh/blob/main/docs/migration/zsh-compatibility.md) — transition bridge, safe profile import, explicit zsh delegation (no automatic fallback).
+- [Zsh compatibility](https://github.com/SSobol77/pysh/blob/main/docs/migration/zsh-compatibility.md) — static migration helpers and safe profile import; no zsh builtin, no production bridge and no fallback (a program named `zsh` is an ordinary external command).
 
 **Compatibility contracts**
 

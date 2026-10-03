@@ -719,7 +719,7 @@ def run_lab(
                     f"startup isolation failed for {profile.profile_id}: "
                     + ", ".join(f"{c.name} ({c.detail})" if c.detail else c.name for c in failed)
                 )
-        except LabError as error:
+        except (ExecutorError, LabError) as error:
             problems.append(str(error))
             publish()
             continue

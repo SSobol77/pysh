@@ -209,7 +209,7 @@ Guides for users transitioning from zsh, bash, sh, or Fish.
 | Document | Description |
 | -------- | ----------- |
 | [migration.md](migration/migration.md) | Static profile import, script transition runner, compatibility reporting |
-| [zsh-compatibility.md](migration/zsh-compatibility.md) | Transition bridge, safe profile import, explicit zsh delegation (no automatic fallback) |
+| [zsh-compatibility.md](migration/zsh-compatibility.md) | Static migration helpers and safe profile import; no zsh builtin, no production bridge and no fallback (a program named `zsh` is an ordinary external command) |
 
 ---
 

@@ -773,3 +773,49 @@ def test_documentation_records_the_reviewed_pins_without_overclaiming() -> None:
         "requires exactly one reviewed mapping",
     ):
         assert phrase in text, phrase
+
+
+def test_an_executor_error_during_discovery_is_a_problem_and_the_run_continues(
+    fake_lab, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.differential.executor import ExecutorError
+
+    state, calls = fake_lab
+    second = _profile(
+        profile_id="zsh-debian13-amd64", legacy_shell="zsh", platform="debian13-amd64",
+        executable="/usr/bin/zsh", startup_policy="zsh-no-rcs-v1",
+    )
+    first = state["profile"]
+    zsh_case = lab.ReferenceCase(EXPECTED_CASE, frozenset({"bash", "zsh"}), SELECTED.dimensions, "x")
+    monkeypatch.setattr(lab, "load_reference_cases", lambda path=lab.DEFAULT_CASES: (zsh_case,))
+    monkeypatch.setattr(
+        lab, "load_migration",
+        lambda: migration.MigrationMetadata({first.profile_id: first, second.profile_id: second}, ()),
+    )
+
+    def probe(profile, executable):
+        if profile.legacy_shell == "bash":
+            raise ExecutorError("cannot execute bash: EACCES")  # infrastructure failure, not LabError
+        return lab.Probe("zsh 5.9", "5.9-1")
+
+    monkeypatch.setattr(lab, "probe_reference", probe)
+    published: list[dict[str, object]] = []
+    document, problems = lab.run_lab(platform_id="debian13-amd64", progress=published.append)
+    assert any("cannot execute bash" in p for p in problems)
+    assert published, "evidence must still be published"
+    profiles = {p["profile_id"]: p for p in document["profiles"]}
+    assert profiles["bash-debian13-amd64"]["records"] == []
+    # The run continued with the next profile and produced its records.
+    assert [r["classification"] for r in profiles["zsh-debian13-amd64"]["records"]] == ["MATCH"]
+    assert calls["reference"], "the subsequent profile was exercised"
+
+
+def test_unrelated_programming_errors_in_discovery_are_not_swallowed(
+    fake_lab, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(profile, executable):
+        raise KeyError("a programming error")
+
+    monkeypatch.setattr(lab, "probe_reference", broken)
+    with pytest.raises(KeyError):
+        lab.run_lab(platform_id="debian13-amd64")

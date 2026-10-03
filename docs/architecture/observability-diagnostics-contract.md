@@ -124,8 +124,8 @@ Rules:
 ## Command planning
 
 `plan <command...>` is advisory and non-mutating. It classifies a line as
-`builtin`, `external`, `pipeline`, `chain`, `python`, `zsh-delegation`,
-`script` or `unknown`, assigns a coarse risk level, and prints a deterministic
+`builtin`, `external`, `plugin`, `pipeline`, `chain`, `python`, `script` or
+`unknown`, assigns a coarse risk level, and prints a deterministic
 report. It never executes the target command, command substitutions inside the
 target, redirections, scripts, profile files or PATH candidates.
 
