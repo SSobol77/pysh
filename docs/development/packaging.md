@@ -61,6 +61,12 @@ For version `X.Y.Z` and package release `1`:
 The build scripts and CI **fail** if produced `.deb`, `.rpm`, or `.pkg`
 filenames drift from the canonical names above.
 
+These names are the only subject names any later supply-chain layer (SBOM,
+provenance, `SHA256SUMS`) may use; see
+[`supply-chain.md`](../security/supply-chain.md). Issue #51 defines the
+supply-chain contract; real SBOM/provenance generation is implemented in later
+slices.
+
 ## Output directories
 
 The local build layout keeps PyPI artifacts at `dist/` and OS packages under

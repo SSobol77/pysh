@@ -236,6 +236,19 @@ def check_release_workflow(log_dir: Path) -> CheckResult:
     )
 
 
+def check_supply_chain_contract(log_dir: Path) -> CheckResult:
+    return run_subprocess_check(
+        [
+            "uv",
+            "run",
+            "python",
+            str(REPO_ROOT / "scripts" / "check_supply_chain_contract.py"),
+        ],
+        log_dir=log_dir,
+        log_name="supply-chain-contract",
+    )
+
+
 def check_pytest(log_dir: Path) -> CheckResult:
     return run_subprocess_check(
         ["uv", "run", "pytest", "-q"], log_dir=log_dir, log_name="pytest", timeout=900.0
@@ -560,6 +573,12 @@ def build_checks() -> list[Check]:
             "workflow",
             fast_ci_full,
             check_release_workflow,
+        ),
+        Check(
+            "supply-chain contract",
+            "supply-chain",
+            fast_ci_full,
+            check_supply_chain_contract,
         ),
         Check("unit/integration tests", "tests", ci_full, check_pytest),
         Check("PTY TERM=dumb", "tests", ci_full, check_pty_dumb),

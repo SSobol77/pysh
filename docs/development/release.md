@@ -31,6 +31,13 @@ compatibility boundary is separate from release-independent FreeBSD/GhostBSD
 runtime support; use Python packaging or build the `.pkg` on another
 compatible host when the reference ABI does not match.
 
+The supply-chain assurance policy for these artifacts (SBOM, provenance,
+verification, fail-closed handling, reproducibility status) is defined by
+[`supply-chain.md`](../security/supply-chain.md) and checked structurally by
+`scripts/check_supply_chain_contract.py`, which the release quality gate runs.
+Issue #51 defines the supply-chain contract; real SBOM/provenance generation is
+implemented in later slices, and PyPI Trusted Publishing is unchanged.
+
 Normative runtime-family support, platform validation tiers, and reference
 environments are defined by
 [`platform-tiers.md`](../compatibility/platform-tiers.md). This release

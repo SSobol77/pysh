@@ -175,6 +175,7 @@ Internal shell feature documentation.
 | Document | Description |
 | -------- | ----------- |
 | [threat-model.md](security/threat-model.md) | PySH v1.0 threat model: STRIDE register, data classification, trust boundaries, `--no-rc`, redaction policy, and deferred capability requirements |
+| [supply-chain.md](security/supply-chain.md) | Issue #51 supply-chain assurance contract: artifact families, SBOM, provenance, verification, fail-closed policy, trust root, reproducibility status |
 | [plugin-isolation.md](security/plugin-isolation.md) | Issue #44 isolated-plugin manifest, bounded JSON IPC, parent capability broker, lifecycle, and OS-level limitations |
 
 ---

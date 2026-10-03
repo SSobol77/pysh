@@ -184,6 +184,7 @@ def test_not_run_check_never_executes_its_run_callable(tmp_path: Path) -> None:
         "git diff",
         "installation-doc contract",
         "release workflow contract",
+        "supply-chain contract",
     ],
 )
 def test_fast_mode_includes_expected_static_checks(expected_name: str) -> None:
@@ -234,6 +235,7 @@ def test_ci_mode_check_accidentally_missing_would_fail_this_contract() -> None:
         "git diff",
         "installation-doc contract",
         "release workflow contract",
+        "supply-chain contract",
         "unit/integration tests",
         "PTY TERM=dumb",
         "PTY TERM=xterm-256color",
@@ -517,6 +519,7 @@ def test_rqg_bcdfg_scripts_still_present_and_reused() -> None:
         "check_installation_docs.py",
         "smoke_debian_package.sh",
         "check_release_workflow.py",
+        "check_supply_chain_contract.py",
     ):
         assert script_name in text, f"release_gate.py must reuse {script_name}"
     for name in (
@@ -540,6 +543,17 @@ def test_metadata_contract_check_is_real_and_passes(tmp_path: Path) -> None:
 def test_release_workflow_check_is_real_and_passes(tmp_path: Path) -> None:
     result = GATE.check_release_workflow(tmp_path)
     assert result.status == GATE.STATUS_PASS, result.diagnostic
+
+
+def test_supply_chain_contract_check_is_real_passes_and_is_not_reimplemented(tmp_path: Path) -> None:
+    result = GATE.check_supply_chain_contract(tmp_path)
+    assert result.status == GATE.STATUS_PASS, result.diagnostic
+    check = next(c for c in GATE.build_checks() if c.name == "supply-chain contract")
+    assert check.category == "supply-chain" and check.modes == frozenset({"fast", "ci", "full"})
+    # The gate only orchestrates: none of the checker's logic lives in release_gate.py.
+    text = SCRIPT.read_text(encoding="utf-8")
+    for marker in ("REQUIRED_ANCHORS", "FAMILIES", "RELEASE_UPLOAD_PATTERNS", "split_jobs"):
+        assert marker not in text
 
 
 def test_installation_docs_check_is_real_and_passes(tmp_path: Path) -> None:
