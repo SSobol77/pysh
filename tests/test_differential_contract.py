@@ -321,18 +321,21 @@ def test_migration_harness_is_test_only_and_not_imported_by_the_product() -> Non
     assert PACKAGE.is_dir() and PACKAGE.parent.name == "tests"
 
 
-def test_slice_one_harness_never_executes_or_locates_a_process() -> None:
-    forbidden_modules = {"subprocess", "pty", "shutil", "multiprocessing"}
+def test_only_the_executor_module_may_spawn_a_process_and_none_may_locate_one() -> None:
+    forbidden_modules = {"pty", "shutil", "multiprocessing"}
     forbidden_calls = {"system", "popen", "spawn", "execv", "execvp", "which", "fork", "forkpty"}
     for path in sorted(PACKAGE.glob("*.py")):
+        banned = forbidden_modules | (set() if path.name == "executor.py" else {"subprocess"})
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                assert not {a.name.split(".")[0] for a in node.names} & forbidden_modules, path
+                assert not {a.name.split(".")[0] for a in node.names} & banned, path
             elif isinstance(node, ast.ImportFrom):
-                assert (node.module or "").split(".")[0] not in forbidden_modules, path
+                assert (node.module or "").split(".")[0] not in banned, path
             elif isinstance(node, ast.Attribute):
                 assert node.attr not in forbidden_calls, (path, node.attr)
+            elif isinstance(node, ast.keyword) and node.arg == "shell":
+                assert isinstance(node.value, ast.Constant) and node.value.value is False, path
 
 
 def test_migration_metadata_does_not_become_a_second_language_corpus() -> None:

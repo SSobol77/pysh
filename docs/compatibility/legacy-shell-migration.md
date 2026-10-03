@@ -130,6 +130,71 @@ anchor and section here, plus one metadata case. None are registered yet: no
 legacy shell has been executed as evidence, and speculative mappings are not
 recorded.
 
+<a id="PYSH-MIG-BOUNDARIES"></a>
+
+## Legacy execution boundaries
+
+`tests/differential/legacy-boundaries-v1.json` classifies every place where
+PySH production code can hand work to Bash, Zsh, Fish or a POSIX `sh`, in
+exactly one category:
+
+| Category | Meaning |
+| --- | --- |
+| `PYSH_NATIVE` | Normal PySH behavior, including static analysis that executes nothing. |
+| `EXPLICIT_MIGRATION_BRIDGE` | The user explicitly asks for another interpreter (`zsh <cmd>`). |
+| `EXPLICIT_SHEBANG_DELEGATION` | The script itself names an external interpreter in its shebang. |
+| `AUTOMATIC_LEGACY_FALLBACK` | PySH hands work to a legacy shell without an explicit per-command request. |
+| `BUILD_OR_TEST_TOOLING` | Shell use outside language semantics (for example the OS-package launcher). |
+| `DOCUMENTATION_ONLY` | Mentions only. |
+
+A boundary is never a product dependency and never a semantic authority. An
+AST drift guard (`tests/test_legacy_boundary_contract.py`) fails when
+production code gains a legacy-execution signal that is not inventoried. Its
+limits are documented in `tests/differential/boundaries.py` (dynamically built
+executables and non-Python files are invisible to it).
+
+<a id="PYSH-MIG-SHEBANG"></a>
+
+### Shebang delegation
+
+A script whose own first line is `#!/bin/bash`, `#!/bin/sh` or `#!/bin/zsh`
+(or the `env` form) is an explicit request by that script for an external
+interpreter, honored only by the `run_script` builtin; direct `pysh FILE`
+ignores the shebang. Delegating it is **not** a fallback from PySH language
+semantics. The interpreter is optional and PySH must not depend on it: when it
+is absent the failure is controlled (status 127), and PySH never silently
+substitutes a different legacy shell.
+
+<a id="PYSH-MIG-BRIDGE"></a>
+
+### Migration bridge
+
+`zsh <cmd>` is an explicit migration and interoperability request. It does not
+define PySH language semantics and is not used internally as a fallback for
+ordinary PySH execution. It is retained for now.
+
+<a id="PYSH-MIG-AUTOMATIC-FALLBACK"></a>
+
+### Automatic legacy fallback: decision record
+
+Automatic fallback from PySH language execution to Bash, Zsh or Fish is **not**
+part of the target PySH 1.0 architecture. Current behavior, recorded and not
+changed by Issue #54:
+
+- `zsh_fallback on`, `PYSH_ZSH_FALLBACK=1` in the environment, or assigning
+  that variable arms a fallback that is off by default. While armed, a path
+  expansion error, an unresolved external command in a pipeline, and a
+  process-creation `FileNotFoundError` are handed to `zsh -lc`.
+- Command substitution (`$(...)`) with the default runner is executed by
+  `/bin/sh -c`. This is not conditional and has no switch; it is the
+  production implementation of substitution, so the nested command's
+  semantics currently come from the system POSIX shell.
+
+Both are migration-era technical debt. Before PySH 1.0 each needs one explicit
+decision: (A) remove it, (B) deprecate then remove it, or (C) retain it only as
+a clearly separated compatibility feature with no default enablement. No option
+is chosen here.
+
 <a id="PYSH-MIG-LAB"></a>
 
 ## Future isolated legacy laboratory (requirements only)
@@ -145,6 +210,13 @@ isolated differential CI, never PySH runtime machinery, and must run with:
 - no access to developer rc or configuration files.
 
 Legacy shell input there is test data.
+
+`tests/differential/executor.py` is the test-only foundation for that
+laboratory: it runs an explicitly supplied executable and argv (never a shell,
+never found through `PATH`) with an allowlisted environment, a private `HOME`
+and working directory, a hard process-group timeout and bounded output. It is
+exercised only with a repository-owned fake interpreter; startup flags for
+real shells are supplied later as `argv_prefix` and are not defined yet.
 
 <a id="PYSH-MIG-EVIDENCE"></a>
 

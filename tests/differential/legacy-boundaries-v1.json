@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "boundaries": [
+    {
+      "id": "zsh-builtin-bridge",
+      "category": "EXPLICIT_MIGRATION_BRIDGE",
+      "production_path": "src/pysh/core/shell.py",
+      "symbols": [
+        "PyShell._builtin_zsh",
+        "PyShell._run_zsh_command",
+        "PyShell._dispatch_builtin"
+      ],
+      "trigger": "The user types `zsh <command>`.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Explicit interoperability request. Never defines PySH language semantics and is never used internally for ordinary execution. Retained in Slice 2.",
+      "notes": "_run_zsh_command is shared with the automatic fallback but is only reachable automatically through _run_zsh_fallback."
+    },
+    {
+      "id": "zsh-bridge-executor",
+      "category": "EXPLICIT_MIGRATION_BRIDGE",
+      "production_path": "src/pysh/compat/zsh_bridge.py",
+      "symbols": [
+        "ZshBridge",
+        "ZshBridge.__init__",
+        "ZshBridge.execute"
+      ],
+      "trigger": "Called with an explicit command; runs `zsh -lc` if zsh is on PATH, else a controlled status-127 diagnostic.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Optional external tool; absence is a controlled failure, never a substitution of another shell.",
+      "notes": "argv list, no shell=True. `-l` makes zsh read the user's login startup files; that is outside Slice 2 and noted for the migration review."
+    },
+    {
+      "id": "zsh-bridge-wiring",
+      "category": "EXPLICIT_MIGRATION_BRIDGE",
+      "production_path": "src/pysh/core/shell.py",
+      "symbols": [
+        "<module>"
+      ],
+      "trigger": "Module import of the bridge class.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Wiring only; no execution.",
+      "notes": "The bridge instance is created in PyShell.__init__ (see zsh-fallback-enablement)."
+    },
+    {
+      "id": "zsh-builtin-registry",
+      "category": "EXPLICIT_MIGRATION_BRIDGE",
+      "production_path": "src/pysh/contracts/builtins.py",
+      "symbols": [
+        "<module>"
+      ],
+      "trigger": "Registration of the `zsh` and `zsh_fallback` builtin names.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Name registry only; no execution.",
+      "notes": "The `zsh_fallback` name is classified with the automatic fallback boundaries."
+    },
+    {
+      "id": "zsh-fallback-enablement",
+      "category": "AUTOMATIC_LEGACY_FALLBACK",
+      "production_path": "src/pysh/core/shell.py",
+      "symbols": [
+        "PyShell.__init__",
+        "PyShell._builtin_zsh_fallback",
+        "PyShell._assign_local",
+        "PyShell._set_exported_environment"
+      ],
+      "trigger": "`zsh_fallback on`, or PYSH_ZSH_FALLBACK=1 in the environment, or assigning PYSH_ZSH_FALLBACK=1 as a local/exported variable.",
+      "automatic": true,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Migration-era opt-in switch that arms the automatic fallback. Off by default. Not part of the target PySH 1.0 architecture; a pre-1.0 decision is required (see docs/compatibility/legacy-shell-migration.md).",
+      "notes": "Enablement is user-controlled but, once armed, handing work to zsh is automatic."
+    },
+    {
+      "id": "zsh-fallback-triggers",
+      "category": "AUTOMATIC_LEGACY_FALLBACK",
+      "production_path": "src/pysh/core/shell.py",
+      "symbols": [
+        "PyShell._run_simple",
+        "PyShell._run_pipeline",
+        "PyShell._run_external"
+      ],
+      "trigger": "While armed: path-expansion ValueError (_run_simple), a pipeline stage whose external command is not on PATH (_run_pipeline), FileNotFoundError from process creation (_run_external).",
+      "automatic": true,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Automatic hand-off of unsupported or unresolved input to zsh. Not part of the target PySH 1.0 architecture; a pre-1.0 decision is required (see docs/compatibility/legacy-shell-migration.md).",
+      "notes": "Exact current entry points; each calls _run_zsh_fallback."
+    },
+    {
+      "id": "zsh-fallback-dispatch",
+      "category": "AUTOMATIC_LEGACY_FALLBACK",
+      "production_path": "src/pysh/core/shell.py",
+      "symbols": [
+        "PyShell._run_zsh_fallback"
+      ],
+      "trigger": "Called only by the trigger sites above.",
+      "automatic": true,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Thin wrapper over _run_zsh_command. Not part of the target PySH 1.0 architecture; a pre-1.0 decision is required (see docs/compatibility/legacy-shell-migration.md).",
+      "notes": "Removing the fallback means removing this and the trigger branches."
+    },
+    {
+      "id": "command-substitution-system-sh",
+      "category": "AUTOMATIC_LEGACY_FALLBACK",
+      "production_path": "src/pysh/parsing/expansion.py",
+      "symbols": [
+        "_default_runner"
+      ],
+      "trigger": "Every `$(...)` / backtick substitution evaluated with the default runner runs `/bin/sh -c <text>`.",
+      "automatic": true,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "UNEXPECTED FINDING, not a conditional fallback: the production implementation of command substitution hands the substituted text to the system POSIX shell, so the nested command's semantics come from /bin/sh. Contradicts the replacement architecture; requires an explicit pre-1.0 decision. Not changed in Slice 2.",
+      "notes": "Category D is the nearest of the six fixed categories (automatic hand-off to a legacy shell); it is always on and has no switch. The fuzz harness replaces this runner with a fake."
+    },
+    {
+      "id": "script-shebang-delegation",
+      "category": "EXPLICIT_SHEBANG_DELEGATION",
+      "production_path": "src/pysh/script_runner.py",
+      "symbols": [
+        "<module>",
+        "ScriptRunner.run",
+        "ScriptRunner._run_interpreter_script",
+        "detect_script_type",
+        "_interpreter_from_env_shebang"
+      ],
+      "trigger": "`run_script FILE` where FILE's own shebang names bash, sh or zsh.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "The script explicitly requests the interpreter. Interpreter is optional; absence yields a controlled status 127 and no other shell is substituted. Direct `pysh FILE` ignores the shebang (native_only=True).",
+      "notes": "Not an automatic fallback: PySH language semantics are not handed off; the script asked for another interpreter."
+    },
+    {
+      "id": "static-script-migration-analysis",
+      "category": "PYSH_NATIVE",
+      "production_path": "src/pysh/migration/script.py",
+      "symbols": [
+        "<module>"
+      ],
+      "trigger": "The `migrate` builtin analyzes a script as text.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Static analysis only; executes nothing.",
+      "notes": "Shebang table is used for reporting."
+    },
+    {
+      "id": "static-profile-import",
+      "category": "PYSH_NATIVE",
+      "production_path": "src/pysh/core/shell.py",
+      "symbols": [
+        "PyShell._import_static_profile"
+      ],
+      "trigger": "`source_zsh`, `source_zsh_profile`, `source_sh_aliases`.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Reads foreign profiles as text; executes no shell code.",
+      "notes": "See shell-compatibility-contract.md."
+    },
+    {
+      "id": "routing-diagnostics",
+      "category": "PYSH_NATIVE",
+      "production_path": "src/pysh/diagnostics/command_plan.py",
+      "symbols": [
+        "<module>",
+        "classify"
+      ],
+      "trigger": "Command planning / explain output.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Describes how a command would route; executes nothing.",
+      "notes": "Mentions zsh delegation as a routing label."
+    },
+    {
+      "id": "system-shell-invocation-refusal",
+      "category": "PYSH_NATIVE",
+      "production_path": "src/pysh/cli.py",
+      "symbols": [
+        "<module>",
+        "is_unsupported_system_shell_invocation"
+      ],
+      "trigger": "PySH invoked as `sh`.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "PySH refuses to act as a POSIX /bin/sh provider.",
+      "notes": "Diagnostic only."
+    },
+    {
+      "id": "os-package-launcher",
+      "category": "BUILD_OR_TEST_TOOLING",
+      "production_path": "packaging/wrappers/pysh.sh",
+      "symbols": [
+        "<module>"
+      ],
+      "trigger": "Installed `pysh` launcher in Debian/RPM packages.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "POSIX /bin/sh launcher that selects a Python >=3.13 and execs `python -m pysh`; it runs no PySH language input.",
+      "notes": "Not visible to the AST scanner; pinned by test_legacy_boundary_contract."
+    },
+    {
+      "id": "compatibility-documentation",
+      "category": "DOCUMENTATION_ONLY",
+      "production_path": "docs/compatibility/shell-compatibility-contract.md",
+      "symbols": [
+        "<module>"
+      ],
+      "trigger": "Documentation.",
+      "automatic": false,
+      "product_dependency": false,
+      "semantic_authority": false,
+      "policy": "Describes the bridges; no execution.",
+      "notes": "Documentation never counts as a drift signal."
+    }
+  ]
+}
