@@ -1,0 +1,111 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Copyright (C) 2026 Siergej Sobolewski
+#
+# Issue #49: scheduled coverage-guided (Atheris/libFuzzer) parser fuzzing.
+#
+# Linux x86_64 only by design: Atheris has no FreeBSD distribution usable by
+# this repository. FreeBSD parity is the portable deterministic evidence in
+# scripts/check_fuzz_evidence.sh, which normal CI runs on Debian and FreeBSD.
+#
+# This workflow only reads the repository and uploads a finding artifact on
+# failure. It never commits a reproducer, pushes, opens issues or pull
+# requests, tags, or publishes. Fuzz input is untrusted test data: it is only
+# ever handed to the hermetic in-process targets, never to a shell.
+
+name: Fuzz (nightly)
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Hard time budget per target in seconds (30-1800)"
+        required: false
+        default: "300"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: fuzz ${{ matrix.target }} (linux-x86_64, python-3.13)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - grammar.split_chain
+          - grammar.split_pipeline
+          - redirection.parse_redirections
+          - path_expansion.tokenize_and_glob_expand
+          - lexer.scan_quote_state
+          - block_syntax.split_unquoted_pipe_stages
+          - heredoc.parse_heredoc_specs
+          - heredoc.collect_heredoc_bodies
+          - multiline.split_paste_commands
+          - expansion.expand_variables
+
+    env:
+      # Per-target wall-clock budget; validated before use.
+      FUZZ_SECONDS: ${{ github.event.inputs.seconds || '300' }}
+      FUZZ_TARGET: ${{ matrix.target }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install --upgrade pip uv
+
+      - name: Run coverage-guided fuzz target
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${FUZZ_SECONDS}" in
+            ''|*[!0-9]*) echo "invalid FUZZ_SECONDS" >&2; exit 2 ;;
+          esac
+          if [ "${FUZZ_SECONDS}" -lt 30 ] || [ "${FUZZ_SECONDS}" -gt 1800 ]; then
+            echo "FUZZ_SECONDS must be within 30..1800" >&2
+            exit 2
+          fi
+
+          findings="${RUNNER_TEMP}/fuzz-findings"
+          mkdir -p "${findings}"
+          {
+            echo "target=${FUZZ_TARGET}"
+            echo "seconds=${FUZZ_SECONDS}"
+            echo "commit=${GITHUB_SHA}"
+            echo "uname=$(uname -srm)"
+            echo "python=$(python --version 2>&1)"
+          } > "${findings}/context.txt"
+
+          # The engine materializes its seed corpus itself (the #48 language
+          # corpus plus tests/fuzz/regressions) into a private temporary
+          # directory and removes it afterwards; nothing is checked in.
+          set +e
+          uv run --group fuzz python scripts/fuzz_atheris.py \
+            --target "${FUZZ_TARGET}" \
+            --max-total-time "${FUZZ_SECONDS}" \
+            --artifact-dir "${findings}" 2>&1 | tee "${findings}/report.txt"
+          status="${PIPESTATUS[0]}"
+          set -e
+          echo "fuzz exit status: ${status}" | tee -a "${findings}/report.txt"
+          exit "${status}"
+
+      - name: Upload fuzz finding
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-finding-${{ matrix.target }}
+          path: ${{ runner.temp }}/fuzz-findings
+          if-no-files-found: warn
+          retention-days: 14

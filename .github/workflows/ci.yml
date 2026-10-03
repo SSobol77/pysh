@@ -204,6 +204,15 @@ jobs:
             tests/test_pyshrc_py.py \
             tests/test_platform_tier_contract.py
 
+      - name: Run portable fuzz/property evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          . .venv-debian/bin/activate
+          export TERM=xterm-256color
+          PYSH_PYTEST="python -m pytest" \
+            sh scripts/check_fuzz_evidence.sh
+
       - name: Run resource governor evidence
         shell: bash
         run: |
@@ -273,6 +282,13 @@ jobs:
               tests/test_rc.py \
               tests/test_pyshrc_py.py \
               tests/test_platform_tier_contract.py
+
+            echo "==> Portable fuzz/property evidence (portable, normal context)"
+            # No test in this evidence needs the unprivileged pyshci account:
+            # the fd cases only lower a child's soft RLIMIT_NOFILE, and the fd
+            # probe is a bounded os.fstat scan (no /proc, no /dev/fd).
+            PYSH_PYTEST="python -m pytest" \
+              sh scripts/check_fuzz_evidence.sh
 
             echo "==> Resource governor evidence (unprivileged pyshci account)"
             # The launcher fails closed for any account that could raise its

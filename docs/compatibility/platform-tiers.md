@@ -129,6 +129,34 @@ Additional package-validation legs do not broaden or narrow the FreeBSD-family
 runtime policy and do not turn their exact releases into installation
 allowlists.
 
+### Fuzz and property evidence (Issue #49)
+
+Robustness evidence for the parser and pipeline descriptor handover has two
+classes, and platform support depends only on the first.
+
+**Tier 1 portable required evidence** (Debian 13 and FreeBSD 14.4, run through
+`scripts/check_fuzz_evidence.sh` in `platform-debian` and `platform-freebsd`):
+
+- deterministic parser property tests;
+- conformance-derived seed and mutation replay (Issue #48 is the only
+  language oracle);
+- permanent regression-record replay;
+- portable file-descriptor and pipeline robustness, using a bounded
+  `os.fstat()` scan rather than Linux `/proc` or `/dev/fd`.
+
+This evidence needs no Atheris and no unprivileged account.
+
+**Linux reference additional evidence**: coverage-guided Atheris fuzzing
+(`.github/workflows/fuzz-nightly.yml`, scheduled and manual only). Atheris is a
+Linux x86_64 development dependency.
+
+**FreeBSD** runs the same portable deterministic acceptance evidence and makes
+no coverage-guided claim. Coverage-guided engine availability is not platform
+support: the absence of Atheris on FreeBSD does not downgrade its Tier 1
+status, and Atheris results are never presented as FreeBSD evidence. Native
+FreeBSD execution of this evidence is established only by a passing
+`platform-freebsd` CI run.
+
 ## Native package compatibility
 
 The Debian `all` and RPM `noarch` payloads use a compatible installed CPython
