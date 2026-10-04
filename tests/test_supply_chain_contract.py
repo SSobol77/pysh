@@ -38,7 +38,7 @@ def repo(tmp_path: Path) -> Path:
     """A copy of just the files the checker reads."""
     for relative in (
         DOC, PACKAGING, Path("scripts/check_release_artifacts.sh"), SBOM_GENERATOR, SUBJECT_HELPER, VERIFIER,
-        HARNESS, EVIDENCE_VALIDATOR, Path("scripts/build_rpm.sh"),
+        HARNESS, EVIDENCE_VALIDATOR, Path("scripts/build_rpm.sh"), Path("scripts/build_freebsd_pkg.sh"),
         Path("pyproject.toml"), Path("uv.lock"),
     ):
         target = tmp_path / relative
@@ -1268,3 +1268,70 @@ def test_the_rpm_builder_must_not_rewrite_the_package(repo: Path) -> None:
     path = repo / "scripts/build_rpm.sh"
     path.write_text(path.read_text(encoding="utf-8") + "\nstrip-nondeterminism \"${EXPECTED_PATH}\"\n", encoding="utf-8")
     assert "REPRO-NORMALIZE" in codes(repo)
+
+
+# --- the FreeBSD builder's epoch contract (first native dry run) ---------------------------------------------------------------
+
+FREEBSD_BUILDER = Path("scripts/build_freebsd_pkg.sh")
+
+
+def test_the_real_freebsd_builder_satisfies_its_contract(repo: Path) -> None:
+    assert [v for v in contract.run_checks(repo) if v.code in {"REPRO-FREEBSD", "REPRO-EPOCH", "REPRO-NORMALIZE"}] == []
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "code"),
+    [
+        ('pkg create -t "${SOURCE_DATE_EPOCH}" ', "pkg create ", "REPRO-FREEBSD"),
+        ('pkg create -t "${SOURCE_DATE_EPOCH}" ', 'pkg create -t "$(date +%s)" ', "REPRO-EPOCH"),
+        ("*[!0-9]*)", "*)", "REPRO-FREEBSD"),
+        ("SOURCE_DATE_EPOCH must be decimal epoch seconds", "bad epoch", "REPRO-FREEBSD"),
+        ('"$(uname -s)" != "FreeBSD"', '"$(uname -s)" != "Linux"', "REPRO-FREEBSD"),
+        ("refusing to fake .pkg", "continuing", "REPRO-FREEBSD"),
+    ],
+)
+def test_the_freebsd_builder_contract_is_enforced(repo: Path, old: str, new: str, code: str) -> None:
+    path = repo / FREEBSD_BUILDER
+    text = path.read_text(encoding="utf-8")
+    assert old in text, f"fixture drift: {old!r}"
+    path.write_text(text.replace(old, new), encoding="utf-8")
+    assert code in codes(repo)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'touch -d @0 "${EXPECTED_PATH}"',
+        'xz -d "${EXPECTED_PATH}"',
+        'tar -rf "${EXPECTED_PATH}" extra',
+        'strip-nondeterminism "${EXPECTED_PATH}"',
+        'cp /tmp/other.pkg "${EXPECTED_PATH}"',
+        'echo fake > "${EXPECTED_PATH}"',
+    ],
+)
+def test_post_build_package_rewriting_is_rejected(repo: Path, line: str) -> None:
+    path = repo / FREEBSD_BUILDER
+    text = path.read_text(encoding="utf-8")
+    anchor = 'if [ ! -f "${EXPECTED_PATH}" ]; then'
+    assert anchor in text
+    path.write_text(text.replace(anchor, line + "\n" + anchor, 1), encoding="utf-8")
+    assert {"REPRO-NORMALIZE", "REPRO-FREEBSD"} & codes(repo)
+
+
+def test_a_third_pkg_create_invocation_is_rejected(repo: Path) -> None:
+    path = repo / FREEBSD_BUILDER
+    path.write_text(path.read_text(encoding="utf-8") + "\npkg create -r /tmp/x -o /tmp/y\n", encoding="utf-8")
+    assert "REPRO-FREEBSD" in codes(repo)
+
+
+def test_the_freebsd_builder_must_exist(repo: Path) -> None:
+    (repo / FREEBSD_BUILDER).unlink()
+    assert "REPRO-FREEBSD" in codes(repo)
+
+
+def test_the_documentation_states_the_freebsd_timestamp_control_without_claiming_reproducibility() -> None:
+    text = " ".join((REPO_ROOT / DOC).read_text(encoding="utf-8").split())
+    assert 'pkg create -t "${SOURCE_DATE_EPOCH}"' in text
+    assert "PySH does not rewrite the resulting `.pkg`" in text
+    assert "established only by the native FreeBSD 14.4 measurement, not assumed" in text
+    assert "freebsd_pkg is reproducible" not in text.lower()

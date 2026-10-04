@@ -330,8 +330,13 @@ the build. The RPM builder needed an explicit control: the first real dry run sh
 files and directories it creates, so a package built from a checkout differed from the A/B
 builds). `scripts/build_rpm.sh` therefore enables the standard rpm macros
 `use_source_date_epoch_as_buildtime` and `clamp_mtime_to_source_date_epoch` whenever
-`SOURCE_DATE_EPOCH` is set, and was confirmed with a real `rpmbuild`. Whether the FreeBSD
-builder honors the epoch is decided by its measured result, not assumed.
+`SOURCE_DATE_EPOCH` is set, and was confirmed with a real `rpmbuild`. For the FreeBSD
+package, `scripts/build_freebsd_pkg.sh` passes the same value to pkg's native reproducible
+timestamp control, `pkg create -t "${SOURCE_DATE_EPOCH}"` (decimal digits only; an unset or
+empty epoch leaves the ordinary manual build unchanged and no timestamp is ever invented).
+PySH does not rewrite the resulting `.pkg`, and the release-byte binding still requires the
+shipped package to equal build A or build B. Whether the FreeBSD package is actually
+reproducible is established only by the native FreeBSD 14.4 measurement, not assumed.
 
 **Platform requirements.** The RPM measurement needs a real `rpmbuild`; without one the
 result is `PLATFORM_BLOCKED`, never a substitute. A FreeBSD `.pkg` is measured only by a

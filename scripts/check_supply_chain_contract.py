@@ -794,6 +794,37 @@ def _step_text(steps: list[tuple[int, str]], needle: str, exclude: str | None = 
     return None
 
 
+#: Anything that rewrites, repacks or fabricates a package after (or instead of) ``pkg create``.
+FREEBSD_POST_BUILD_RE = re.compile(
+    r"\btouch\b|\butime\b|strip-nondeterminism|\b(?:tar|xz|gzip|zstd|bzip2|ar|dd)\b|\bmv\b|\bcp\b|\bchmod\b"
+    r"|>\s*\"?\$\{EXPECTED_PATH"
+)
+FREEBSD_WALL_CLOCK_RE = re.compile(r"\bdate\b|\bstat\b|EPOCHSECONDS|\btime\b\s")
+
+
+def _check_freebsd_builder(root: Path) -> list[Violation]:
+    """The native FreeBSD builder gives pkg create the commit epoch and never rewrites the result."""
+    out: list[Violation] = []
+    script = _read(root, Path("scripts/build_freebsd_pkg.sh"))
+    if script is None:
+        return [Violation("REPRO-FREEBSD", "scripts/build_freebsd_pkg.sh is missing")]
+    code = _code(script)
+    if not re.search(r'pkg create -t "\$\{SOURCE_DATE_EPOCH\}" ', code):
+        out.append(Violation("REPRO-FREEBSD", 'scripts/build_freebsd_pkg.sh must call pkg create -t "${SOURCE_DATE_EPOCH}" when the epoch is set'))
+    if "*[!0-9]*)" not in code or 'SOURCE_DATE_EPOCH must be decimal epoch seconds' not in code:
+        out.append(Violation("REPRO-FREEBSD", "scripts/build_freebsd_pkg.sh must reject a SOURCE_DATE_EPOCH that is not decimal digits"))
+    if len(re.findall(r"^\s*pkg create\b", code, re.M)) != 2:
+        out.append(Violation("REPRO-FREEBSD", "scripts/build_freebsd_pkg.sh must have exactly the epoch and the ordinary pkg create invocations"))
+    if FREEBSD_WALL_CLOCK_RE.search(code):
+        out.append(Violation("REPRO-EPOCH", "scripts/build_freebsd_pkg.sh must not derive a wall-clock timestamp"))
+    created = code.rsplit("pkg create", 1)
+    if len(created) == 2 and FREEBSD_POST_BUILD_RE.search(created[1]):
+        out.append(Violation("REPRO-NORMALIZE", "scripts/build_freebsd_pkg.sh must not rewrite the package after pkg create"))
+    if '"$(uname -s)" != "FreeBSD"' not in code or "refusing to fake .pkg" not in code:
+        out.append(Violation("REPRO-FREEBSD", "scripts/build_freebsd_pkg.sh must keep refusing to fake a .pkg on a non-FreeBSD host"))
+    return out
+
+
 def check_reproducibility_implementation(root: Path) -> list[Violation]:
     """Slice 4: per-artifact A/B measurement, validated evidence, published before the checksums."""
     out: list[Violation] = []
@@ -953,6 +984,7 @@ def check_reproducibility_implementation(root: Path) -> list[Violation]:
 
     if "SUBJECT_COUNT" in (_read(root, SUBJECT_HELPER) or "") and EVIDENCE_PUBLIC_NAME not in (_read(root, SBOM_GENERATOR) or ""):
         out.append(Violation("REPRO-SUBJECTS", f"{SBOM_GENERATOR} must know the published {EVIDENCE_PUBLIC_NAME}"))
+    out += _check_freebsd_builder(root)
     rpm_builder = _read(root, Path("scripts/build_rpm.sh")) or ""
     for macro in ("use_source_date_epoch_as_buildtime", "clamp_mtime_to_source_date_epoch"):
         if macro not in rpm_builder:

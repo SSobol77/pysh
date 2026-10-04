@@ -1195,3 +1195,164 @@ def test_the_rpm_builder_never_rewrites_the_built_package() -> None:
         if not line.lstrip().startswith("#")
     )
     assert not re.search(r"strip-nondeterminism|\btouch\b|\butime\b|rpmrebuild|rpmsign|add-determinism", code)
+
+
+# --- the FreeBSD builder passes the commit epoch to pkg create (Slice 5, first native dry run) -----------------------------------
+
+FAKE_UNAME = """#!/bin/sh
+case "$1" in
+    -s) echo "${FAKE_UNAME_S:-FreeBSD}" ;;
+    -r) echo 14.4-RELEASE ;;
+    -m) echo amd64 ;;
+    *) echo "${FAKE_UNAME_S:-FreeBSD}" ;;
+esac
+"""
+FAKE_PKG = """#!/bin/sh
+case "$1" in
+    config) echo "FreeBSD:14:amd64" ;;
+    create)
+        printf '%s\\n' "$@" >> "$PKG_RECORD"
+        out=""
+        previous=""
+        for argument in "$@"; do
+            [ "$previous" = "-o" ] && out="$argument"
+            previous="$argument"
+        done
+        mkdir -p "$out"
+        case "${FAKE_PKG_MODE:-ok}" in
+            wrongname) echo pkg > "$out/pysh-shell-0.0.0.pkg" ;;
+            extra) echo pkg > "$out/pysh-shell-9.8.7.pkg"; echo pkg > "$out/pysh-shell-other.pkg" ;;
+            *) echo "fake native package" > "$out/pysh-shell-9.8.7.pkg" ;;
+        esac
+        ;;
+    query)
+        case "$*" in
+            *%q*) echo "FreeBSD:14:amd64" ;;
+            *%Fp*) printf '/usr/local/bin/pysh\\n/usr/local/lib/pysh-shell/pysh/__init__.py\\n' ;;
+        esac
+        ;;
+    info) echo "name: pysh-shell" ;;
+esac
+"""
+STUB_PYTHON_HELPER = """pysh_freebsd_python_config() {
+    PYSH_FREEBSD_PYTHON_VERSION=3.13
+    PYSH_FREEBSD_PYTHON_COMMAND=/usr/local/bin/python3.13
+    PYSH_FREEBSD_PYTHON_PACKAGE=python313
+    PYSH_FREEBSD_PYTHON_ORIGIN=lang/python313
+}
+pysh_freebsd_python_validate() { return 0; }
+"""
+
+
+def freebsd_tree(tmp_path: Path) -> Path:
+    """The smallest tree build_freebsd_pkg.sh accepts, with fake uname/pkg and a stubbed Python helper."""
+    root = tmp_path / "freebsd-tree"
+    for relative in ("scripts/build_freebsd_pkg.sh", "scripts/_pysh_version.sh"):
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text((REPO_ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
+    (root / "scripts" / "_freebsd_python.sh").write_text(STUB_PYTHON_HELPER, encoding="utf-8")
+    (root / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
+    (root / "src" / "pysh").mkdir(parents=True)
+    (root / "src" / "pysh" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "README.md").write_text("x\n", encoding="utf-8")
+    (root / "LICENSE").write_text("x\n", encoding="utf-8")
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    for name, body in (("uname", FAKE_UNAME), ("pkg", FAKE_PKG)):
+        (fake / name).write_text(body, encoding="utf-8")
+        (fake / name).chmod(0o755)
+    return root
+
+
+def run_freebsd_builder(root: Path, tmp_path: Path, **env: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    record = tmp_path / "pkg-create-args"
+    environment = {
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}", "HOME": str(tmp_path),
+        "PKG_RECORD": str(record), **env,
+    }
+    done = subprocess.run(
+        ["sh", str(root / "scripts" / "build_freebsd_pkg.sh")], capture_output=True, text=True, check=False, env=environment
+    )
+    return done, record.read_text(encoding="utf-8").splitlines() if record.exists() else []
+
+
+def test_pkg_create_receives_exactly_the_commit_epoch(tmp_path) -> None:
+    root = freebsd_tree(tmp_path)
+    done, args = run_freebsd_builder(root, tmp_path, SOURCE_DATE_EPOCH=COMMIT_EPOCH)
+    assert done.returncode == 0, done.stderr
+    assert args.count("-t") == 1 and args[args.index("-t") + 1] == COMMIT_EPOCH
+    assert args[0] == "create" and args[1:3] == ["-t", COMMIT_EPOCH]
+    for flag in ("-r", "-M", "-p", "-o"):  # the rest of the invocation is unchanged
+        assert flag in args
+    assert args[args.index("-o") + 1].endswith("dist/os/freebsd")
+
+
+def test_pkg_create_receives_no_timestamp_without_an_epoch(tmp_path) -> None:
+    root = freebsd_tree(tmp_path)
+    done, args = run_freebsd_builder(root, tmp_path)
+    assert done.returncode == 0, done.stderr
+    assert "-t" not in args and args[0] == "create" and "-r" in args
+
+
+def test_an_empty_epoch_is_treated_as_unset(tmp_path) -> None:
+    root = freebsd_tree(tmp_path)
+    done, args = run_freebsd_builder(root, tmp_path, SOURCE_DATE_EPOCH="")
+    assert done.returncode == 0, done.stderr
+    assert "-t" not in args
+
+
+@pytest.mark.parametrize("value", ["abc", "12x", "-5", "1.5", "1 2", "0x10", " 12", "12\n", "$(date +%s)", "1;2"])
+def test_an_invalid_epoch_fails_before_pkg_create(tmp_path, value: str) -> None:
+    root = freebsd_tree(tmp_path)
+    done, args = run_freebsd_builder(root, tmp_path, SOURCE_DATE_EPOCH=value)
+    assert done.returncode == 1
+    assert "SOURCE_DATE_EPOCH must be decimal epoch seconds" in done.stderr
+    assert args == []  # pkg create was never reached
+    assert not (root / "dist").exists()  # nothing was staged or produced
+
+
+def test_the_builder_has_no_wall_clock_fallback(tmp_path) -> None:
+    import re
+
+    code = "\n".join(
+        line for line in (REPO_ROOT / "scripts" / "build_freebsd_pkg.sh").read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert not re.search(r"\bdate\b|\bstat\b|\$\(\s*time|EPOCHSECONDS|\bepoch\b.*=\s*\$\(", code)
+    # an unset epoch must not invent one, even though a clock exists
+    done, args = run_freebsd_builder(freebsd_tree(tmp_path / "unset"), tmp_path / "unset")
+    assert done.returncode == 0 and "-t" not in args
+
+
+def test_the_finished_package_is_never_post_processed(tmp_path) -> None:
+    root = freebsd_tree(tmp_path)
+    done, _ = run_freebsd_builder(root, tmp_path, SOURCE_DATE_EPOCH=COMMIT_EPOCH)
+    assert done.returncode == 0, done.stderr
+    package = root / "dist" / "os" / "freebsd" / PKG
+    assert package.read_bytes() == b"fake native package\n"  # exactly what pkg create wrote
+    assert sorted(p.name for p in package.parent.iterdir()) == [PKG]
+    import re
+
+    source = (REPO_ROOT / "scripts" / "build_freebsd_pkg.sh").read_text(encoding="utf-8")
+    after = "\n".join(
+        line for line in source.split('pkg create -t "${SOURCE_DATE_EPOCH}"', 1)[1].splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert not re.search(r"\btouch\b|\butime\b|strip-nondeterminism|\b(?:tar|xz|gzip|zstd|bzip2|ar|mv|cp|dd)\b|chmod|> *\"?\$\{EXPECTED_PATH", after)
+
+
+def test_the_canonical_package_checks_remain_intact(tmp_path) -> None:
+    wrong = freebsd_tree(tmp_path / "wrong")
+    done, _ = run_freebsd_builder(wrong, tmp_path / "wrong", SOURCE_DATE_EPOCH=COMMIT_EPOCH, FAKE_PKG_MODE="wrongname")
+    assert done.returncode == 1 and "was not produced" in done.stderr
+    extra = freebsd_tree(tmp_path / "extra")
+    done, _ = run_freebsd_builder(extra, tmp_path / "extra", SOURCE_DATE_EPOCH=COMMIT_EPOCH, FAKE_PKG_MODE="extra")
+    assert done.returncode == 1 and "unexpected artifact filename" in done.stderr
+
+
+def test_a_non_freebsd_host_still_refuses_to_fake_a_package(tmp_path) -> None:
+    root = freebsd_tree(tmp_path)
+    done, args = run_freebsd_builder(root, tmp_path, SOURCE_DATE_EPOCH=COMMIT_EPOCH, FAKE_UNAME_S="Linux")
+    assert done.returncode == 1 and "refusing to fake .pkg on Linux" in done.stderr
+    assert args == [] and not (root / "dist").exists()
