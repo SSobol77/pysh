@@ -953,6 +953,12 @@ def check_reproducibility_implementation(root: Path) -> list[Violation]:
 
     if "SUBJECT_COUNT" in (_read(root, SUBJECT_HELPER) or "") and EVIDENCE_PUBLIC_NAME not in (_read(root, SBOM_GENERATOR) or ""):
         out.append(Violation("REPRO-SUBJECTS", f"{SBOM_GENERATOR} must know the published {EVIDENCE_PUBLIC_NAME}"))
+    rpm_builder = _read(root, Path("scripts/build_rpm.sh")) or ""
+    for macro in ("use_source_date_epoch_as_buildtime", "clamp_mtime_to_source_date_epoch"):
+        if macro not in rpm_builder:
+            out.append(Violation("REPRO-RPM", f"scripts/build_rpm.sh must enable the rpm macro {macro} when SOURCE_DATE_EPOCH is set (rpmbuild ignores the epoch otherwise)"))
+    if NORMALIZATION_RE.search(_code(rpm_builder)):
+        out.append(Violation("REPRO-NORMALIZE", "scripts/build_rpm.sh must not rewrite the built package"))
     artifacts_script = _read(root, ARTIFACT_CHECKER) or ""
     if EVIDENCE_PUBLIC_NAME not in artifacts_script:
         out.append(Violation("REPRO-CHECKSUMS", f"{ARTIFACT_CHECKER} must require {EVIDENCE_PUBLIC_NAME} among the files covered by the final SHA256SUMS"))

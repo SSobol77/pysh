@@ -1129,3 +1129,69 @@ def test_the_extracted_tree_has_the_modes_of_a_git_checkout_under_umask_022(tmp_
     assert (tree / "pyproject.toml").stat().st_mode & 0o777 == 0o644
     assert (tree / "tools" / "run.sh").stat().st_mode & 0o777 == 0o755
     assert (tree / "tools").stat().st_mode & 0o777 == 0o755 and (tree / "scripts").stat().st_mode & 0o777 == 0o755
+
+
+# --- the RPM builder honors the commit epoch (first real dry run: Issue #51 Slice 5) -----------------------------------------
+
+
+def rpm_tree(tmp_path: Path) -> Path:
+    """The smallest source tree scripts/build_rpm.sh accepts, with a fake rpmbuild that records its arguments."""
+    root = tmp_path / "rpm-tree"
+    for relative in ("scripts/build_rpm.sh", "scripts/_pysh_version.sh"):
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text((REPO_ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
+    (root / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
+    (root / "src" / "pysh").mkdir(parents=True)
+    (root / "src" / "pysh" / "__init__.py").write_text("", encoding="utf-8")
+    for relative in ("packaging/rpm/pysh-shell.spec", "packaging/wrappers/pysh.sh"):
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text("x\n", encoding="utf-8")
+    (root / "LICENSE").write_text("x\n", encoding="utf-8")
+    (root / "README.md").write_text("x\n", encoding="utf-8")
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    rpmbuild = fake / "rpmbuild"
+    rpmbuild.write_text(
+        "#!/usr/bin/env bash\nset -eu\nprintf '%s\\n' \"$@\" > \"$RECORD\"\n"
+        "top=\"$(printf '%s\\n' \"$@\" | sed -n 's/^_topdir //p')\"\n"
+        f"mkdir -p \"$top/RPMS/noarch\"; echo rpm > \"$top/RPMS/noarch/{RPM}\"\n",
+        encoding="utf-8",
+    )
+    rpmbuild.chmod(0o755)
+    return root
+
+
+def run_rpm_builder(root: Path, tmp_path: Path, epoch: str | None) -> list[str]:
+    record = tmp_path / "rpmbuild-args"
+    env = {"PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}", "RECORD": str(record), "HOME": str(tmp_path)}
+    if epoch is not None:
+        env["SOURCE_DATE_EPOCH"] = epoch
+    done = subprocess.run(["bash", str(root / "scripts" / "build_rpm.sh")], capture_output=True, text=True, check=False, env=env)
+    assert done.returncode == 0, done.stderr
+    return record.read_text(encoding="utf-8").splitlines()
+
+
+def test_the_rpm_builder_enables_the_epoch_macros_when_an_epoch_is_set(tmp_path) -> None:
+    root = rpm_tree(tmp_path)
+    args = run_rpm_builder(root, tmp_path, COMMIT_EPOCH)
+    assert "use_source_date_epoch_as_buildtime 1" in args  # rpmbuild ignores SOURCE_DATE_EPOCH without these
+    assert "clamp_mtime_to_source_date_epoch 1" in args
+    assert args.count("--define") >= 6 and args[-2] == "-bb"
+
+
+def test_the_rpm_builder_is_unchanged_without_an_epoch(tmp_path) -> None:
+    root = rpm_tree(tmp_path)
+    args = run_rpm_builder(root, tmp_path, None)
+    assert not any("source_date_epoch" in arg for arg in args)
+    assert any(arg.startswith("pysh_version ") for arg in args) and "-bb" in args
+
+
+def test_the_rpm_builder_never_rewrites_the_built_package() -> None:
+    import re
+
+    code = "\n".join(
+        line for line in (REPO_ROOT / "scripts" / "build_rpm.sh").read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert not re.search(r"strip-nondeterminism|\btouch\b|\butime\b|rpmrebuild|rpmsign|add-determinism", code)

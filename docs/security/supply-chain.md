@@ -325,8 +325,13 @@ after measurement: without it, two independent Debian builds differ because `dpk
 records the build-time modification times of the staging directories; with it the clamped
 timestamps no longer vary. The release workflow exports the same epoch for the shipped
 builds. It changes only timestamps, no package contents, and no output is normalized after
-the build. Whether the RPM and FreeBSD builders honor it is decided by their measured
-results, not assumed.
+the build. The RPM builder needed an explicit control: the first real dry run showed
+`rpmbuild` ignoring the epoch (it records the build time and the modification times of the
+files and directories it creates, so a package built from a checkout differed from the A/B
+builds). `scripts/build_rpm.sh` therefore enables the standard rpm macros
+`use_source_date_epoch_as_buildtime` and `clamp_mtime_to_source_date_epoch` whenever
+`SOURCE_DATE_EPOCH` is set, and was confirmed with a real `rpmbuild`. Whether the FreeBSD
+builder honors the epoch is decided by its measured result, not assumed.
 
 **Platform requirements.** The RPM measurement needs a real `rpmbuild`; without one the
 result is `PLATFORM_BLOCKED`, never a substitute. A FreeBSD `.pkg` is measured only by a

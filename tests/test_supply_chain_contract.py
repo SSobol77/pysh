@@ -38,7 +38,7 @@ def repo(tmp_path: Path) -> Path:
     """A copy of just the files the checker reads."""
     for relative in (
         DOC, PACKAGING, Path("scripts/check_release_artifacts.sh"), SBOM_GENERATOR, SUBJECT_HELPER, VERIFIER,
-        HARNESS, EVIDENCE_VALIDATOR,
+        HARNESS, EVIDENCE_VALIDATOR, Path("scripts/build_rpm.sh"),
         Path("pyproject.toml"), Path("uv.lock"),
     ):
         target = tmp_path / relative
@@ -1252,3 +1252,19 @@ def test_the_documentation_states_the_non_reproducible_release_consequence() -> 
     text = " ".join((REPO_ROOT / DOC).read_text(encoding="utf-8").split())
     assert "a shipped artifact that still equals a measured build" in text
     assert "The release artifact must equal build A or build B" in text
+
+
+# --- the RPM builder's epoch contract (first real dry run) ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("macro", ["use_source_date_epoch_as_buildtime", "clamp_mtime_to_source_date_epoch"])
+def test_the_rpm_builder_must_enable_the_epoch_macros(repo: Path, macro: str) -> None:
+    path = repo / "scripts/build_rpm.sh"
+    path.write_text(path.read_text(encoding="utf-8").replace(macro, "removed_macro"), encoding="utf-8")
+    assert "REPRO-RPM" in codes(repo)
+
+
+def test_the_rpm_builder_must_not_rewrite_the_package(repo: Path) -> None:
+    path = repo / "scripts/build_rpm.sh"
+    path.write_text(path.read_text(encoding="utf-8") + "\nstrip-nondeterminism \"${EXPECTED_PATH}\"\n", encoding="utf-8")
+    assert "REPRO-NORMALIZE" in codes(repo)
