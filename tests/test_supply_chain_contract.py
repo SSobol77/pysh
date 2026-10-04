@@ -3,7 +3,7 @@
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
-"""Issue #51 Slices 1-4: the repository-owned supply-chain contract and its checker.
+"""Issue #51 Slices 1-5: the repository-owned supply-chain contract and its checker.
 
 Hermetic: no network, GitHub CLI, Docker, FreeBSD, signing or SBOM tool. Negative
 cases mutate a temporary copy of the real documents, scripts and workflows.
@@ -28,6 +28,8 @@ SBOM_GENERATOR = Path("scripts/generate_release_sboms.py")
 SUBJECT_HELPER = Path("scripts/prepare_attestation_subjects.py")
 VERIFIER = Path("scripts/verify_release_attestations.py")
 HARNESS = Path("scripts/measure_release_reproducibility.py")
+EVIDENCE_RECORD = Path("docs/security/supply-chain-evidence.md")
+RELEASE_DOC = Path("docs/development/release.md")
 EVIDENCE_VALIDATOR = Path("scripts/check_reproducibility_evidence.py")
 ATTEST_SHA = "1e69f48acb82d1966a394da916b4c1698aa569d6"
 ATTEST_USES = f"actions/attest@{ATTEST_SHA} # actions/attest v4.2.2"
@@ -37,7 +39,7 @@ ATTEST_USES = f"actions/attest@{ATTEST_SHA} # actions/attest v4.2.2"
 def repo(tmp_path: Path) -> Path:
     """A copy of just the files the checker reads."""
     for relative in (
-        DOC, PACKAGING, Path("scripts/check_release_artifacts.sh"), SBOM_GENERATOR, SUBJECT_HELPER, VERIFIER,
+        DOC, PACKAGING, EVIDENCE_RECORD, RELEASE_DOC, Path("scripts/check_release_artifacts.sh"), SBOM_GENERATOR, SUBJECT_HELPER, VERIFIER,
         HARNESS, EVIDENCE_VALIDATOR, Path("scripts/build_rpm.sh"), Path("scripts/build_freebsd_pkg.sh"),
         Path("pyproject.toml"), Path("uv.lock"),
     ):
@@ -66,26 +68,24 @@ def test_the_real_repository_satisfies_the_contract() -> None:
     assert contract.run_checks(REPO_ROOT) == []
 
 
-def test_slice_four_reports_reproducibility_implemented_and_only_the_final_evidence_deferred(repo: Path) -> None:
+def test_every_slice_is_reported_implemented(repo: Path) -> None:
     assert contract.run_checks(repo) == []
     assert contract.future_status(repo) == [
         "implemented: SPDX 2.3 JSON SBOM generation (Slice 2)",
         "implemented: keyless provenance and SPDX SBOM attestations, verified before upload (Slice 3)",
         "implemented: per-artifact reproducibility measurement and evidence (Slice 4)",
-        "deferred: final Tier-1 dry-run release evidence (Slice 5): not yet implemented",
+        "implemented: final Tier-1 dry-run release evidence (Slice 5): docs/security/supply-chain-evidence.md",
     ]
 
 
-def test_the_deferred_final_evidence_being_present_never_fails_the_checker(repo: Path) -> None:
-    """The Slice 5 item is reported, not enforced."""
-    extra = repo / ".github" / "workflows" / "future-final.yml"
-    extra.write_text(
-        "name: future\non: workflow_dispatch\npermissions:\n  contents: read\njobs:\n  final:\n"
-        "    runs-on: ubuntu-latest\n    steps:\n      - run: echo tier-1 evidence\n",
-        encoding="utf-8",
-    )
-    assert contract.run_checks(repo) == []
-    assert contract.future_status(repo)[-1].endswith("present")
+def test_the_checker_never_reads_the_network_or_github(repo: Path) -> None:
+    tree = ast.parse((REPO_ROOT / "scripts" / "check_supply_chain_contract.py").read_text(encoding="utf-8"))
+    imported = {
+        (n.module or "").split(".")[0] if isinstance(n, ast.ImportFrom) else a.name.split(".")[0]
+        for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))
+        for a in (n.names if isinstance(n, ast.Import) else [None])
+    }
+    assert not imported & {"subprocess", "socket", "urllib", "http", "requests", "yaml"}
 
 
 def test_the_artifact_family_model_matches_the_documents() -> None:
@@ -113,13 +113,13 @@ def test_required_anchors_and_reproducibility_statuses_are_exact() -> None:
     assert not re.search(r"\bX\.Y\.Z\b|pysh[-_]shell[-_]", text)
 
 
-def test_the_policy_status_table_marks_slices_one_to_four_implemented() -> None:
+def test_the_policy_status_table_marks_all_five_slices_implemented() -> None:
     text = " ".join((REPO_ROOT / DOC).read_text(encoding="utf-8").split())
     assert "Policy, anchors and structural contract check | IMPLEMENTED (Slice 1)" in text
     assert "SPDX 2.3 JSON SBOM generation | IMPLEMENTED (Slice 2)" in text
     assert "SBOM attestations, verified before upload | IMPLEMENTED (Slice 3)" in text
     assert "Reproducibility measurement | IMPLEMENTED (Slice 4)" in text
-    assert "Final Tier-1 dry-run release evidence | DEFERRED (Slice 5)" in text
+    assert "Final Tier-1 dry-run release evidence | IMPLEMENTED (Slice 5)" in text
     assert "Not implemented" not in text
 
 
@@ -290,7 +290,7 @@ def test_a_reordered_pipeline_fails(repo: Path) -> None:
 
 
 def test_overclaiming_that_implementation_exists_fails(repo: Path) -> None:
-    edit(repo, DOC, "is implemented in a later\nslice", "is implemented")
+    replace_wrapped(repo, DOC, "is not the final v1.0.0 release attestation", "is the final v1.0.0 release attestation")
     assert "DOC-PIPELINE" in codes(repo)
 
 
@@ -1335,3 +1335,271 @@ def test_the_documentation_states_the_freebsd_timestamp_control_without_claiming
     assert "PySH does not rewrite the resulting `.pkg`" in text
     assert "established only by the native FreeBSD 14.4 measurement, not assumed" in text
     assert "freebsd_pkg is reproducible" not in text.lower()
+
+
+# --- Slice 5: the permanent Tier-1 evidence record ----------------------------------------------------------------------------------
+
+RUN = "37166005508"
+SHA = "f642eaa5707456b2ecfa7696919bef2dfa5c4fa6"
+FAMILIES_5 = ("wheel", "sdist", "deb", "rpm", "freebsd_pkg")
+IDS = ("52499029", "52499033", "52499037", "52499040", "52499044", "52499052", "52499055")
+
+
+def replace_wrapped(root: Path, relative: Path, phrase: str, new: str) -> None:
+    """Replace a phrase wherever it appears, even when the document wraps it across lines."""
+    path = root / relative
+    text = path.read_text(encoding="utf-8")
+    pattern = r"\s+".join(re.escape(word) for word in phrase.split())
+    updated, count = re.subn(pattern, new, text)
+    assert count >= 1, f"fixture drift: {phrase!r}"
+    path.write_text(updated, encoding="utf-8")
+
+
+def evidence_codes(root: Path) -> set[str]:
+    return {v.code for v in contract.check_final_evidence(root)}
+
+
+def edit_record(root: Path, old: str, new: str, *, count: int = 1) -> None:
+    edit(root, EVIDENCE_RECORD, old, new, count=count)
+
+
+def test_the_real_evidence_record_passes(repo: Path) -> None:
+    assert contract.check_final_evidence(repo) == []
+    assert contract.check_final_evidence(REPO_ROOT) == []  # real files, including the cited tests and scripts
+
+
+def test_the_record_pins_the_run_the_commit_and_the_counts() -> None:
+    text = (REPO_ROOT / EVIDENCE_RECORD).read_text(encoding="utf-8")
+    assert contract.EVIDENCE_RUN == RUN and contract.EVIDENCE_SHA == SHA
+    assert f"| Workflow run | {RUN} |" in text and f"| Tested source SHA | {SHA} |" in text
+    for fact in ("| Release files | 12 |", "| SHA256SUMS entries | 11 |", "| Provenance subjects | 12 |",
+                 "| SPDX SBOM attestations | 5 |", "| Release upload job | SKIPPED |", "| Event | workflow_dispatch |",
+                 "| Conclusion | success |"):
+        assert fact in text
+
+
+def test_all_five_families_and_all_seven_attestations_are_recorded() -> None:
+    text = (REPO_ROOT / EVIDENCE_RECORD).read_text(encoding="utf-8")
+    for family in FAMILIES_5:
+        assert re.search(rf"\| {family} \| REPRODUCIBLE \| [0-9a-f]{{64}} \|", text)
+    for identifier in IDS:
+        assert f"| {identifier} |" in text
+    assert "37164782394" in text and "37165299323" in text
+    assert "Issue #35 Handoff" in text
+
+
+def test_the_record_matches_the_real_machine_readable_evidence_it_summarizes() -> None:
+    """The recorded digests are well-formed, consistent between sections and distinct per artifact."""
+    text = (REPO_ROOT / EVIDENCE_RECORD).read_text(encoding="utf-8")
+    sections = contract._markdown_sections(text)
+    repro = {r[0]: r[2] for r in contract._rows(sections["Reproducibility Results"], 3)}
+    files = {r[0]: r[1] for r in contract._rows(sections["Release Artifact Set"], 2)}
+    packages = {
+        "wheel": "pysh_shell-0.9.1-py3-none-any.whl", "sdist": "pysh_shell-0.9.1.tar.gz",
+        "deb": "pysh-shell_0.9.1-1_all.deb", "rpm": "pysh-shell-0.9.1-1.noarch.rpm", "freebsd_pkg": "pysh-shell-0.9.1.pkg",
+    }
+    for family, name in packages.items():
+        assert repro[family] == files[name]  # the release artifact digest is the reproducibility digest
+    assert len(set(files.values()) - {"SHA-256"}) == 12
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (f"| Workflow run | {RUN} |", "| Workflow run | 37166005509 |"),
+        (f"| Tested source SHA | {SHA} |", "| Tested source SHA | " + "a" * 40 + " |"),
+        ("| Event | workflow_dispatch |", "| Event | release |"),
+        ("| Conclusion | success |", "| Conclusion | failure |"),
+        ("| Release files | 12 |", "| Release files | 11 |"),
+        ("| SHA256SUMS entries | 11 |", "| SHA256SUMS entries | 10 |"),
+        ("| Provenance subjects | 12 |", "| Provenance subjects | 11 |"),
+        ("| SPDX SBOM attestations | 5 |", "| SPDX SBOM attestations | 4 |"),
+        ("| Release upload job | SKIPPED |", "| Release upload job | success |"),
+        ("| Job: GitHub Release upload | SKIPPED |", "| Job: GitHub Release upload | success |"),
+        ("| Job: FreeBSD 14.4 reference | success |", "| Job: FreeBSD 14.4 reference | failure |"),
+    ],
+)
+def test_a_wrong_recorded_fact_fails(repo: Path, old: str, new: str) -> None:
+    edit_record(repo, old, new)
+    assert "EVID-FACT" in evidence_codes(repo)
+
+
+def test_a_stale_eleven_subject_provenance_count_fails(repo: Path) -> None:
+    edit_record(repo, "| Provenance subjects | 12 |", "| Provenance subjects | 11 |")
+    assert evidence_codes(repo) == {"EVID-FACT"}
+
+
+@pytest.mark.parametrize("family", FAMILIES_5)
+def test_a_missing_family_result_fails(repo: Path, family: str) -> None:
+    path = repo / EVIDENCE_RECORD
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    path.write_text("".join(line for line in lines if not re.match(rf"\| {family} \| REPRODUCIBLE \|", line)), encoding="utf-8")
+    assert "EVID-REPRO" in evidence_codes(repo)
+
+
+@pytest.mark.parametrize("state", ["NON_REPRODUCIBLE", "PLATFORM_BLOCKED", "NOT_YET_MEASURED"])
+def test_a_family_that_is_not_reproducible_fails(repo: Path, state: str) -> None:
+    path = repo / EVIDENCE_RECORD
+    path.write_text(re.sub(r"\| rpm \| REPRODUCIBLE \|", f"| rpm | {state} |", path.read_text(encoding="utf-8")), encoding="utf-8")
+    assert "EVID-REPRO" in evidence_codes(repo)
+
+
+def test_a_malformed_release_digest_fails(repo: Path) -> None:
+    edit_record(repo, "| deb | REPRODUCIBLE | 3172db94", "| deb | REPRODUCIBLE | zzzzzzzz")
+    assert "EVID-REPRO" in evidence_codes(repo)
+
+
+@pytest.mark.parametrize("label", ["SPDX SBOM wheel", "SPDX SBOM freebsd_pkg", "provenance, SHA256SUMS", "provenance, 11 SHA256SUMS subjects"])
+def test_a_missing_attestation_fails(repo: Path, label: str) -> None:
+    path = repo / EVIDENCE_RECORD
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    path.write_text("".join(line for line in lines if not line.startswith(f"| {label} |")), encoding="utf-8")
+    assert "EVID-ATTEST" in evidence_codes(repo)
+
+
+@pytest.mark.parametrize("identifier", IDS)
+def test_a_missing_or_wrong_attestation_id_fails(repo: Path, identifier: str) -> None:
+    edit_record(repo, f"| {identifier} |", "| 10000000 |")
+    assert "EVID-ATTEST" in evidence_codes(repo)
+
+
+@pytest.mark.parametrize("run", ["37164782394", "37165299323"])
+def test_a_missing_historical_negative_run_fails(repo: Path, run: str) -> None:
+    path = repo / EVIDENCE_RECORD
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    path.write_text("".join(line for line in lines if not line.startswith(f"| {run} |")), encoding="utf-8")
+    assert "EVID-NEGATIVE" in evidence_codes(repo)
+
+
+def test_a_historical_run_that_loses_its_meaning_fails(repo: Path) -> None:
+    edit_record(repo, "the release-byte binding caught RPM timestamp nondeterminism", "it was fine")
+    assert "EVID-NEGATIVE" in evidence_codes(repo)
+
+
+def test_a_historical_failure_recorded_with_the_wrong_source_fails(repo: Path) -> None:
+    edit_record(repo, "86be6f60e948df8a119598575619377839f5009b", "0" * 40)
+    assert "EVID-NEGATIVE" in evidence_codes(repo)
+
+
+def test_claiming_the_evidence_record_commit_was_attested_fails(repo: Path) -> None:
+    edit_record(repo, "it is not itself attested", "it is itself attested")
+    assert "EVID-CLAIM" in evidence_codes(repo)
+    edit_record(repo, "- The evidence-record commit is not itself attested.", "- The evidence-record commit was attested.")
+    assert "EVID-CLAIM" in evidence_codes(repo)
+
+
+def test_dropping_the_source_versus_record_commit_distinction_fails(repo: Path) -> None:
+    path = repo / EVIDENCE_RECORD
+    path.write_text(path.read_text(encoding="utf-8").replace("Evidence-record commit", "Later commit"), encoding="utf-8")
+    assert {"EVID-IDENTITY", "EVID-CLAIM"} & evidence_codes(repo)
+
+
+def test_calling_the_dry_run_the_final_release_attestation_fails(repo: Path) -> None:
+    replace_wrapped(repo, EVIDENCE_RECORD, "is **not** the final v1.0.0 release attestation", "is the final v1.0.0 release attestation")
+    replace_wrapped(repo, EVIDENCE_RECORD, "is not the final v1.0.0 release attestation", "is the final v1.0.0 release attestation")
+    assert "EVID-CLAIM" in evidence_codes(repo)
+
+
+def test_dropping_the_rerun_requirement_for_the_final_release_fails(repo: Path) -> None:
+    replace_wrapped(repo, EVIDENCE_RECORD, "must rerun the same assurance pipeline on its final release SHA", "need not rerun anything")
+    assert "EVID-CLAIM" in evidence_codes(repo)
+
+
+@pytest.mark.parametrize("needle", ["GitHub Release created | no", "Tag created | no", "PyPI publication | no"])
+def test_the_publication_boundary_must_be_recorded(repo: Path, needle: str) -> None:
+    edit_record(repo, needle, needle.replace("| no", "| yes"))
+    assert "EVID-BOUNDARY" in evidence_codes(repo)
+
+
+@pytest.mark.parametrize("heading", ["Scope", "Historical Negative Evidence", "Issue #35 Handoff", "Residual Limitations", "Trust Model"])
+def test_a_missing_section_fails(repo: Path, heading: str) -> None:
+    edit_record(repo, f"## {heading}", f"## Renamed {heading}")
+    assert "EVID-SECTION" in evidence_codes(repo)
+
+
+def test_a_missing_evidence_record_fails(repo: Path) -> None:
+    (repo / EVIDENCE_RECORD).unlink()
+    assert evidence_codes(repo) == {"EVID-MISSING"}
+
+
+# -- the acceptance mapping --
+
+
+def test_every_required_acceptance_item_is_in_the_record_exactly_once() -> None:
+    text = (REPO_ROOT / EVIDENCE_RECORD).read_text(encoding="utf-8")
+    rows = contract._rows(contract._markdown_sections(text)["Issue #51 Acceptance Mapping"], 5)
+    labels = [r[0] for r in rows if r[0] != "Acceptance item"]
+    assert sorted(labels) == sorted(contract.REQUIRED_ACCEPTANCE) and len(labels) == len(set(labels)) == 33
+    assert all(r[4] == "PASS" and all(r[1:4]) for r in rows if r[0] != "Acceptance item")
+
+
+@pytest.mark.parametrize("item", ["Shipped-byte binding", "RPM deterministic build", "Native FreeBSD deterministic build", "Release Quality Gate integration"])
+def test_a_missing_acceptance_item_fails(repo: Path, item: str) -> None:
+    path = repo / EVIDENCE_RECORD
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    path.write_text("".join(line for line in lines if not line.startswith(f"| {item} |")), encoding="utf-8")
+    assert "EVID-ACCEPTANCE" in evidence_codes(repo)
+
+
+def test_an_acceptance_item_that_is_not_pass_fails(repo: Path) -> None:
+    path = repo / EVIDENCE_RECORD
+    text = path.read_text(encoding="utf-8")
+    start = text.index("| Shipped-byte binding |")
+    end = text.index("\n", start)
+    path.write_text(text[:start] + text[start:end].replace("| PASS |", "| FAIL |") + text[end:], encoding="utf-8")
+    assert "EVID-ACCEPTANCE" in evidence_codes(repo)
+
+
+@pytest.mark.parametrize("column", [1, 2, 3])
+def test_an_acceptance_item_without_implementation_test_or_evidence_fails(repo: Path, column: int) -> None:
+    path = repo / EVIDENCE_RECORD
+    text = path.read_text(encoding="utf-8")
+    start = text.index("| Shipped-byte binding |")
+    end = text.index("\n", start)
+    cells = text[start:end].split(" | ")
+    cells[column] = ""
+    path.write_text(text[:start] + " | ".join(cells) + text[end:], encoding="utf-8")
+    assert "EVID-ACCEPTANCE" in evidence_codes(repo)
+
+
+def test_an_acceptance_item_citing_a_missing_test_fails(tmp_path: Path) -> None:
+    for relative in (DOC, EVIDENCE_RECORD, RELEASE_DOC):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(REPO_ROOT / relative, target)
+    (tmp_path / "tests").mkdir()  # a tests directory exists, but none of the cited files do
+    assert "EVID-ACCEPTANCE" in evidence_codes(tmp_path)
+
+
+# -- the status table, the links and the Issue #35 handoff --
+
+
+def test_slice_five_still_deferred_fails(repo: Path) -> None:
+    edit(repo, DOC, "| Final Tier-1 dry-run release evidence | IMPLEMENTED (Slice 5) |", "| Final Tier-1 dry-run release evidence | DEFERRED (Slice 5) |")
+    assert "DOC-STATUS" in codes(repo)
+
+
+def test_the_policy_must_link_the_evidence_record(repo: Path) -> None:
+    path = repo / DOC
+    path.write_text(path.read_text(encoding="utf-8").replace("supply-chain-evidence.md", "elsewhere.md"), encoding="utf-8")
+    assert {"EVID-LINK", "DOC-PIPELINE"} & codes(repo)
+
+
+@pytest.mark.parametrize(
+    "needle",
+    ["supply-chain-evidence.md", "Issue #35", "gh attestation verify", "must run again on the final release SHA"],
+)
+def test_the_issue_35_handoff_in_the_release_guide_is_required(repo: Path, needle: str) -> None:
+    path = repo / RELEASE_DOC
+    path.write_text(path.read_text(encoding="utf-8").replace(needle, "REDACTED"), encoding="utf-8")
+    assert "EVID-HANDOFF" in evidence_codes(repo)
+
+
+def test_the_scope_must_not_claim_the_evidence_is_the_final_release_attestation(repo: Path) -> None:
+    edit(repo, DOC, "is not the final v1.0.0 release attestation", "is the final v1.0.0 release attestation")
+    assert "DOC-PIPELINE" in codes(repo)
+
+
+def test_the_scope_must_require_the_final_release_to_rerun_the_pipeline(repo: Path) -> None:
+    replace_wrapped(repo, DOC, "must rerun the same assurance pipeline on its final release SHA", "needs nothing more")
+    assert "DOC-PIPELINE" in codes(repo)

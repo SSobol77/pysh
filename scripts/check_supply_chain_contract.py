@@ -4,7 +4,7 @@
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
-"""Structural supply-chain contract check for Issue #51 (Slices 1-4).
+"""Structural supply-chain contract check for Issue #51 (Slices 1-5).
 
 Read-only, deterministic and offline: it validates the repository-owned policy
 (``docs/security/supply-chain.md``), its agreement with the packaging contract, and
@@ -22,8 +22,9 @@ Two classes of requirements are kept apart:
   Since Slice 4 they include per-artifact reproducibility measurement (the A/B harness,
   the evidence validator, the published ``REPRODUCIBILITY.json``, the commit-timestamp
   epoch policy and the evidence-before-checksums ordering).
-* FUTURE implementation requirements (the final Tier-1 evidence run) are only *reported*
-  as deferred or present, never enforced.
+  Since Slice 5 they include the permanent Tier-1 evidence record
+  (``docs/security/supply-chain-evidence.md``): the record is pinned offline, so the checker
+  never queries GitHub and fast mode stays offline.
 
 Exit codes: 0 contract holds, 1 contract violation, 2 command-line misuse.
 """
@@ -88,6 +89,8 @@ SUBJECT_HELPER = Path("scripts/prepare_attestation_subjects.py")
 ATTESTATION_VERIFIER = Path("scripts/verify_release_attestations.py")
 REPRO_HARNESS = Path("scripts/measure_release_reproducibility.py")
 REPRO_VALIDATOR = Path("scripts/check_reproducibility_evidence.py")
+EVIDENCE_DOC = Path("docs/security/supply-chain-evidence.md")
+RELEASE_DOC = Path("docs/development/release.md")
 WORKFLOWS = Path(".github/workflows")
 RELEASE_WORKFLOW = WORKFLOWS / "release-artifacts.yml"
 PUBLISH_WORKFLOW = WORKFLOWS / "publish.yml"
@@ -270,8 +273,14 @@ def check_documentation(root: Path) -> list[Violation]:
             out.append(Violation("DOC-PIPELINE", f"the numbered future ordering must contain stage {stage!r} after the previous stage"))
             break
         position = found
-    if "later slice" not in " ".join(sections.get("PYSH-SC-SCOPE", "").lower().split()):
-        out.append(Violation("DOC-PIPELINE", "the scope must state that the final evidence run is implemented in a later slice"))
+    scope = " ".join(sections.get("PYSH-SC-SCOPE", "").replace("*", "").split())
+    for needle, why in (
+        ("supply-chain-evidence.md", "link the permanent evidence record"),
+        ("is not the final v1.0.0 release attestation", "say that the evidence is not the final v1.0.0 release attestation"),
+        ("must rerun the same assurance pipeline on its final release SHA", "require the v1.0.0 release to rerun the pipeline on its final SHA"),
+    ):
+        if needle not in scope:
+            out.append(Violation("DOC-PIPELINE", f"the scope must {why}: {needle!r}"))
 
     pypi = sections.get("PYSH-SC-PYPI", "")
     if "Trusted Publishing" not in pypi or "publish.yml" not in pypi or "second PyPI publisher" not in pypi:
@@ -430,17 +439,13 @@ def check_publication_and_secrets(root: Path) -> list[Violation]:
 
 
 def future_status(root: Path) -> list[str]:
-    """Implemented and deferred items (informational; only the deferred one is not enforced)."""
-    directory = root / WORKFLOWS
-    corpus = "\n".join(
-        _code(p.read_text(encoding="utf-8")) for p in sorted(directory.glob("*.y*ml"))
-    ) if directory.is_dir() else ""
-    final = "present" if re.search(r"tier-?1[ -]evidence", corpus, re.I) else "not yet implemented"
+    """Implemented items (informational): every slice of Issue #51 is implemented."""
+    del root
     return [
         "implemented: SPDX 2.3 JSON SBOM generation (Slice 2)",
         "implemented: keyless provenance and SPDX SBOM attestations, verified before upload (Slice 3)",
         "implemented: per-artifact reproducibility measurement and evidence (Slice 4)",
-        f"deferred: final Tier-1 dry-run release evidence (Slice 5): {final}",
+        "implemented: final Tier-1 dry-run release evidence (Slice 5): docs/security/supply-chain-evidence.md",
     ]
 
 
@@ -452,7 +457,7 @@ STATUS_ROWS = (
     ("spdx 2.3 json sbom generation", "IMPLEMENTED (Slice 2)"),
     ("keyless provenance and spdx sbom attestations", "IMPLEMENTED (Slice 3)"),
     ("reproducibility measurement", "IMPLEMENTED (Slice 4)"),
-    ("final tier-1 dry-run release evidence", "DEFERRED (Slice 5)"),
+    ("final tier-1 dry-run release evidence", "IMPLEMENTED (Slice 5)"),
 )
 
 
@@ -1016,10 +1021,208 @@ def check_reproducibility_implementation(root: Path) -> list[Violation]:
     return out
 
 
+# --- Slice 5: the permanent Tier-1 evidence record ---------------------------------------------------------------
+
+#: The recorded real run. The record is the repository-owned permanent baseline; pinning its key
+#: facts here keeps an edit from silently changing them. Nothing is fetched from GitHub.
+EVIDENCE_RUN = "37166005508"
+EVIDENCE_SHA = "f642eaa5707456b2ecfa7696919bef2dfa5c4fa6"
+EVIDENCE_FIELDS = {
+    "Workflow run": EVIDENCE_RUN,
+    "Tested source SHA": EVIDENCE_SHA,
+    "Event": "workflow_dispatch",
+    "Conclusion": "success",
+    "Job: FreeBSD 14.4 reference": "success",
+    "Job: FreeBSD 15 validation": "success",
+    "Job: build-and-validate": "success",
+    "Job: GitHub Release upload": "SKIPPED",
+    "Release files": "12",
+    "SHA256SUMS entries": "11",
+    "Provenance subjects": "12",
+    "SPDX SBOM attestations": "5",
+    "Release upload job": "SKIPPED",
+}
+EVIDENCE_ATTESTATIONS = {
+    "provenance, 11 SHA256SUMS subjects": "52499029",
+    "provenance, SHA256SUMS": "52499033",
+    "SPDX SBOM wheel": "52499037",
+    "SPDX SBOM sdist": "52499040",
+    "SPDX SBOM deb": "52499044",
+    "SPDX SBOM rpm": "52499052",
+    "SPDX SBOM freebsd_pkg": "52499055",
+}
+EVIDENCE_NEGATIVE_RUNS = {
+    "37164782394": ("86be6f60e948df8a119598575619377839f5009b", "RPM"),
+    "37165299323": ("12067296c6d184daaeaed1ca6e373d4acd312605", "FreeBSD"),
+}
+EVIDENCE_HEADINGS = (
+    "Scope", "Tested Source Identity", "Workflow Evidence", "Platform Evidence", "Reproducibility Results",
+    "Release Artifact Set", "SHA-256 Integrity", "SBOM Evidence", "Provenance Evidence",
+    "Attestation Verification", "Trust Model", "Publication Boundary", "Historical Negative Evidence",
+    "Residual Limitations", "Issue #51 Acceptance Mapping", "Issue #35 Handoff",
+)
+REQUIRED_ACCEPTANCE = (
+    "SPDX SBOM generated for all five package families",
+    "SBOM format SPDX 2.3 JSON",
+    "Public SBOM filenames tied to canonical package basenames",
+    "Final SHA256SUMS covers all public files except itself",
+    "Exact source provenance",
+    "Canonical subject names",
+    "Canonical subject digests",
+    "Repository identity pinned",
+    "Signer workflow pinned",
+    "Source digest pinned",
+    "Verification before handoff",
+    "Fail closed on missing or invalid attestation",
+    "No release upload bypass",
+    "No long-lived private signing key",
+    "GitHub OIDC and Sigstore trust model",
+    "PyPI Trusted Publishing preserved",
+    "User verification documented",
+    "Maintainer verification documented",
+    "Trust-root rotation documented",
+    "Future ecosystem verification is default-deny",
+    "Reproducibility measured for all five package families",
+    "Shipped-byte binding",
+    "Exact resolved toolchain evidence",
+    "RPM deterministic build",
+    "Native FreeBSD deterministic build",
+    "Real FreeBSD 14.4 evidence",
+    "FreeBSD 15 validation",
+    "Real GitHub attestation creation",
+    "Real gh attestation verification",
+    "Release upload skipped for workflow_dispatch",
+    "Historical fail-closed negative controls",
+    "Release Quality Gate integration",
+    "Issue #35 evidence handoff",
+)
+#: Statements that must be present, and false claims that must not be.
+EVIDENCE_REQUIRED_PHRASES = (
+    "not itself attested",
+    "is not the final v1.0.0 release attestation",
+    "must rerun the same assurance pipeline on its final release SHA",
+    "negative-control evidence",
+    "Tested source SHA",
+    "Evidence-record commit",
+)
+EVIDENCE_FALSE_CLAIMS = (
+    re.compile(r"evidence-record commit[^.|]*\b(?:was|is|has been|were) (?:itself )?attested", re.I),
+    re.compile(r"\bis the final v1\.0\.0 release attestation", re.I),
+    re.compile(r"\bare (?:unresolved|open) release failures", re.I),
+)
+
+
+def _markdown_sections(text: str) -> dict[str, str]:
+    parts = re.split(r"^## (.+)$", text, flags=re.M)
+    return {parts[i].strip(): parts[i + 1] for i in range(1, len(parts) - 1, 2)}
+
+
+def _cells(line: str) -> list[str]:
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def _rows(text: str, width: int) -> list[list[str]]:
+    rows = []
+    for line in text.splitlines():
+        if line.startswith("|"):
+            cells = _cells(line)
+            if len(cells) == width and not set("".join(cells)) <= set("- "):
+                rows.append(cells)
+    return rows
+
+
+def check_final_evidence(root: Path) -> list[Violation]:
+    """Slice 5: the permanent Tier-1 evidence record, pinned offline."""
+    out: list[Violation] = []
+    raw = _read(root, EVIDENCE_DOC)
+    if raw is None:
+        return [Violation("EVID-MISSING", f"{EVIDENCE_DOC} is missing")]
+    text = " ".join(raw.replace("**", "").split())
+    sections = _markdown_sections(raw)
+    for heading in EVIDENCE_HEADINGS:
+        if heading not in sections:
+            out.append(Violation("EVID-SECTION", f"{EVIDENCE_DOC} lacks the section '{heading}'"))
+
+    pairs: dict[str, list[str]] = {}
+    for label, value in _rows(raw, 2):
+        pairs.setdefault(label, []).append(value)
+    for label, expected in EVIDENCE_FIELDS.items():
+        values = pairs.get(label)
+        if not values:
+            out.append(Violation("EVID-FACT", f"the evidence record must state '{label}'"))
+        elif any(value != expected and not value.startswith(f"{expected} ") for value in values):
+            out.append(Violation("EVID-FACT", f"'{label}' must be {expected!r}: found {values}"))
+
+    results = {row[0]: row for row in _rows(sections.get("Reproducibility Results", ""), 3)}
+    for family in (f.family_id for f in FAMILIES if f.requires_sbom):
+        row = results.get(family)
+        if row is None:
+            out.append(Violation("EVID-REPRO", f"the reproducibility results must list the {family} family"))
+        elif row[1] != "REPRODUCIBLE" or not re.fullmatch(r"[0-9a-f]{64}", row[2]):
+            out.append(Violation("EVID-REPRO", f"{family} must be REPRODUCIBLE with a release/A/B SHA-256 (found {row[1]!r})"))
+
+    attestations = {row[0]: row[1] for row in _rows(sections.get("Provenance Evidence", ""), 2)}
+    for label, identifier in EVIDENCE_ATTESTATIONS.items():
+        if attestations.get(label) != identifier:
+            out.append(Violation("EVID-ATTEST", f"attestation '{label}' must be recorded with ID {identifier}"))
+
+    history = {row[0]: row for row in _rows(sections.get("Historical Negative Evidence", ""), 4)}
+    for run, (sha, family) in EVIDENCE_NEGATIVE_RUNS.items():
+        row = history.get(run)
+        if row is None or row[1] != sha or family not in row[3] or "release-byte binding" not in row[3]:
+            out.append(Violation("EVID-NEGATIVE", f"the historical {family} fail-closed run {run} (source {sha[:12]}) must be recorded"))
+
+    identity = " ".join(sections.get("Tested Source Identity", "").replace("**", "").split())
+    if not all(needle in identity for needle in ("Tested source SHA", "Evidence-record commit", "not itself attested")):
+        out.append(Violation("EVID-IDENTITY", "the evidence must distinguish the tested source SHA from the later evidence-record commit and say the latter is not itself attested"))
+    for phrase in EVIDENCE_REQUIRED_PHRASES:
+        if phrase not in text:
+            out.append(Violation("EVID-CLAIM", f"the evidence record must state: {phrase!r}"))
+    for pattern in EVIDENCE_FALSE_CLAIMS:
+        if pattern.search(text):
+            out.append(Violation("EVID-CLAIM", f"the evidence record makes a false claim ({pattern.pattern})"))
+    if EVIDENCE_SHA not in sections.get("Tested Source Identity", "") or EVIDENCE_RUN not in sections.get("Workflow Evidence", ""):
+        out.append(Violation("EVID-FACT", "the tested source SHA and the run ID must be recorded in their sections"))
+    boundary = " ".join(sections.get("Publication Boundary", "").split())
+    for needle in ("GitHub Release created | no", "Tag created | no", "PyPI publication | no"):
+        if needle not in boundary:
+            out.append(Violation("EVID-BOUNDARY", f"the publication boundary must record: {needle}"))
+
+    mapping = {row[0]: row for row in _rows(sections.get("Issue #51 Acceptance Mapping", ""), 5)}
+    for item in REQUIRED_ACCEPTANCE:
+        row = mapping.get(item)
+        if row is None:
+            out.append(Violation("EVID-ACCEPTANCE", f"the acceptance mapping lacks the item '{item}'"))
+        elif not all(row[1:4]) or row[4] != "PASS":
+            out.append(Violation("EVID-ACCEPTANCE", f"'{item}' needs an implementation, a test and evidence, and must be PASS"))
+        elif (root / "tests").is_dir():
+            for path in re.findall(r"(?:scripts|tests)/[\w./-]+\.(?:py|sh)", " ".join(row[1:3])):
+                if not (root / path).is_file():
+                    out.append(Violation("EVID-ACCEPTANCE", f"'{item}' cites {path}, which does not exist"))
+    extra = sorted(set(mapping) - set(REQUIRED_ACCEPTANCE) - {"Acceptance item"})
+    if extra:
+        out.append(Violation("EVID-ACCEPTANCE", f"unexpected acceptance items: {extra}"))
+
+    doc = _read(root, DOC) or ""
+    if "supply-chain-evidence.md" not in doc:
+        out.append(Violation("EVID-LINK", f"{DOC} must link {EVIDENCE_DOC.name}"))
+    release = " ".join((_read(root, RELEASE_DOC) or "").split())
+    for needle, why in (
+        ("supply-chain-evidence.md", "link the evidence record as the Issue #35 handoff"),
+        ("Issue #35", "name the readiness audit"),
+        ("gh attestation verify", "document maintainer verification"),
+        ("must run again on the final release SHA", "require the pipeline to rerun for v1.0.0"),
+    ):
+        if needle not in release:
+            out.append(Violation("EVID-HANDOFF", f"{RELEASE_DOC} must {why}: {needle!r}"))
+    return out
+
+
 CURRENT_CHECKS = (
     check_sbom_implementation,
     check_attestation_implementation,
     check_reproducibility_implementation,
+    check_final_evidence,
     check_documentation,
     check_packaging_agreement,
     check_release_workflow,

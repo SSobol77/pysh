@@ -62,6 +62,15 @@ PyPI Trusted Publishing is unchanged. The fast and CI release-gate modes only ru
 the structural contract check; they call neither GitHub nor the SBOM tool and need
 no package builds, and attestations exist only after the workflow has run on GitHub.
 
+Issue #51 now provides the mandatory supply-chain evidence for the v1.0.0 readiness audit
+(Issue #35). The reviewed Tier-1 baseline is
+[`supply-chain-evidence.md`](../security/supply-chain-evidence.md): a real successful
+`workflow_dispatch` dry run for package version 0.9.1 that is not itself the v1.0.0 release
+attestation. For v1.0.0 the same pipeline must run again on the final release SHA, and the
+audit verifies from that run and the baseline: exact source identity, packaging coverage, SBOM
+coverage, provenance, attestation verification, reproducibility, fail-closed behaviour and the
+publication boundary (no release, tag, PyPI publication or release asset upload from a dry run).
+
 Normative runtime-family support, platform validation tiers, and reference
 environments are defined by
 [`platform-tiers.md`](../compatibility/platform-tiers.md). This release

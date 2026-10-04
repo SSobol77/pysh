@@ -27,10 +27,13 @@ and never becomes a PySH runtime dependency.
 **Issue #51 defines the supply-chain contract. SPDX 2.3 JSON SBOM generation
 (Slice 2), keyless provenance and SBOM attestations with verification before upload
 (Slice 3) and per-artifact reproducibility measurement with published evidence
-(Slice 4) are implemented; the final Tier-1 evidence run is implemented in a later
-slice.** Attestations are created and verified only by
-the release workflow when it runs on GitHub; nothing in this repository creates one
-locally, and an SBOM is not provenance.
+(Slice 4) are implemented, and the final Tier-1 dry-run evidence (Slice 5) is recorded
+in [supply-chain-evidence.md](supply-chain-evidence.md).** Attestations are created and
+verified only by the release workflow when it runs on GitHub; nothing in this repository
+creates one locally, and an SBOM is not provenance. That evidence is a real
+`workflow_dispatch` run for package version 0.9.1 and proves the mechanism before v1.0.0; it
+is not the final v1.0.0 release attestation, and the v1.0.0 release must rerun the same
+assurance pipeline on its final release SHA.
 
 | Capability | Status |
 | --- | --- |
@@ -38,7 +41,7 @@ locally, and an SBOM is not provenance.
 | SPDX 2.3 JSON SBOM generation | IMPLEMENTED (Slice 2) |
 | Keyless provenance and SPDX SBOM attestations, verified before upload | IMPLEMENTED (Slice 3) |
 | Reproducibility measurement | IMPLEMENTED (Slice 4) |
-| Final Tier-1 dry-run release evidence | DEFERRED (Slice 5) |
+| Final Tier-1 dry-run release evidence | IMPLEMENTED (Slice 5) |
 
 Non-goals. This contract does not:
 
@@ -458,3 +461,11 @@ attestation completeness and identity, reproducibility status, native package
 validation status, the exact artifact set attached to the release, and that the PyPI
 Trusted Publishing path was unchanged. This evidence is consumed directly by the
 readiness audit in Issue #35 and must be linked there before v1.0.0 approval.
+
+The reviewed baseline for Issue #51 is [supply-chain-evidence.md](supply-chain-evidence.md):
+a real successful `workflow_dispatch` run (run 37166005508, source
+f642eaa5707456b2ecfa7696919bef2dfa5c4fa6, package version 0.9.1) with its attestation IDs, its
+per-family reproducibility results, the two fail-closed historical runs and the acceptance
+mapping. It distinguishes the tested source SHA from the later evidence-record commit, which is
+not itself attested. For v1.0.0 the same pipeline must run again on the final release SHA and
+that run must be linked in the Issue #35 audit next to the baseline.
