@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Release Process (`vX.Y.Z`)
 
-> Each v0.9.1 release ships **four** artifact families: PyPI (wheel + sdist),
+> Each release ships **four** artifact families: PyPI (wheel + sdist),
 > Debian `.deb`, Red Hat/Fedora `.rpm`, and FreeBSD `.pkg`. See
 > [`packaging.md`](packaging.md) for the canonical naming contract and
 > [`installation.md`](../user/installation.md) for end-user install commands.
@@ -90,8 +90,9 @@ the `pypi` GitHub environment.
 Prepare curated GitHub Release notes from
 [release-notes-template.md](release-notes-template.md). Public user-path
 acceptance follows [manual-validation.md](../user/manual-validation.md).
-The prepared 0.9.1 notes are in
-[release-notes-0.9.1.md](release-notes-0.9.1.md).
+The prepared 1.0.0 notes are in
+[release-notes-1.0.0.md](release-notes-1.0.0.md); the 0.9.1 notes remain
+historical in [release-notes-0.9.1.md](release-notes-0.9.1.md).
 Public Python, CLI, configuration, and deprecation compatibility must be
 reviewed against the normative
 [API stability policy](api-stability.md) before assigning the release version.
@@ -331,6 +332,30 @@ reviewed against the normative
    (`--predicate-type https://spdx.dev/Document/v2.3`) are complementary; see
    [`supply-chain.md`](../security/supply-chain.md) for the full procedure and
    the offline trust-root flow.
+
+## Incident, yank, and rollback policy
+
+Published release versions are immutable. The policy below does not promise any
+rollback mechanism that GitHub or PyPI do not provide.
+
+- **GitHub Release assets fail or are incomplete after publication.** Stop
+  promotion and do not declare the release complete. The production release is
+  complete only when both `publish.yml` and `release-artifacts.yml` succeed and the
+  post-release verification passes. Repair through the documented release/hotfix
+  procedure; do not hand-edit published assets, and never silently replace released
+  bytes.
+- **PyPI 1.0.0 is published and a severe defect is found.** Never overwrite or
+  re-upload the version (PyPI does not allow it). Yank the release where
+  appropriate so that new installs do not select it, and prepare a new patch
+  release, normally 1.0.1, through the normal release gate.
+- **A released package or the release pipeline is compromised.** Disable the
+  affected distribution path where practical, revoke or rotate any relevant trust
+  material (the release signing identity is the keyless GitHub workflow identity;
+  there is no long-lived signing key to rotate, but the workflow, the PyPI Trusted
+  Publisher and repository access must be reviewed), publish incident guidance, and
+  release a fixed version. Do not silently substitute released bytes.
+- Every incident that changes what users should install is recorded in the
+  CHANGELOG and the release notes of the fixing release.
 
 ## Post-release
 

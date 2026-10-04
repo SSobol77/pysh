@@ -12,7 +12,7 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Troubleshooting
 
-This guide covers the most common user-facing failures for PySH 0.9.1.
+This guide covers the most common user-facing failures for PySH 1.0.0.
 Start with the smallest reproducible command and keep compatibility claims
 scoped: PySH is not a drop-in Bash, Zsh, Fish, or POSIX `/bin/sh`
 replacement.

@@ -53,7 +53,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current release candidate: **PySH 0.9.1**. PySH requires **CPython 3.13+**
+Current release candidate: **PySH 1.0.0**. PySH requires **CPython 3.13+**
 with no upper minor-version bound. Debian 13, Fedora 43, and FreeBSD 14.4 are
 reference CI environments, not installation allowlists.
 
@@ -206,6 +206,7 @@ python -m pip install -e ".[dev]"
 pysh           # console entry point installed by the wheel
 python -m pysh # equivalent module entry point
 pysh --version # print version and exit
+pysh --credits # print the project authors and exit
 pysh -c "echo hi; echo there"  # run one command line and exit
 pysh script.pysh arg1 arg2     # run a PySH-native script file
 ```

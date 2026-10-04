@@ -32,6 +32,30 @@ from pysh.diagnostics.trace import (
 )
 from pysh.parsing.multiline import iter_logical_lines
 
+#: The one authoritative credits data: ``pysh --credits`` prints exactly these lines.
+CREDITS_TITLE = "PySH Project Authors"
+PROJECT_AUTHORS: tuple[str, ...] = (
+    "Siergej Sobolewski",
+    "Jozef Sobolewski",
+    "Karol Sobolewski",
+)
+#: The exact tokens that request the credits (``-credits`` is a compatibility alias; it needs the
+#: early scan below because argparse would read it as ``-c redits``).
+_CREDITS_OPTIONS: frozenset[str] = frozenset({"--credits", "-credits"})
+#: Options that take a separate value token, so the value is never mistaken for an option.
+_OPTIONS_WITH_VALUE: frozenset[str] = frozenset({"-c", "--audit-log"})
+#: Every long option of ``_build_parser`` (a test keeps this in sync): the early scan resolves
+#: argparse's unambiguous abbreviations (``--audit`` -> ``--audit-log``) against it.
+_LONG_OPTIONS: tuple[str, ...] = (
+    "--help",
+    "--version",
+    "--debug",
+    "--trace",
+    "--diagnostics-json",
+    "--audit-log",
+    "--no-rc",
+)
+
 _UNSUPPORTED_SYSTEM_SHELL_NAMES: frozenset[str] = frozenset(
     {
         "sh",
@@ -41,10 +65,55 @@ _UNSUPPORTED_SYSTEM_SHELL_NAMES: frozenset[str] = frozenset(
 )
 
 
+def credits_text() -> str:
+    """The deterministic credits output: a title and one author per line, nothing dynamic."""
+    return "\n".join((CREDITS_TITLE, *PROJECT_AUTHORS)) + "\n"
+
+
+def _long_option_matches(token: str) -> list[str]:
+    """The long options argparse would consider for ``token`` (exact, else every abbreviation match).
+
+    An attached ``=value`` is ignored. Non-long tokens and unknown spellings match nothing; more
+    than one match is an ambiguous abbreviation, which argparse reports as an error.
+    """
+    if not token.startswith("--"):
+        return []
+    name = token.partition("=")[0]
+    if name in _LONG_OPTIONS:
+        return [name]
+    return [option for option in _LONG_OPTIONS if option.startswith(name)]
+
+
+def _requests_credits(argv: Sequence[str]) -> bool:
+    """Whether ``argv`` asks for the credits as an early informational option (like ``--version``).
+
+    Only the exact tokens ``--credits`` and ``-credits`` count. Scanning stops at ``--``, at the first
+    positional (the script path, whose arguments belong to the script), at ``--help``/``--version`` or
+    ``-h``/``-V`` (including their argparse abbreviations), which argparse answers first, and at an
+    ambiguous abbreviation, which argparse rejects. Long-option abbreviations that take a value
+    (``--audit PATH``) skip that value. ``--credit`` and other near-matches are never credits.
+    """
+    tokens = iter(argv)
+    for token in tokens:
+        if token in _CREDITS_OPTIONS:
+            return True
+        if token == "--" or not token.startswith("-") or token == "-":
+            return False
+        if token in {"-h", "-V"}:
+            return False
+        matches = _long_option_matches(token)
+        if len(matches) > 1 or matches in (["--help"], ["--version"]):
+            return False  # ambiguous (argparse's own error) or help/version, which answer first
+        if "=" not in token and (token in _OPTIONS_WITH_VALUE or matches == ["--audit-log"]):
+            next(tokens, None)
+    return False
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pysh",
         description="PySH - Python-first interactive shell.",
+        epilog="--credits prints the project authors and exits.",
     )
     parser.add_argument(
         "--version",
@@ -193,7 +262,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_unsupported_system_shell_invocation(sys.argv[0])
         return 2
 
-    args = _build_parser().parse_args(argv if argv is not None else sys.argv[1:])
+    arguments = list(argv if argv is not None else sys.argv[1:])
+    if _requests_credits(arguments):
+        # Early informational option: nothing else starts (no shell, no rc, no plugins, no banner).
+        sys.stdout.write(credits_text())
+        return 0
+
+    args = _build_parser().parse_args(arguments)
     audit_sink: AuditLogSink | None = None
     if args.audit_log is not None:
         # The user explicitly asked for an audit trail: never run without it.

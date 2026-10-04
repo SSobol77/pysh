@@ -14,6 +14,127 @@ Copyright (C) 2026 Siergej Sobolewski
 
 All notable changes to PySH are documented in this file.
 
+## 1.0.0 - 2026-10-04
+
+PySH 1.0.0 is the first stable release. It does not add a new shell feature
+family; it makes PySH's guarantees explicit, enforceable, and test-backed:
+a frozen public API, enforced architecture boundaries, a documented security
+model, a normative language specification with a conformance corpus, bounded
+robustness and performance contracts, a tiered platform contract, and a
+supply-chain assurance pipeline for every release artifact.
+
+PySH remains a Python-first shell. It is not `/bin/sh` and is not a Bash, Zsh,
+or Fish clone. Legacy shells are migration and differential test references
+only; the documented PySH contract defines PySH behavior.
+
+### Stable public API and deprecation policy
+
+- Published the stable public surface: the `pysh.api` facade with the
+  `ShellSession` embedding lifecycle and the contract protocol re-exports,
+  guarded by a public API snapshot test.
+- Published the SemVer policy, the package/Plugin API/isolated manifest/IPC
+  version domains (independent of each other), and a minimum two-minor
+  deprecation lifecycle.
+- `pysh.shell.PyShell` stays deprecated in favor of `pysh.api.ShellSession`;
+  it is not removed before PySH 1.2.0.
+
+### Architecture and security model
+
+- Froze the internal layer architecture in a machine-readable policy and
+  enforced the dependency boundaries by an import-boundary test.
+- Published the v1.0 threat model: assets, trust boundaries, a STRIDE threat
+  register, and the deterministic `--no-rc` safe-startup contract. Trusted
+  configuration and plugins remain trusted code; `py` execution remains
+  in-process and unsandboxed by design.
+- Added the isolated-plugin runtime: a separate process, a versioned bounded
+  JSON IPC protocol, a parent-owned default-deny capability broker, a scrubbed
+  launch environment, and closed unrelated file descriptors. It isolates
+  process memory and failures; it is not an OS sandbox, and a same-user child
+  keeps the operating system's own file, network, and process authority.
+
+### Diagnostics, audit, and redaction
+
+- Added versioned structured diagnostic events with one canonical redaction
+  policy applied before serialization or persistence, an opt-in private
+  append-only audit log, and a clean separation from standard output. Protected
+  terminal bytes are never captured.
+
+### Language specification and conformance
+
+- Published the normative PySH Language Specification (version 1) and a
+  declarative conformance corpus with a runner that owns all fixture execution;
+  unsupported constructs are specified and diagnosed rather than silently
+  misinterpreted.
+
+### Robustness, resource containment, and performance
+
+- Added portable deterministic parser/tokenizer fuzz and property evidence
+  (every pull request, Debian and FreeBSD) and an Atheris coverage-guided
+  nightly engine on Linux x86_64. Fuzzing asserts robustness only; the language
+  specification stays the only semantic oracle.
+- Added the resource governor for isolated plugins: wall-clock, memory,
+  descriptor, process, and message-size budgets, parent-side watchdog
+  enforcement, process-group termination with a hard-kill escalation, and
+  structured `resource.limit_exceeded` diagnostics.
+- Added versioned performance budgets (cold start, prompt render, completion,
+  git context, keystroke render) with CI regression gates on Linux and
+  FreeBSD 14.4.
+
+### Migration and compatibility assurance
+
+- Added a legacy-shell differential laboratory (Bash, Zsh, Fish) with pinned
+  reference profiles and exactly three outcomes: match, intended divergence,
+  and regression. It is test equipment, not a compatibility claim.
+- Removed the automatic zsh fallback and the `zsh` builtin before 1.0; `zsh` is
+  an ordinary external program.
+
+### Portability and platform tiers
+
+- Defined support by runtime family (Debian-family Linux, RPM-family Linux,
+  FreeBSD family) with CPython 3.13 or newer and no upper bound. Debian 13,
+  Fedora 43, and FreeBSD 14.4 are reference evidence environments, not
+  allowlists. Debian 13 and FreeBSD 14.4 are Tier 1; the RPM family is Tier 2.
+
+### Supply-chain assurance and release engineering
+
+- Every release now produces five package artifacts (wheel, sdist, `.deb`,
+  `.rpm`, FreeBSD `.pkg`), five SPDX 2.3 JSON SBOMs, `REPRODUCIBILITY.json`,
+  and `SHA256SUMS` (twelve public files), generated and validated before the
+  hand-off to the release-upload job.
+- Added keyless GitHub OIDC/Sigstore provenance and SPDX SBOM attestations,
+  verified with `gh attestation verify` before upload and pinned to the
+  repository, the release workflow, and the exact source commit. There is no
+  long-lived signing key.
+- Added per-artifact reproducibility measurement: two independent clean builds
+  per family, compared byte for byte and bound to the shipped bytes, with the
+  resolved build toolchain recorded. Debian, RPM, and FreeBSD package builds
+  honor the commit-timestamp `SOURCE_DATE_EPOCH`.
+- Pinned every action in the release workflow to a full commit SHA and removed
+  persisted checkout credentials.
+- Extended the Release Quality Gate with the supply-chain contract and a
+  reproducibility measurement check.
+
+### Command line
+
+- Added `pysh --credits`, an early informational option (like `--version`) that
+  prints the project authors and exits 0 without starting a shell, loading
+  configuration or plugins, printing a banner, or needing a TTY. All existing
+  command-line behavior is unchanged.
+
+### Packaging metadata
+
+- Set the PyPI development status to Production/Stable and added the FreeBSD
+  operating-system classifier, matching the Tier 1 platform contract. The
+  runtime contract is unchanged: CPython 3.13 or newer.
+- Project author metadata now lists all three project authors reported by
+  `pysh --credits`.
+
+### Documentation
+
+- Corrected the manual-validation checklist, which showed `py 1 + 1` as
+  producing output; one-line `py` code uses `exec` semantics, so it prints
+  nothing, and the checklist now uses `py print(1 + 1)`.
+
 ## 0.9.1 - 2026-09-29
 
 Maintenance release focused on installation portability and release safety.

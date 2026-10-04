@@ -219,7 +219,9 @@ def test_importing_legacy_module_without_symbol_access_does_not_warn() -> None:
 
 def test_version_domains_remain_independent() -> None:
     """Package, Plugin API, manifest, and IPC versions are distinct domains."""
-    assert pysh.__version__ == "0.9.1"
+    assert pysh.__version__ == tomllib.loads(
+        (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"]
     assert api.PLUGIN_API_VERSION == (1, 0)
     assert ISOLATED_MANIFEST_VERSION == 1
     assert ISOLATED_PROTOCOL_VERSION == 1
