@@ -679,7 +679,11 @@ def test_pty_bracketed_python_block_paste_is_captured() -> None:
     assert b"py { ;" not in stripped
     assert b"SyntaxError" not in stripped
     assert b"pysh: x: command not found" not in stripped
-    assert b"42" not in stripped
+
+    # The pasted Python block must remain staged rather than execute. Check
+    # for the standalone print result instead of the byte substring "42",
+    # which can legitimately appear in a hostname, container ID, or path.
+    assert "42" not in _visible_lines(output)
 
 
 def test_pty_bracketed_heredoc_paste_is_captured(tmp_path) -> None:

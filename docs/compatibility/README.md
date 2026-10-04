@@ -16,7 +16,7 @@ This directory is the authoritative source for all PySH compatibility claims.
 
 ---
 
-## Current compatibility status (PySH 0.9.1)
+## Current compatibility status (PySH 1.0.0)
 
 | Target | Claim | Status |
 | ------ | ----- | ------ |
@@ -36,6 +36,7 @@ test-backed. Aspirational claims are not permitted in this documentation.
 | Document | Purpose |
 | -------- | ------- |
 | [platform-tiers.md](platform-tiers.md) | Normative runtime-family, Python-version, reference-CI, and native-package ABI policy |
+| [legacy-shell-migration.md](legacy-shell-migration.md) | Issue #54 migration-away-from-legacy-shells contract: PySH-owned authority, outcome model, anchor registry |
 | [shell-compatibility-contract.md](shell-compatibility-contract.md) | Contract language, categories, and governing rules |
 | [feature-matrix.md](feature-matrix.md) | Per-feature matrix: status, category, evidence, owner issue |
 | [posix-sh-scope.md](posix-sh-scope.md) | POSIX sh scope: what PySH supports, what it does not |
@@ -82,14 +83,15 @@ it reports an error or notifies the user.
 `source_zsh_profile`, and `source_sh_aliases` builtins read files as text
 and extract static alias/export/assignment entries without executing any code.
 
-**Explicit delegation** vs **implicit fallback**
+**No legacy-shell bridge and no fallback**
 
-`zsh <command>` is explicit: the user types the `zsh` prefix. The command
-is forwarded to `zsh -lc <command>`.
-
-Fallback mode (`zsh_fallback on`) is off by default and must be explicitly
-enabled. When enabled, PySH may forward unparseable commands to zsh. This is
-a migration aid, not a compatibility guarantee.
+PySH has no `zsh` builtin and no automatic fallback to zsh: the former
+`zsh_fallback` builtin, `PYSH_ZSH_FALLBACK` variable and `zsh <command>` builtin
+were removed before PySH 1.0. A command PySH cannot run is a PySH diagnostic,
+never a silent retry through another shell. A program named `zsh` is an ordinary
+external program; a script may request its own interpreter through a shebang
+with `run_script`. Shell comparison for migration evidence lives in the test/CI
+differential tooling, not the runtime.
 
 **Static profile import** is not the same as sourcing a profile.
 `source_zsh_profile ~/.zshrc` extracts aliases, exports, and assignments

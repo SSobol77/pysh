@@ -401,7 +401,7 @@ first release and every minor bump breaks plugins.
 
 ## #46 Internal Architecture Freeze & Dependency Boundary Enforcement
 **Labels:** `architecture` `documentation` `release-blocking`
-**Milestone:** v1.0.0 · **Status:** filed as GitHub #46
+**Milestone:** v1.0.0 · **Status:** implemented pending commit
 **Depends on:** #44 (IPC seam), #45 (public/internal split) · **Blocks:** planned Plugin SDK v1; also stabilizes the parse surface fuzzed by #49
 
 **Description**
@@ -419,17 +419,19 @@ stays free to change and be fixed; what is frozen is *who may import whom*,
 code freeze would block bug fixes and is explicitly **not** the intent.
 
 **Design & implementation**
-- Define the layer map and allowed **dependency direction**, e.g.: parser
-  must not depend on runtime/editor; core must not depend on feature
-  plugins; the `pysh.api` layer re-exports only and is never imported by
-  internals for logic. Record as an Architecture Decision Record (ADR).
-- Enforce with an automated **import-direction / boundary check** in CI
-  (e.g. `import-linter` or a custom AST rule) so violations fail the build,
-  not code review.
+- Define the canonical layer map in
+  [layering.md](../architecture/layering.md). `pysh.core` is explicitly the
+  application/runtime composition fan-in, not a low-level leaf; parser must
+  not depend on runtime/editor, and internals never import `pysh.api` for
+  logic.
+- Enforce the exact policy from repository-root `architecture.toml` with the
+  stdlib AST boundary test already discovered by ordinary CI, so violations
+  fail the build rather than relying on code review.
 - Establish a module **ownership map** and a stable seam between core and
   the `#44` IPC boundary, so plugins bind to a fixed internal contract.
-- Make the public/internal partition the **single source of truth** shared
-  with the `#45` API snapshot test (one definition, two consumers).
+- Make `architecture.toml` the public/internal partition's **single source of
+  truth**, consumed by boundary and API validation while retaining #45's
+  independently authored literal symbol/signature snapshots.
 
 **Watch out for**
 - Sequence is `#45 → #46`: the boundary definitions depend on the public
@@ -442,8 +444,8 @@ code freeze would block bug fixes and is explicitly **not** the intent.
   function signatures of internal helpers (that is churn, not contract).
 
 **Acceptance Criteria**
-- `docs/architecture/layering.md` (or an ADR) with the layer map and
-  allowed dependency direction.
+- `docs/architecture/layering.md` and `architecture.toml` define the layer map
+  and allowed dependency direction.
 - CI import-direction / boundary check fails on violation.
 - Public/internal partition is consistent with the `#45` API snapshot.
 - The core↔plugin seam is stable and referenced by #44 and the planned Plugin SDK v1.
@@ -452,7 +454,7 @@ code freeze would block bug fixes and is explicitly **not** the intent.
 
 ## #47 Performance Budget & CI Regression Gates
 **Labels:** `performance` `testing` `platform` `release-blocking`
-**Milestone:** v1.0.0 · **Status:** filed as GitHub #47
+**Milestone:** v1.0.0 · **Status:** implemented pending commit
 **Depends on:** #36 · **Gates:** planned Advanced Completion Engine, Interactive System Dashboard, and Native Git Experience
 
 **Description**
@@ -460,24 +462,23 @@ PySH advertises "fast". The planned Advanced Completion Engine, Native Git Exper
 and Interactive System Dashboard add startup and per-keystroke cost. Establish numeric budgets
 enforced as CI regression gates.
 
-**Budgets (initial targets, to be ratified)**
-- Cold start ≤ **150 ms**
+**Ratified budgets**
+- Cold start ≤ **175 ms** (150 ms initial target revised from measured Debian evidence)
 - Prompt render ≤ **20 ms**
 - Completion ≤ **50 ms** (for the planned Advanced Completion Engine)
 - Git prompt segment ≤ **10 ms** (for the planned Native Git Experience)
-- Per-keystroke render within the `#36` editor budget
+- Per-keystroke render preparation ≤ **2 ms**
 
 **Design & implementation**
-- Benchmark harness (`pytest-benchmark` for in-process paths, `hyperfine`
-  for process-level cold start), with thresholds versioned in-repo.
-- CI gate fails a PR on regression beyond a set margin (e.g. > 10 %).
-- **Lazy-import Pygments.** Pygments is installed by default and its
-  import plus the first `get_lexer_by_name` (lexer plugin scan) costs tens
-  of ms. The cold-start budget *requires* Pygments to load on first
-  highlight, never on the startup path.
-- **Lazy / async heavy segments.** Git, completion providers and dashboard
-  collectors must be lazy-initialized and kept off the synchronous startup
-  and prompt hot paths (see [Native Git Experience](#native-git-experience)).
+- The stdlib-only canonical harness and complete methodology are documented in
+  [performance.md](../development/performance.md); thresholds and sampling are
+  versioned in repository-root `performance.toml`.
+- Linux and real FreeBSD 14.4 CI jobs fail a PR when a release-blocking median
+  exceeds the explicit 20% profile margin and retain JSON evidence.
+- Fresh-process tests verify Pygments and runtime-heavy implementation modules
+  remain absent from bare `pysh` and `pysh.api` imports.
+- Git metadata, completion providers, and redraw preparation have separate
+  scenarios; ordinary printable keys do not invoke completion providers.
 
 **Watch out for**
 - Benchmarks must pin the Python build and run on tier-1 platforms (`#52`);

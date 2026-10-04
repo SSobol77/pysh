@@ -1,0 +1,1069 @@
+{
+  "schema_version": 1,
+  "legacy_profiles": [
+    {
+      "profile_id": "bash-debian13-amd64",
+      "legacy_shell": "bash",
+      "platform": "debian13-amd64",
+      "executable": "/usr/bin/bash",
+      "startup_policy": "bash-noprofile-norc-v1",
+      "version": "GNU bash, version 5.2.37(1)-release (x86_64-pc-linux-gnu)",
+      "package_version": "5.2.37-2+b10",
+      "version_status": "pinned"
+    },
+    {
+      "profile_id": "zsh-debian13-amd64",
+      "legacy_shell": "zsh",
+      "platform": "debian13-amd64",
+      "executable": "/usr/bin/zsh",
+      "startup_policy": "zsh-no-rcs-v1",
+      "version": "zsh 5.9 (x86_64-debian-linux-gnu)",
+      "package_version": "5.9-8+b24",
+      "version_status": "pinned"
+    },
+    {
+      "profile_id": "fish-debian13-amd64",
+      "legacy_shell": "fish",
+      "platform": "debian13-amd64",
+      "executable": "/usr/bin/fish",
+      "startup_policy": "fish-no-config-v1",
+      "version": "fish, version 4.0.2",
+      "package_version": "4.0.2-1",
+      "version_status": "pinned"
+    },
+    {
+      "profile_id": "bash-freebsd14.4-amd64",
+      "legacy_shell": "bash",
+      "platform": "freebsd14.4-amd64",
+      "executable": "/usr/local/bin/bash",
+      "startup_policy": "bash-noprofile-norc-v1",
+      "version": "GNU bash, version 5.3.20(0)-release (amd64-portbld-freebsd14.4)",
+      "package_version": "5.3.20",
+      "version_status": "pinned"
+    },
+    {
+      "profile_id": "zsh-freebsd14.4-amd64",
+      "legacy_shell": "zsh",
+      "platform": "freebsd14.4-amd64",
+      "executable": "/usr/local/bin/zsh",
+      "startup_policy": "zsh-no-rcs-v1",
+      "version": "zsh 5.9.2 (amd64-portbld-freebsd14.4)",
+      "package_version": "5.9.2",
+      "version_status": "pinned"
+    },
+    {
+      "profile_id": "fish-freebsd14.4-amd64",
+      "legacy_shell": "fish",
+      "platform": "freebsd14.4-amd64",
+      "executable": "/usr/local/bin/fish",
+      "startup_policy": "fish-no-config-v1",
+      "version": "fish, version 4.9.1",
+      "package_version": "4.9.1_1",
+      "version_status": "pinned"
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "lexical-unquoted-words",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-groups-and-escapes",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-single-preserves-whitespace",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-and-short-circuit",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-status-last-executed",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-data-flow",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-final-stage-status",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "redirection-output-and-append",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "fd-order-output-then-dup",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "variables-environment",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "variables-command-environment",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "substitution-dollar-paren",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-general-failure",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-command-not-found",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-sigterm-mapping",
+      "legacy_profile": "bash-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "lexical-unquoted-words",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-groups-and-escapes",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-single-preserves-whitespace",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-and-short-circuit",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-status-last-executed",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-data-flow",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-final-stage-status",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "redirection-output-and-append",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "fd-order-output-then-dup",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "variables-environment",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "variables-command-environment",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "substitution-dollar-paren",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-general-failure",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-command-not-found",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-sigterm-mapping",
+      "legacy_profile": "zsh-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "lexical-unquoted-words",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-groups-and-escapes",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-single-preserves-whitespace",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-and-short-circuit",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-status-last-executed",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-data-flow",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-final-stage-status",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "redirection-output-and-append",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "fd-order-output-then-dup",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-general-failure",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-command-not-found",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-sigterm-mapping",
+      "legacy_profile": "fish-debian13-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "lexical-unquoted-words",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-groups-and-escapes",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-single-preserves-whitespace",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-and-short-circuit",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-status-last-executed",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-data-flow",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-final-stage-status",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "redirection-output-and-append",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "fd-order-output-then-dup",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "variables-environment",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "variables-command-environment",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "substitution-dollar-paren",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-general-failure",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-command-not-found",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-sigterm-mapping",
+      "legacy_profile": "bash-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "lexical-unquoted-words",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-groups-and-escapes",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-single-preserves-whitespace",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-and-short-circuit",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-status-last-executed",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-data-flow",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-final-stage-status",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "redirection-output-and-append",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "fd-order-output-then-dup",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "variables-environment",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "variables-command-environment",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "substitution-dollar-paren",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-general-failure",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-command-not-found",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-sigterm-mapping",
+      "legacy_profile": "zsh-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "lexical-unquoted-words",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-groups-and-escapes",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "quoting-single-preserves-whitespace",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-and-short-circuit",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "chains-status-last-executed",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-data-flow",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "pipelines-final-stage-status",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "redirection-output-and-append",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "fd-order-output-then-dup",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-general-failure",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-command-not-found",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    },
+    {
+      "case_id": "exit-sigterm-mapping",
+      "legacy_profile": "fish-freebsd14.4-amd64",
+      "classification": "match",
+      "compared_dimensions": [
+        "status",
+        "stdout"
+      ],
+      "migration_anchor": null,
+      "guidance": null,
+      "rationale": "Selected behavior reviewed against the pinned Tier-1 reference profile in discovery run 37138273140; observed equivalent on the compared dimensions. PySH #48 remains normative."
+    }
+  ]
+}

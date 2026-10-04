@@ -135,7 +135,7 @@ pysh/
     ├── test_unalias.py
     ├── test_service.py
     ├── test_pyinit.py
-    ├── test_zsh_bridge.py
+    ├── test_no_production_zsh_bridge.py
     ├── test_zsh_transition.py
     ├── test_profile_importer.py
     ├── test_script_runner.py

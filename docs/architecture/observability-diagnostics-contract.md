@@ -12,7 +12,11 @@ Copyright (C) 2026 Siergej Sobolewski
 
 # Observability and Diagnostics Contract
 
-Issue #13 defines PySH's explicit observability and diagnostics surface.
+Issue #13 defines PySH's explicit human-readable observability and diagnostics
+surface. Issue #50 extends it with a versioned structured event schema,
+canonical redaction, structured JSONL diagnostics, and an opt-in persistent
+audit log; those additions are specified in
+[Structured diagnostics, audit log, and redaction (Issue #50)](#structured-diagnostics-audit-log-and-redaction-issue-50).
 Diagnostics are opt-in, read-only unless a documented diagnostic helper must
 invoke a read-only external tool, and scoped to explaining how PySH parses,
 expands, resolves and plans commands.
@@ -120,8 +124,8 @@ Rules:
 ## Command planning
 
 `plan <command...>` is advisory and non-mutating. It classifies a line as
-`builtin`, `external`, `pipeline`, `chain`, `python`, `zsh-delegation`,
-`script` or `unknown`, assigns a coarse risk level, and prints a deterministic
+`builtin`, `external`, `plugin`, `pipeline`, `chain`, `python`, `script` or
+`unknown`, assigns a coarse risk level, and prints a deterministic
 report. It never executes the target command, command substitutions inside the
 target, redirections, scripts, profile files or PATH candidates.
 
@@ -145,13 +149,175 @@ target, redirections, scripts, profile files or PATH candidates.
 Diagnostics do not relax the Issue #7 trust model. Trace mode is not a
 security monitor, policy engine, sandbox, audit log or privilege boundary.
 It is a developer/operator diagnostic surface. It redacts known sensitive
-values but cannot prove that arbitrary command output is non-secret.
+values but cannot prove that arbitrary command output is non-secret. The
+opt-in `--audit-log` (Issue #50) is a local, redacted event record; it is also
+not a sandbox, policy engine, or tamper-proof security monitor.
+
+## Structured diagnostics, audit log, and redaction (Issue #50)
+
+Issue #50 adds machine-consumable diagnostics without changing the Issue #13
+human trace above. The three output surfaces are independent:
+
+| Surface | Flag | Format | Destination | Default |
+| ------- | ---- | ------ | ----------- | ------- |
+| Human diagnostics | `--debug` / `--trace` | `[PYSH_DEBUG] key=value ...` | stderr | off |
+| Structured diagnostics | `--diagnostics-json` | schema-v1 JSON Lines | stderr | off |
+| Persistent audit | `--audit-log PATH` | schema-v1 JSON Lines | file at `PATH` | off |
+
+CLI interaction:
+
+- `--debug`/`--trace` and `--diagnostics-json` are mutually exclusive; passing
+  both is a usage error (exit status 2).
+- `--audit-log PATH` may be combined with either presentation mode, or used
+  alone. It does not change what is shown on stderr.
+- None of these flags is implied by another, by configuration, or by the
+  environment.
+
+### A. Human diagnostics
+
+Unchanged from Issue #13: `--debug` and `--trace` write `[PYSH_DEBUG]` lines to
+stderr only, never to command stdout.
+
+### B. Structured diagnostics (`--diagnostics-json`)
+
+Writes one JSON object per line to stderr. Output is deterministic (sorted
+keys, compact separators, no `NaN`/`Infinity`) and observational: a failure to
+construct, redact, serialize, or write an event is contained and never alters
+command execution, stdout, or the exit status. Ordinary runtime error messages
+that existing shell semantics write to stderr (for example a parse error) may
+appear on the same stream between JSON lines; consumers should treat lines that
+are not JSON objects as ordinary shell stderr.
+
+### C. Persistent audit log (`--audit-log PATH`)
+
+- Opt-in and completely off by default. Without `--audit-log` no audit file is
+  opened or created and no persistent serialization occurs.
+- Append-only: the file is opened with `O_APPEND` and is never truncated.
+- A newly created log is private (`0600`). `PATH` must resolve to a regular file
+  owned by the current user with no group/other permission bits. Symlinks and
+  special files (FIFOs, devices, directories) are rejected, and an insecure
+  pre-existing file is rejected rather than silently `chmod`-ed.
+- If the log cannot be opened safely, PySH prints
+  `pysh: audit-log: <reason>` to stderr and exits with status 1 **before**
+  running anything: an explicitly requested audit trail is never silently
+  skipped.
+- After startup, a failing audit write is contained: the sink disables itself,
+  and the command's genuine exit status is preserved, not overwritten.
+- PySH does not create parent directories, rotate, compress, or upload the log.
+  Choose a path in a directory you control, for example one under
+  `~/.local/state/`.
+
+### D. Event schema
+
+Every structured event carries `schema_version = 1`
+(`pysh.diagnostics.schema.DIAGNOSTIC_EVENT_SCHEMA_VERSION`). Any incompatible
+change to the shape requires a new schema version and an explicit versioning
+decision; an event with an unsupported version is rejected at construction.
+
+| Field | Required | Meaning |
+| ----- | -------- | ------- |
+| `schema_version` | yes | Integer, currently `1`. |
+| `event_class` | yes | One of the event classes below. |
+| `event` | yes | Dot-namespaced lowercase name that starts with its class, for example `plugin.spawn`. |
+| `severity` | yes | `debug`, `info`, `warning`, or `error`. |
+| `actor` | optional | Who acted, for example a plugin name. |
+| `action` | optional | What was attempted, for example an operation name. |
+| `target` | optional | What the action was aimed at. |
+| `result` | optional | `success`, `failure`, or `denied`. |
+| `reason_code` | optional | Short bounded machine-readable reason. |
+| `fields` | yes (may be empty) | Bounded JSON-style mapping of strings, numbers, booleans, null, lists, and nested mappings. |
+
+Optional fields are serialized as `null` when absent. They are populated only
+where meaningful; placeholders are never invented. Non-finite floats and
+arbitrary objects are rejected, so a malformed event fails closed instead of
+being serialized.
+
+### E. Event classes
+
+`startup`, `parser`, `runtime`, `plugin`, `security`, `resource`, `package`,
+`ai`, `remote`.
+
+The classes `startup`, `parser`, `runtime` (trace-derived), `plugin` and
+`security` (isolated-plugin events) have current producers. `resource`,
+`package`, `ai`, and `remote` are **reserved** namespaces only: reserving a
+class does not mean resource enforcement, package management, AI integration, or
+remote execution exists in PySH.
+
+### F. Redaction boundary
+
+```text
+raw structured data
+    -> validation (schema v1 construction)
+    -> canonical redaction (pysh.diagnostics.redaction)
+    -> serialization
+    -> stderr / file sink
+```
+
+Redaction always precedes serialization, and serialization always precedes any
+byte reaching stderr or the audit file; nothing is persisted and then redacted.
+`pysh.diagnostics.redaction` is the single canonical redaction policy; the
+human trace, structured JSONL, and audit log all use it. Redaction is name- and
+known-value-based, so a secret with an unclassified name and an unknown value
+cannot be guaranteed absent.
+
+### G. Isolated-plugin events
+
+`pysh.plugins.isolated.diagnostics` maps the bounded `IsolatedPluginEvent` seam
+to schema v1 and provides `make_structured_plugin_event_sink(sink)`, which
+adapts the runtime's injected `event_sink` to a structured sink (JSONL or
+audit). Dependency direction is `pysh.plugins.isolated -> pysh.diagnostics`
+only. PySH's CLI does not construct an isolated-plugin runtime today, so these
+events are produced only by code that wires the seam explicitly.
+
+| Isolated event | Structured `event` | Class | Severity | `result` | Notes |
+| -------------- | ------------------ | ----- | -------- | -------- | ----- |
+| spawn | `plugin.spawn` | plugin | info | success | `fields` lists requested/granted capability labels. |
+| granted | `security.capability_granted` | security | info | success | One event per handshake; `action=capability_grant`; `fields` lists requested/granted capability labels. |
+| handshake | `plugin.handshake` | plugin | info | success | |
+| running | `plugin.running` | plugin | info | success | |
+| denied | `security.capability_denied` | security | warning | denied | `action` is the IPC operation name; `reason_code=capability_denied`. |
+| failure | `plugin.failure` | plugin | error | failure | `reason_code` is the existing bounded code. |
+| stopped | `plugin.stopped` | plugin | info (warning if forced) | success (none if forced) | A forced stop carries `reason_code=forced`. |
+
+`actor` is the plugin name. Isolated-plugin audit events may include bounded
+authorization metadata such as canonical capability declarations (for example
+`fs.read:/absolute/root`, `env.read:NAME`, `command:NAME`, or a network
+endpoint), an operation name, and a bounded reason code. A declaration may
+itself identify a filesystem root, environment-variable name, command name, or
+network endpoint; that is authorization metadata, not payload. Request/response
+payload values, file contents, environment values, command argv/output, child
+stdout/stderr, protected terminal input, and parent objects are not copied into
+diagnostic/audit events. Canonical redaction still applies before
+serialization/persistence; no additional path redaction is performed and
+declared identifiers are not treated as confidential. The `granted` event is
+emitted after the child's `hello` identity is validated and before the parent
+sends the grant message; the grant itself is fixed when the runtime is
+constructed. A sink failure does not alter the plugin runtime's own result or
+state.
+
+### H. Sensitive-input boundary
+
+Protected PTY, password, and passphrase bytes (ordinary terminal input to
+`sudo`, `ssh`, `su`, `gpg`, and input bridged by `secure`) are not part of the
+diagnostic or audit pipeline. The secure runner does not emit events carrying
+those bytes, and the audit sink only accepts structured events.
+
+### I. Output distinction
+
+Command stdout and stderr are not copied into audit storage. Command metadata
+(for example a trace `message`, resolved command, or exit status) may appear
+only as defined by the event contracts and only after redaction. Diagnostics
+are not a transcript.
 
 ## Validation
 
 Automated evidence:
 
 - `tests/test_observability_diagnostics.py`
+- `tests/test_structured_diagnostics.py`
+- `tests/test_diagnostics_jsonl.py`
+- `tests/test_audit_log.py`
+- `tests/test_isolated_plugin_diagnostics.py`
 - `tests/test_command_plan.py`
 - `tests/test_system_info.py`
 - `tests/test_security_trust_model.py`
@@ -168,6 +334,8 @@ Validation invariants:
 - Parse errors and command-not-found paths do not traceback.
 - Sensitive values are redacted from diagnostic output.
 - Diagnostic builtins are read-only except documented read-only `apt` calls.
+- Audit logging is off unless `--audit-log PATH` is given.
+- Structured events are redacted before serialization or persistence.
 
 ## Issue relationships
 
@@ -184,3 +352,5 @@ Validation invariants:
 | #15 | Python script migration remains out of scope. |
 | #16 | Zsh transition hardening remains out of scope. |
 | #17 | System shell integration remains out of scope. |
+| #44 | Isolated-plugin lifecycle/capability events feed the structured seam. |
+| #50 | Structured schema v1, JSONL diagnostics, audit log, and canonical redaction. |

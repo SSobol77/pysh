@@ -8,7 +8,7 @@
 Covers:
 A. Trust model policy predicates (policy.py).
 B. Static profile import safety — profile_importer does not execute code.
-C. Explicit delegation — zsh_fallback off by default, ZshBridge uses zsh -lc.
+C. Delegation only through a script's own shebang — no fallback, no zsh builtin.
 D. Sensitive input boundary — normal command path does not use SecureRunner.
 E. Diagnostics non-mutation — plan/env_audit/apt_check non-executing.
 F. Python runtime trust — py executes in-process; is_python_runtime_sandboxed()
@@ -19,7 +19,7 @@ from __future__ import annotations
 import io
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -176,71 +176,35 @@ class TestStaticProfileImportSafety:
 
 
 # ---------------------------------------------------------------------------
-# C. Explicit delegation — zsh_fallback off by default
+# C. Explicit delegation only — no automatic fallback
 # ---------------------------------------------------------------------------
 
 
 class TestExplicitDelegation:
-    def test_zsh_fallback_off_by_default(self) -> None:
-        from pysh.core.shell import PyShell
-
-        shell = PyShell()
-        assert shell.zsh_fallback_enabled is False
-
-    def test_pysh_zsh_fallback_env_not_set_by_default(
+    def test_no_automatic_zsh_fallback_state_exists(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("PYSH_ZSH_FALLBACK", raising=False)
         from pysh.core.shell import PyShell
 
+        monkeypatch.setenv("PYSH_ZSH_FALLBACK", "1")
         shell = PyShell()
-        assert not shell.zsh_fallback_enabled
+        assert not hasattr(shell, "zsh_fallback_enabled")
+        assert not hasattr(shell, "_run_zsh_fallback")
 
-    def test_zsh_bridge_uses_lc_flag(self) -> None:
-        """ZshBridge must pass -lc to zsh — never bare exec or shell=True."""
-        from pysh.compat.zsh_bridge import ZshBridge
+    def test_no_production_module_wraps_a_legacy_shell(self) -> None:
+        """Delegation to a legacy shell exists only as a script's own shebang request."""
+        from pysh.core.shell import PyShell
 
-        captured_argv: list[list[str]] = []
+        assert "zsh" not in PyShell.BUILTINS
+        assert not hasattr(PyShell, "_builtin_zsh")
 
-        def _fake_run(
-            argv: list[str], **_kwargs: object
-        ) -> object:
-            captured_argv.append(list(argv))
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = ""
-            result.stderr = ""
-            return result
-
-        bridge = ZshBridge.__new__(ZshBridge)
-        bridge.executable = "/usr/bin/zsh"
-
-        with patch("subprocess.run", side_effect=_fake_run):
-            bridge.execute("echo hello")
-
-        assert len(captured_argv) == 1
-        argv = captured_argv[0]
-        assert argv[0] == "/usr/bin/zsh"
-        assert "-lc" in argv
-        assert "echo hello" in argv
-
-    def test_zsh_bridge_missing_returns_127(self) -> None:
-        """ZshBridge returns 127 deterministically when zsh is absent."""
-        from pysh.compat.zsh_bridge import ZSH_MISSING_STATUS, ZshBridge
-
-        bridge = ZshBridge.__new__(ZshBridge)
-        bridge.executable = None
-        result = bridge.execute("echo test")
-        assert result.returncode == ZSH_MISSING_STATUS
-
-    def test_unknown_command_without_fallback_returns_127(
+    def test_unknown_command_returns_127_not_silent_delegation(
         self, tmp_path: Path
     ) -> None:
-        """Without zsh_fallback, unknown command → 127, not silent delegation."""
+        """An unknown command is a PySH-owned 127, never silently delegated."""
         from pysh.core.shell import PyShell
 
         shell = PyShell()
-        assert not shell.zsh_fallback_enabled
         status = shell.execute("__pysh_no_such_command_xyz_abc__")
         assert status == 127
 
@@ -328,8 +292,8 @@ class TestDiagnosticsNonMutation:
 
         plan = classify("echo hello")
         assert plan is not None
-        assert plan.kind in {"builtin", "external", "pipeline", "chain",
-                             "python", "zsh-delegation", "script", "unknown"}
+        assert plan.kind in {"builtin", "external", "plugin", "pipeline", "chain",
+                             "python", "script", "unknown"}
 
     def test_env_audit_redacts_secret_variables(self) -> None:
         """env_audit redacts variables with sensitive names."""

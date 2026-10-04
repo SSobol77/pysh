@@ -72,11 +72,25 @@ install -m 0644 "${REPO_ROOT}/packaging/rpm/${PKG_NAME}.spec" \
 
 mkdir -p "${OUT_DIR}"
 
+# Deterministic-build contract (Issue #51): when SOURCE_DATE_EPOCH is set (the commit
+# timestamp), rpmbuild must use it as the build time and clamp every file modification
+# time (payload files and the directories created at install time) to it. rpmbuild ignores
+# SOURCE_DATE_EPOCH unless these standard macros are enabled. Nothing is rewritten after
+# the build; without SOURCE_DATE_EPOCH the build is unchanged.
+EPOCH_DEFINES=()
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    EPOCH_DEFINES=(
+        --define "use_source_date_epoch_as_buildtime 1"
+        --define "clamp_mtime_to_source_date_epoch 1"
+    )
+fi
+
 rpmbuild \
     --define "_topdir ${BUILD_ROOT}" \
     --define "_dbpath ${RPM_DB}" \
     --define "pysh_version ${VERSION}" \
     --define "dist %{nil}" \
+    ${EPOCH_DEFINES[@]+"${EPOCH_DEFINES[@]}"} \
     -bb "${BUILD_ROOT}/SPECS/${PKG_NAME}.spec"
 
 PRODUCED="${BUILD_ROOT}/RPMS/${PKG_ARCH}/${EXPECTED_RPM}"

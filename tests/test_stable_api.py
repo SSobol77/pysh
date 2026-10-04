@@ -10,6 +10,7 @@ import inspect
 import os
 import subprocess
 import sys
+import tomllib
 import warnings
 from pathlib import Path
 from typing import get_args, get_origin, get_type_hints
@@ -24,13 +25,12 @@ from pysh.plugins.isolated.manifest import (
 )
 from pysh.plugins.isolated.protocol import IPC_PROTOCOL_VERSION
 
-_FORBIDDEN_PUBLIC_TYPE_PREFIXES = (
-    "pysh.core",
-    "pysh.config",
-    "pysh.editor",
-    "pysh.diagnostics",
-    "pysh.plugins.models",
-    "pysh.plugins.isolated",
+_ARCHITECTURE_POLICY = Path(__file__).parent.parent / "architecture.toml"
+with _ARCHITECTURE_POLICY.open("rb") as _policy_stream:
+    _PUBLIC_API_POLICY = tomllib.load(_policy_stream)["public_api"]
+
+_FORBIDDEN_PUBLIC_TYPE_PREFIXES = tuple(
+    _PUBLIC_API_POLICY["internal_type_prefixes"]
 )
 
 
@@ -71,6 +71,16 @@ def test_public_signatures_do_not_leak_internal_types() -> None:
                 if module_name.startswith(_FORBIDDEN_PUBLIC_TYPE_PREFIXES):
                     leaks.append(f"{qualified_name}: {module_name}.{getattr(item, '__name__', '')}")
     assert not leaks, "Internal types leaked through pysh.api:\n" + "\n".join(leaks)
+
+
+def test_stable_api_modules_match_architecture_policy() -> None:
+    """Issue #45 surfaces and Issue #46 classifications share one policy source."""
+    assert frozenset(_PUBLIC_API_POLICY["stable_modules"]) == {"pysh", "pysh.api"}
+    assert frozenset(_PUBLIC_API_POLICY["compatibility_modules"]) == {
+        "pysh.contracts",
+        "pysh.plugins",
+        "pysh.shell",
+    }
 
 
 def test_api_import_is_side_effect_light_in_clean_process(tmp_path: Path) -> None:
@@ -209,7 +219,9 @@ def test_importing_legacy_module_without_symbol_access_does_not_warn() -> None:
 
 def test_version_domains_remain_independent() -> None:
     """Package, Plugin API, manifest, and IPC versions are distinct domains."""
-    assert pysh.__version__ == "0.9.1"
+    assert pysh.__version__ == tomllib.loads(
+        (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"]
     assert api.PLUGIN_API_VERSION == (1, 0)
     assert ISOLATED_MANIFEST_VERSION == 1
     assert ISOLATED_PROTOCOL_VERSION == 1

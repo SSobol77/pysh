@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# File: performance.toml
+#
+# Copyright (C) 2026 Siergej Sobolewski
+
+schema_version = 1
+aggregation_method = "median"
+
+[profiles.linux-python3-13]
+platform_system = "Linux"
+python_minor = "3.13"
+ci_margin_percent = 20.0
+description = "Debian/Linux development and GitHub ubuntu-latest CI profile"
+
+[profiles.freebsd-14-4-python3-13]
+platform_system = "FreeBSD"
+python_minor = "3.13"
+ci_margin_percent = 20.0
+description = "FreeBSD 14.4 VM validation profile; final tier ownership remains with Issue #52"
+
+[[benchmarks]]
+id = "cold_start"
+unit = "milliseconds"
+budget = 175.0
+sample_count = 9
+warmup_count = 2
+aggregation = "median"
+scope = "process"
+release_blocking = true
+timeout_seconds = 10.0
+platform_profiles = ["linux-python3-13", "freebsd-14-4-python3-13"]
+description = "Fresh Python process running python -m pysh --no-rc -c with an empty command"
+
+[[benchmarks]]
+id = "prompt_render"
+unit = "milliseconds"
+budget = 20.0
+sample_count = 31
+warmup_count = 5
+aggregation = "median"
+scope = "in_process"
+release_blocking = true
+timeout_seconds = 10.0
+platform_profiles = ["linux-python3-13", "freebsd-14-4-python3-13"]
+description = "Base two-line prompt computation with all external/context providers disabled"
+
+[[benchmarks]]
+id = "git_context"
+unit = "milliseconds"
+budget = 10.0
+sample_count = 31
+warmup_count = 5
+aggregation = "median"
+scope = "in_process"
+release_blocking = true
+timeout_seconds = 10.0
+platform_profiles = ["linux-python3-13", "freebsd-14-4-python3-13"]
+description = "Bounded stdlib Git metadata discovery in a deterministic temporary repository"
+
+[[benchmarks]]
+id = "completion_core"
+unit = "milliseconds"
+budget = 50.0
+sample_count = 31
+warmup_count = 5
+aggregation = "median"
+scope = "in_process"
+release_blocking = true
+timeout_seconds = 10.0
+platform_profiles = ["linux-python3-13", "freebsd-14-4-python3-13"]
+description = "Command-position prefix completion over controlled builtins, aliases, and cached PATH"
+
+[[benchmarks]]
+id = "keystroke_render"
+unit = "milliseconds"
+budget = 2.0
+sample_count = 51
+warmup_count = 10
+aggregation = "median"
+scope = "in_process"
+release_blocking = true
+timeout_seconds = 10.0
+platform_profiles = ["linux-python3-13", "freebsd-14-4-python3-13"]
+description = "Printable-key buffer mutation, history autosuggestion, highlighting, and redraw preparation"

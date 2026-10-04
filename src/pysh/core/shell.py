@@ -36,7 +36,6 @@ from pysh.compat.profile_importer import (
     import_profile_file,
 )
 from pysh.compat.zsh_aliases import parse_zsh_aliases
-from pysh.compat.zsh_bridge import ZshBridge
 from pysh.compat.zsh_diagnostics import (
     detect_unsupported_zsh_syntax,
     is_zsh_config_path,
@@ -111,6 +110,7 @@ from pysh.migration.script import (
     analyze_migration_file,
     render_migration_report,
 )
+from pysh.parsing.expansion import in_substitution_domain
 from pysh.parsing.heredoc import (
     HereDocBody,
     collect_heredoc_bodies,
@@ -301,6 +301,39 @@ def _tilde_expand_spec(spec: RedirectionSpec) -> RedirectionSpec:
     return expanded
 
 
+def _terminate_and_reap(pids: list[int], *, grace: float = 1.0) -> None:
+    """SIGTERM already-forked pipeline children, then reap them (SIGKILL after ``grace``).
+
+    Used when pipeline setup fails part-way: children that were started must not
+    be left as zombies. Only pids this shell forked are signalled or waited for.
+    """
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    deadline = time.monotonic() + grace
+    pending = list(pids)
+    while pending and time.monotonic() < deadline:
+        still_running: list[int] = []
+        for pid in pending:
+            try:
+                reaped, _status = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                continue
+            if reaped == 0:
+                still_running.append(pid)
+        pending = still_running
+        if pending:
+            time.sleep(0.01)
+    for pid in pending:
+        try:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+        except OSError:
+            pass
+
+
 @contextmanager
 def _redirect_standard_fds(
     spec: RedirectionSpec,
@@ -311,11 +344,15 @@ def _redirect_standard_fds(
     """Apply ordered redirections to fd 0/1/2 and restore them on return."""
     sys.stdout.flush()
     sys.stderr.flush()
-    saved = {fd: os.dup(fd) for fd in (0, 1, 2)}
+    # Saved duplicates are created inside the try so a failure part-way (for
+    # example EMFILE on the second os.dup) still closes the ones already made.
+    saved: dict[int, int] = {}
     opened: list[int] = []
     original_streams = (sys.stdin, sys.stdout, sys.stderr)
     redirected_streams: list[IO[str]] = []
     try:
+        for fd in (0, 1, 2):
+            saved[fd] = os.dup(fd)
         if stdin_fd is not None:
             os.dup2(stdin_fd, 0)
         if stdout_fd is not None:
@@ -359,14 +396,27 @@ def _redirect_standard_fds(
         sys.stdin, sys.stdout, sys.stderr = original_streams
         for stream in redirected_streams:
             stream.close()
+        restore_error: OSError | None = None
         for fd, duplicate in saved.items():
-            os.dup2(duplicate, fd)
-            os.close(duplicate)
+            # Every saved duplicate is closed even if restoring one descriptor
+            # fails; the first restore failure is raised after cleanup.
+            try:
+                os.dup2(duplicate, fd)
+            except OSError as exc:
+                if restore_error is None:
+                    restore_error = exc
+            finally:
+                try:
+                    os.close(duplicate)
+                except OSError:
+                    pass
         for opened_fd in opened:
             try:
                 os.close(opened_fd)
             except OSError:
                 pass
+        if restore_error is not None:
+            raise restore_error
 
 
 def _write_execution_stderr(
@@ -436,7 +486,6 @@ class PyShell:
         *,
         pid_root: Path | None = None,
         service_client: ServiceClient | None = None,
-        zsh_bridge: ZshBridge | None = None,
         script_runner: ScriptRunner | None = None,
         trace: DiagnosticTrace | None = None,
         startup_policy: StartupPolicy = DEFAULT_STARTUP_POLICY,
@@ -446,6 +495,10 @@ class PyShell:
         self.last_status: int = 0
         self.trace = trace if trace is not None else DiagnosticTrace()
         self.startup_policy = startup_policy
+        # Internal execution context (not a user feature): True when this shell is
+        # a nested command-substitution evaluation. Granted only by a validated
+        # inherited capability (expansion.CAPABILITY_ENV), never by environment text alone.
+        self._descendants_contained = in_substitution_domain()
         self.script_name: str = ""
         self.script_args: list[str] = []
         self._script_context: tuple[Path, int] | None = None
@@ -508,8 +561,6 @@ class PyShell:
             aliases=lambda: self.aliases.keys(),
         )
         self.line_reader = RawLineReader()
-        self.zsh_bridge = zsh_bridge if zsh_bridge is not None else ZshBridge()
-        self.zsh_fallback_enabled = os.environ.get("PYSH_ZSH_FALLBACK") == "1"
         self.python_runtime = PythonRuntime()
         self.script_runner = (
             script_runner if script_runner is not None else ScriptRunner(
@@ -1263,8 +1314,6 @@ class PyShell:
         try:
             argv = tokenize_and_glob_expand(clean, cwd=Path(os.getcwd()))
         except ValueError as exc:
-            if self.zsh_fallback_enabled:
-                return self._run_zsh_fallback(stage)
             self.trace.error(
                 "path expansion failed",
                 detail=str(exc),
@@ -1362,17 +1411,6 @@ class PyShell:
             if isinstance(stage, int):
                 return stage
             resolved.append(stage)
-        if self.zsh_fallback_enabled:
-            missing_external = next(
-                (
-                    stage.argv[0]
-                    for stage in resolved
-                    if stage.kind == "external" and shutil.which(stage.argv[0]) is None
-                ),
-                None,
-            )
-            if missing_external is not None:
-                return self._run_zsh_fallback(original_command)
         return self._execute_resolved_pipeline(
             resolved,
             original_command=original_command,
@@ -1444,6 +1482,12 @@ class PyShell:
         """Fork isolated stages connected by OS pipes and return the last status."""
         pids: list[int] = []
         previous_read: int | None = None
+        # Process-group invariant. Normal shell: the first stage's pid is the pipeline's
+        # own process group (every stage joins it with setpgid), and that id is what job
+        # records, terminal handover and group signals use. Substitution containment
+        # domain: stages deliberately stay in the already-established domain group, so no
+        # pipeline group exists and ``pipeline_pgid`` stays None. The first child's pid is
+        # NOT a valid group id there and must never reach add_job/tcsetpgrp/killpg.
         pipeline_pgid: int | None = None
         sys.stdout.flush()
         sys.stderr.flush()
@@ -1454,10 +1498,21 @@ class PyShell:
                 next_write: int | None = None
                 if not is_last:
                     next_read, next_write = os.pipe()
-                pid = os.fork()
+                try:
+                    pid = os.fork()
+                except OSError:
+                    # This iteration's pipe is not yet owned by anything else.
+                    for fd in (next_read, next_write):
+                        if fd is not None:
+                            try:
+                                os.close(fd)
+                            except OSError:
+                                pass
+                    raise
                 if pid == 0:
                     try:
-                        os.setpgid(0, pipeline_pgid or 0)
+                        if not self._descendants_contained:
+                            os.setpgid(0, pipeline_pgid or 0)
                         reset_child_job_control_signals()
                     except OSError:
                         pass
@@ -1481,12 +1536,13 @@ class PyShell:
                         status = ExitCode.GENERAL_ERROR
                     os._exit(int(status))
 
-                if pipeline_pgid is None:
-                    pipeline_pgid = pid
-                try:
-                    os.setpgid(pid, pipeline_pgid)
-                except OSError:
-                    pass
+                if not self._descendants_contained:
+                    if pipeline_pgid is None:
+                        pipeline_pgid = pid
+                    try:
+                        os.setpgid(pid, pipeline_pgid)
+                    except OSError:
+                        pass
                 pids.append(pid)
                 if previous_read is not None:
                     os.close(previous_read)
@@ -1495,7 +1551,11 @@ class PyShell:
                 previous_read = next_read
 
             if background:
-                assert pipeline_pgid is not None
+                if pipeline_pgid is None:
+                    # Contained domain: no job record (its group id would be invalid and a
+                    # later fg/bg/kill could signal the nested PySH itself). The stages are
+                    # swept with the substitution's process group.
+                    return ExitCode.SUCCESS
                 job = self.job_table.add_job(
                     pipeline_pgid,
                     original_command,
@@ -1506,7 +1566,7 @@ class PyShell:
                 return ExitCode.SUCCESS
 
             raw_statuses: dict[int, int] = {}
-            tty_fd = self._tty_fd
+            tty_fd = self._tty_fd if pipeline_pgid is not None else None
             if tty_fd is not None and pipeline_pgid is not None:
                 if not tcsetpgrp_safely(tty_fd, pipeline_pgid):
                     tty_fd = None
@@ -1519,6 +1579,14 @@ class PyShell:
                         os.killpg(pipeline_pgid, signal.SIGINT)
                     except OSError:
                         pass
+                else:
+                    # Contained domain: signal only the stages this shell forked.
+                    for pid in pids:
+                        if pid not in raw_statuses:
+                            try:
+                                os.kill(pid, signal.SIGINT)
+                            except OSError:
+                                pass
                 for pid in pids:
                     if pid not in raw_statuses:
                         try:
@@ -1532,11 +1600,7 @@ class PyShell:
             return _raw_to_exit(raw_statuses[pids[-1]])
         except OSError as exc:
             print(f"pysh: pipeline: {exc}", file=sys.stderr)
-            for pid in pids:
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except OSError:
-                    pass
+            _terminate_and_reap(pids)
             return ExitCode.GENERAL_ERROR
         finally:
             if previous_read is not None:
@@ -1590,7 +1654,9 @@ class PyShell:
         stderr_f: IO[bytes] | None = None
         stderr_arg: IO[bytes] | int | None
 
-        jc_available = has_job_control()
+        # Inside a command-substitution domain every descendant stays in the
+        # domain's process group so the whole tree can be terminated as a unit.
+        jc_available = has_job_control() and not self._descendants_contained
         preexec_fn: Callable[[], None] | None = make_child_preexec if jc_available else None
 
         try:
@@ -1623,8 +1689,6 @@ class PyShell:
                         preexec_fn=preexec_fn,
                     )
             except FileNotFoundError:
-                if self.zsh_fallback_enabled and original_stage is not None:
-                    return self._run_zsh_fallback(original_stage)
                 self.trace.error(
                     "command not found",
                     command=argv[0],
@@ -1660,13 +1724,18 @@ class PyShell:
                     pass
 
             if background:
+                if self._descendants_contained:
+                    # Contained domain: proc.pid is not a group of its own, so no job record
+                    # (see the pipeline invariant above); the process is swept with the domain.
+                    return ExitCode.SUCCESS
                 # Register as background job; return immediately.
                 job = self.job_table.add_job(pgid, cmd_text, [proc.pid], background=True)
                 print(f"[{job.job_id}] {proc.pid}", flush=True)
                 return ExitCode.SUCCESS
 
-            # Foreground: give terminal to child's process group.
-            tty_fd = self._tty_fd
+            # Foreground: give terminal to child's process group (never in a contained
+            # domain, where the child has no group of its own).
+            tty_fd = None if self._descendants_contained else self._tty_fd
             if tty_fd is not None:
                 if not tcsetpgrp_safely(tty_fd, pgid):
                     tty_fd = None
@@ -1769,8 +1838,6 @@ class PyShell:
             "config_theme": self._builtin_config_theme,
             "deactivate": self._builtin_deactivate,
             "config_alias_pack": self._builtin_config_alias_pack,
-            "zsh": self._builtin_zsh,
-            "zsh_fallback": self._builtin_zsh_fallback,
             "py": self._builtin_py,
             "sys_info": self._builtin_sys_info,
             "env_audit": self._builtin_env_audit,
@@ -2397,20 +2464,6 @@ class PyShell:
         print(render_migration_report(report))
         return 0
 
-    def _builtin_zsh(self, args: list[str]) -> int:
-        if not args:
-            print("zsh: command argument required", file=sys.stderr)
-            return 2
-        return self._run_zsh_command(" ".join(args))
-
-    def _builtin_zsh_fallback(self, args: list[str]) -> int:
-        if len(args) != 1 or args[0] not in {"on", "off"}:
-            print("zsh_fallback: usage: zsh_fallback {on|off}", file=sys.stderr)
-            return 2
-        self.zsh_fallback_enabled = args[0] == "on"
-        self.local_vars["PYSH_ZSH_FALLBACK"] = "1" if self.zsh_fallback_enabled else "0"
-        return 0
-
     def _builtin_py(self, args: list[str]) -> int:
         if not args:
             print("py: code argument required", file=sys.stderr)
@@ -2748,8 +2801,6 @@ class PyShell:
         self.aliases.update(result.aliases)
         for name, value in result.variables.items():
             self.local_vars[name] = value
-            if name == "PYSH_ZSH_FALLBACK":
-                self.zsh_fallback_enabled = value == "1"
         for name, value in result.exports.items():
             self._set_exported_environment(name, value, notify_plugins=True)
         print(
@@ -2775,8 +2826,6 @@ class PyShell:
         expanded = expand_variables(raw, self.local_vars)
         value = self._unquote_value(expanded)
         self.local_vars[name] = value
-        if name == "PYSH_ZSH_FALLBACK":
-            self.zsh_fallback_enabled = value == "1"
         return 0
 
     def _enter_python_mode(self) -> int:
@@ -2789,17 +2838,6 @@ class PyShell:
         from pysh.python_layer.mode import PythonCommandMode  # noqa: PLC0415
         mode = PythonCommandMode(cwd_provider=Path.cwd)
         return mode.run()
-
-    def _run_zsh_command(self, command: str) -> int:
-        result = self.zsh_bridge.execute(command)
-        if result.stdout:
-            print(result.stdout, end="")
-        if result.stderr:
-            print(result.stderr, end="", file=sys.stderr)
-        return result.returncode
-
-    def _run_zsh_fallback(self, command: str) -> int:
-        return self._run_zsh_command(command)
 
     def _run_python_code(self, code: str) -> int:
         return self.python_runtime.execute(code)
@@ -2958,8 +2996,6 @@ class PyShell:
         old = os.environ.get(name)
         os.environ[name] = value
         self.local_vars[name] = value
-        if name == "PYSH_ZSH_FALLBACK":
-            self.zsh_fallback_enabled = value == "1"
         if notify_plugins and old != value:
             self.plugin_manager.notify_env_change(name, old, value)
 

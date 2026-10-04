@@ -143,3 +143,42 @@ def test_stdout_to_stderr_shorthand() -> None:
     ]
     assert spec.actions[0].fd == 1
     assert spec.actions[0].source_fd == 2
+
+
+# --- Issue #49 finding F1: quoted/escaped whitespace must survive cleaning ---
+
+
+def test_clean_command_preserves_repeated_whitespace_inside_single_quotes() -> None:
+    clean, spec = parse_redirections("echo 'a  b'")
+    assert clean == "echo 'a  b'"
+    assert spec.is_empty()
+
+
+def test_clean_command_preserves_tab_inside_single_quotes() -> None:
+    assert parse_redirections("echo 'a\tb'")[0] == "echo 'a\tb'"
+
+
+def test_clean_command_preserves_whitespace_inside_double_quotes() -> None:
+    assert parse_redirections('echo "a  b" "c\td"')[0] == 'echo "a  b" "c\td"'
+    assert parse_redirections('echo "q\\" r  s"')[0] == 'echo "q\\" r  s"'
+
+
+def test_clean_command_keeps_escaped_whitespace_as_part_of_the_argument() -> None:
+    assert parse_redirections("echo a\\  b")[0] == "echo a\\  b"
+    assert parse_redirections("echo a\\ ")[0] == "echo a\\ "
+
+
+def test_clean_command_still_collapses_unquoted_separators() -> None:
+    assert parse_redirections("  echo   a \t b  ")[0] == "echo a b"
+    clean, spec = parse_redirections("echo   a   b  >  out  ")
+    assert clean == "echo a b"
+    assert spec.stdout_path == "out"
+
+
+def test_quoted_whitespace_survives_around_removed_redirections() -> None:
+    clean, spec = parse_redirections("echo 'a  b' >  out  'c   d'")
+    assert clean == "echo 'a  b' 'c   d'"
+    assert spec.stdout_path == "out"
+    clean, spec = parse_redirections("cat < in 'x  y'  2>  err")
+    assert clean == "cat 'x  y'"
+    assert (spec.stdin_path, spec.stderr_path) == ("in", "err")

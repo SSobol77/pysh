@@ -87,7 +87,7 @@ escaped contexts.
 | Trailing `|` | Parse error, exit status 2. |
 | `<`, `>`, `>>`, `2>`, `2>>`, `&>`, `&>>` | Native redirection. |
 | `<<`, `<<-`, `<<<` | Native stdin inline-data redirection; see [heredoc-contract.md](heredoc-contract.md). |
-| `2>&1` and related fd duplication | Not implemented in Issue #8. |
+| `2>&1` and related fd duplication | Not implemented by Issue #8; subsequently implemented for v1. See the normative [PySH Language Specification](../spec/pysh-language.md#5-redirections). |
 
 ## Expansion Contract
 

@@ -23,12 +23,22 @@ python -m pysh              # equivalent module entry point
 pysh -c "echo hi"           # run a single command line and exit
 pysh script.pysh arg1 arg2  # run a PySH-native script file
 pysh --debug -c "echo hi"   # run command and write redacted trace to stderr
+pysh --diagnostics-json -c "echo hi"   # structured schema-v1 JSON Lines on stderr
+pysh --audit-log ~/.local/state/pysh-audit.jsonl -c "echo hi"   # opt-in audit file
 pysh --no-rc                # recovery startup with user configuration disabled
 pysh --no-rc -c "echo hi"   # explicit no-user-config policy for one command
 pysh --version              # print version and exit
 python -m pysh --version    # module entry point version check
 pysh -V                     # short form
+pysh --credits              # print the project authors and exit
 ```
+
+`pysh --credits` prints the project authors (a title line and one author per
+line) and exits with status 0. It is an early informational option like
+`--version`: it starts no shell, loads no configuration or plugins, prints no banner
+or prompt, needs no TTY, and works with redirected output
+(`pysh --credits > credits.txt`). `python -m pysh --credits` behaves identically. The
+output contains no version, date, URL or other dynamic data.
 
 When bare `pysh` receives non-TTY stdin, it executes logical input lines in
 batch mode. Batch mode emits no banner, prompt, continuation prompt, or editor
@@ -44,6 +54,20 @@ back to a clean prompt.
 `--debug` and `--trace` are explicit diagnostics modes. They write
 `[PYSH_DEBUG]` trace lines to stderr, never to normal command stdout, and do
 not change command execution or exit status.
+
+`--diagnostics-json` emits the same trace as deterministic schema-version-1
+JSON Lines on stderr instead of `[PYSH_DEBUG]` text. `--debug`/`--trace` and
+`--diagnostics-json` are mutually exclusive (usage error, status 2).
+
+`--audit-log PATH` appends redacted schema-v1 JSON Lines to `PATH`. It is off
+unless you pass it, can be combined with either of the modes above, and does not
+change stderr output. PySH creates the file with mode `0600` but does not create
+parent directories, so pick a directory that already exists and that you own. If
+the file cannot be opened safely (symlink, special file, wrong owner, group/other
+permissions, missing directory) PySH prints `pysh: audit-log: ...` and exits
+with status 1 without running the command. Command stdout/stderr and
+password/passphrase input are never written to the audit file. See
+[Observability and Diagnostics Contract](../architecture/observability-diagnostics-contract.md).
 
 `--no-rc` is an explicit recovery/security mode. It starts from built-in
 configuration defaults without reading or creating user rc, TOML, plugin
@@ -227,8 +251,6 @@ Aliases are expanded only for the first word of each pipeline stage.
 | `paste_run` | Explicitly execute captured bracketed multiline paste. |
 | `paste_cancel` | Discard captured bracketed multiline paste. |
 | `compat_check` | Print a static migration report for a shell file.      |
-| `zsh`      | Execute one command through real `zsh -lc`.                |
-| `zsh_fallback` | Enable or disable optional zsh fallback mode.         |
 | `py`       | Execute Python code in the persistent PySH runtime.        |
 | `sys_info` | Print platform / Python / user / shell / PATH summary.     |
 | `env_audit` | Print a redacted environment audit summary.               |
@@ -255,8 +277,6 @@ source_zsh_profile ~/.zshrc
 source_sh_aliases ~/.bash_aliases
 compat_check ~/scripts/maintenance.sh
 run_script ~/scripts/maintenance.sh --dry-run
-zsh 'source ~/.zshrc; my_old_alias'
-zsh 'print -r -- hello'
 ```
 
 `source_zsh <file>` statically imports supported simple aliases without
@@ -281,20 +301,11 @@ script with a `zsh`, `bash` or `sh` shebang is delegated to the real
 interpreter using an argv list. A script with no shebang is run line-by-line
 through PySH's native execution engine where possible.
 
-`zsh <command>` runs the command through `zsh -lc <command>` when zsh is
-installed. If zsh is unavailable, it returns 127 and reports
-`pysh: zsh: command not found`.
-
-Fallback is off by default:
-
-```sh
-zsh_fallback on
-zsh_fallback off
-PYSH_ZSH_FALLBACK=1
-```
-
-When enabled, fallback may delegate commands PySH cannot parse or execute
-natively. PySH builtins are not delegated.
+PySH never delegates to zsh. The `zsh_fallback` builtin, the `zsh <command>`
+builtin and the `PYSH_ZSH_FALLBACK` variable were removed before 1.0; the
+variable has no effect. `zsh` is an ordinary program name: if it is installed
+it runs like any external command with exactly the arguments you type, and if
+not, PySH reports `command not found` (127).
 
 ## Python runtime
 
@@ -321,8 +332,9 @@ py {
 }
 ```
 
-The opener line is exactly `py {`, the closer line is exactly `}`. Block
-bodies share the persistent Python runtime with one-line `py` invocations.
+The opener line is `py {` with optional surrounding whitespace and an optional
+trailing shell comment; the closer line is exactly `}` apart from surrounding
+whitespace. Block bodies share the persistent Python runtime with one-line `py` invocations.
 See [python-runtime.md](../python/python-runtime.md).
 
 ## System profile helpers
@@ -480,8 +492,8 @@ completion scripts, or mutates shell state.
 ## Limitations
 
 - No full POSIX shell grammar — only the constructs documented here.
-- No full zsh compatibility. The zsh bridge is a transition layer and
-  delegates to real zsh only when explicitly requested or fallback is enabled.
+- No full zsh compatibility. PySH has static alias import only; it has no zsh
+  bridge and never runs zsh for you.
 - No full POSIX script compatibility. `run_script` delegates legacy scripts
   to their real interpreter when a supported shebang is present.
 - Native glob expansion (`*`, `?`, `[...]`, `**`) is supported for unquoted arguments. Brace expansion (`{a,b}`) is not supported.

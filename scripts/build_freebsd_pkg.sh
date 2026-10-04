@@ -54,6 +54,19 @@ if [ -z "${VERSION}" ]; then
     fail "failed to read version from pyproject.toml"
 fi
 
+# Deterministic-build contract (Issue #51): SOURCE_DATE_EPOCH is the commit timestamp of the
+# exact source commit, exported by the release workflow. When it is set, pkg create receives it
+# through its native reproducible-package control (-t); the finished .pkg is never touched,
+# repacked or normalized afterwards. An empty value is treated as unset and there is no
+# wall-clock fallback: without SOURCE_DATE_EPOCH the ordinary manual build is unchanged.
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    case "${SOURCE_DATE_EPOCH}" in
+        *[!0-9]*)
+            fail "SOURCE_DATE_EPOCH must be decimal epoch seconds (the source commit timestamp); got '${SOURCE_DATE_EPOCH}'."
+            ;;
+    esac
+fi
+
 PKG_NAME="pysh-shell"
 # Canonical FreeBSD package filename format: pysh-shell-${VERSION}.pkg
 EXPECTED_PKG="${PKG_NAME}-${VERSION}.pkg"
@@ -137,7 +150,11 @@ deps: {
 EOF
 
 rm -f "${EXPECTED_PATH}"
-pkg create -r "${STAGE_DIR}" -M "${MANIFEST}" -p "${PLIST}" -o "${OUT_DIR}"
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    pkg create -t "${SOURCE_DATE_EPOCH}" -r "${STAGE_DIR}" -M "${MANIFEST}" -p "${PLIST}" -o "${OUT_DIR}"
+else
+    pkg create -r "${STAGE_DIR}" -M "${MANIFEST}" -p "${PLIST}" -o "${OUT_DIR}"
+fi
 
 if [ ! -f "${EXPECTED_PATH}" ]; then
     echo "build_freebsd_pkg.sh: expected ${EXPECTED_PATH} but it was not produced." >&2

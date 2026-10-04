@@ -84,11 +84,11 @@ def test_classify_run_script() -> None:
     assert res["execution"] == "subprocess"
 
 
-def test_classify_zsh_delegation() -> None:
+def test_zsh_has_no_special_routing_it_is_an_ordinary_external_command() -> None:
     res = _classify("zsh 'echo hi'")
-    assert res["kind"] == "zsh-delegation"
-    assert res["execution"] == "zsh"
-    assert res["risk"] == "medium"
+    assert res["kind"] == "external"
+    assert res["execution"] == "subprocess"
+    assert res["kind"] != "zsh-delegation"
 
 
 def test_classify_sudo_is_high_risk() -> None:
@@ -183,3 +183,26 @@ def test_plan_shell_builtin_emits_output(
     assert shell.execute("plan ls -la") == 0
     out = capsys.readouterr().out
     assert "kind=external" in out
+
+
+def test_documented_plan_output_contract_matches_the_classifier() -> None:
+    """The kind/execution enumerations in docs/shell/command-planning.md are exactly what the
+    classifier can emit (no stale zsh/bash/sh delegation kinds or executions)."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "src" / "pysh" / "diagnostics" / "command_plan.py").read_text(encoding="utf-8")
+    emitted_kinds = set(re.findall(r'kind="([a-z-]+)"', source))
+    emitted_executions = set(re.findall(r'execution="([a-z-]+)"', source))
+    doc = (root / "docs" / "shell" / "command-planning.md").read_text(encoding="utf-8")
+    kinds = set(re.search(r"^kind=<([^>]+)>", doc, re.M).group(1).split("|"))
+    executions = set(re.search(r"^execution=<([^>]+)>", doc, re.M).group(1).split("|"))
+    assert kinds == emitted_kinds == {
+        "builtin", "external", "plugin", "pipeline", "chain", "python", "script", "unknown",
+    }
+    assert executions == emitted_executions == {"native", "subprocess", "plugin", "python-runtime", "none"}
+    lowered = doc.lower()
+    for stale in ("zsh-delegation", "zsh delegation", "execution=<native|subprocess|python-runtime|zsh"):
+        assert stale not in lowered
+    assert not {"zsh", "bash", "sh"} & (kinds | executions)

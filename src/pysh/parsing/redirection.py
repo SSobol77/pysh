@@ -364,7 +364,60 @@ def parse_redirections(
             continue
         out.append(c)
         i += 1
-    clean = "".join(out).strip()
-    # Collapse runs of whitespace that may have been left behind.
-    clean = " ".join(clean.split())
+    # Collapse the separator whitespace left behind by removed redirections,
+    # without touching quoted or escaped text.
+    clean = _collapse_unquoted_whitespace("".join(out))
     return clean, spec
+
+
+def _collapse_unquoted_whitespace(text: str) -> str:
+    """Trim and collapse *unquoted, unescaped* whitespace runs to a single space.
+
+    Whitespace inside single or double quotes and a backslash-escaped character
+    belong to an argument and are preserved exactly (PYSH-LANG-QUOTE-RULES,
+    PYSH-LANG-LEX-WORDS). Quote characters stay in place for the tokenizer.
+    """
+    out: list[str] = []
+    in_single = False
+    in_double = False
+    pending_space = False
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if in_single:
+            out.append(c)
+            if c == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            if c == "\\" and i + 1 < n and text[i + 1] in ('"', "\\", "$", "`"):
+                out.append(c)
+                out.append(text[i + 1])
+                i += 2
+                continue
+            out.append(c)
+            if c == '"':
+                in_double = False
+            i += 1
+            continue
+        if c.isspace():
+            pending_space = True
+            i += 1
+            continue
+        if pending_space and out:
+            out.append(" ")
+        pending_space = False
+        if c == "\\" and i + 1 < n:
+            out.append(c)
+            out.append(text[i + 1])
+            i += 2
+            continue
+        if c == "'":
+            in_single = True
+        elif c == '"':
+            in_double = True
+        out.append(c)
+        i += 1
+    return "".join(out)

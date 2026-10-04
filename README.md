@@ -53,7 +53,7 @@ It is packaged as a regular PyPI distribution (`pysh-shell`), installs a
 single console command (`pysh`), and is designed to feel familiar to anyone
 used to a Bourne-style shell while remaining hackable from Python.
 
-Current release candidate: **PySH 0.9.1**. PySH requires **CPython 3.13+**
+Current release candidate: **PySH 1.0.0**. PySH requires **CPython 3.13+**
 with no upper minor-version bound. Debian 13, Fedora 43, and FreeBSD 14.4 are
 reference CI environments, not installation allowlists.
 
@@ -87,9 +87,10 @@ reference CI environments, not installation allowlists.
   Python-first script migration guidance, `run_script <file> [args...]`
   delegates shebang scripts to their real interpreter, and `compat_check
   <file>` reports migration risk before execution.
-- **Zsh Transition Layer** for explicit delegation: `zsh <command>` delegates
-  to real zsh when installed, and `zsh_fallback` can be enabled for
-  controlled fallback experiments.
+- **No legacy-shell bridge**: PySH never falls back to zsh, bash or fish, and
+  has no dedicated `zsh` builtin. A program named `zsh` runs only as an
+  ordinary external command; scripts may still request their own interpreter
+  through a shebang with `run_script`.
 - **Python-native runtime bridge**: `py <code>` executes one-line Python code
   in a persistent per-session runtime context.
 - **Python automation blocks**: `py { ... }` runs a multiline Python block in
@@ -98,8 +99,10 @@ reference CI environments, not installation allowlists.
   `python -m pysh script.pysh [args...]` execute explicit local PySH scripts
   with `$0`, `$1`, `$#`, `$@`, heredocs, glob expansion and `py { ... }`
   blocks. PySH scripts are not POSIX sh scripts.
-- **Observability and diagnostics**: `--debug` and `--trace` emit structured,
-  redacted stderr diagnostics without changing command stdout.
+- **Observability and diagnostics**: `--debug` and `--trace` emit a
+  human-readable redacted trace on stderr; `--diagnostics-json` emits
+  structured schema-v1 JSON Lines on stderr; opt-in `--audit-log PATH` appends
+  redacted JSON Lines to a private local file. None changes command stdout.
 - **Debian/system profile helpers**: `sys_info`, `env_audit`, `path_audit`,
   `which_all`, `apt_check`, `apt_search` — non-mutating, never call `sudo`.
 - **Command planning**: `plan <command...>` previews how PySH would classify
@@ -203,6 +206,7 @@ python -m pip install -e ".[dev]"
 pysh           # console entry point installed by the wheel
 python -m pysh # equivalent module entry point
 pysh --version # print version and exit
+pysh --credits # print the project authors and exit
 pysh -c "echo hi; echo there"  # run one command line and exit
 pysh script.pysh arg1 arg2     # run a PySH-native script file
 ```
@@ -241,7 +245,7 @@ Full documentation lives under the repository [`docs/`](https://github.com/SSobo
 **Migration**
 
 - [Migration](https://github.com/SSobol77/pysh/blob/main/docs/migration/migration.md) — static profile import, script transition runner, and compatibility reporting.
-- [Zsh compatibility](https://github.com/SSobol77/pysh/blob/main/docs/migration/zsh-compatibility.md) — transition bridge, safe profile import, explicit zsh delegation, optional fallback mode.
+- [Zsh compatibility](https://github.com/SSobol77/pysh/blob/main/docs/migration/zsh-compatibility.md) — static migration helpers and safe profile import; no zsh builtin, no production bridge and no fallback (a program named `zsh` is an ordinary external command).
 
 **Compatibility contracts**
 
@@ -273,8 +277,8 @@ See [Sensitive input security boundary](https://github.com/SSobol77/pysh/blob/ma
 ## Builtins
 
 Available shell builtins. Most run inside the shell process; transition
-builtins such as `zsh` and `run_script` may delegate explicitly as
-documented.
+builtins such as `run_script` may delegate to a script's own shebang
+interpreter as documented.
 
 | Builtin    | Description                                              |
 | ---------- | -------------------------------------------------------- |
@@ -293,8 +297,6 @@ documented.
 | `paste_show` / `paste_run` / `paste_cancel` | Manage captured bracketed multiline paste. |
 | `compat_check` | Produce a static migration report for a shell file. |
 | `migrate`  | Produce Python-first shell-script migration guidance. |
-| `zsh`      | Execute one command through real `zsh -lc`.              |
-| `zsh_fallback` | Enable or disable explicit zsh fallback mode.       |
 | `py`       | Execute Python code in the persistent PySH runtime.      |
 | `sys_info` | Print platform / Python / user / shell / PATH summary.   |
 | `env_audit` | Print a redacted environment audit summary.             |
@@ -405,11 +407,11 @@ suppress expansion; double quotes do not.
 
 ---
 
-## Zsh Transition Layer
+## Zsh Migration Helpers
 
-PySH is Python-first, not a full zsh clone. The zsh compatibility bridge is
-for transition: it lets users move aliases and selected legacy commands into
-PySH without pretending that every zsh grammar feature is native.
+PySH is Python-first, not a full zsh clone. The static migration helpers let
+users move aliases and selected legacy settings into PySH without pretending
+that every zsh grammar feature is native. PySH does not run zsh for you.
 `.pyshrc` is the canonical PySH configuration file; `.zshrc` is not sourced
 automatically and the plain `source` builtin rejects zsh startup/profile
 files with guidance to use PySH-native configuration or the safe static
@@ -422,8 +424,6 @@ source_sh_aliases ~/.bash_aliases
 compat_check ~/scripts/maintenance.sh
 migrate ~/scripts/maintenance.sh
 run_script ~/scripts/maintenance.sh --dry-run
-zsh 'source ~/.zshrc; my_old_alias'
-zsh 'print -r -- hello'
 ```
 
 `source_zsh <file>` statically imports supported simple alias definitions
@@ -454,20 +454,13 @@ content.
 an argv list; no-shebang scripts are executed line-by-line by PySH's native
 engine where possible.
 
-`zsh <command>` delegates explicitly to real `zsh -lc <command>`. If zsh is
-not installed, it returns 127 with a deterministic error.
-
-Fallback mode is off by default. It can be enabled only explicitly:
-
-```sh
-zsh_fallback on
-zsh_fallback off
-PYSH_ZSH_FALLBACK=1
-```
-
-When fallback is on, PySH may delegate commands it cannot parse or execute
-natively to zsh. Builtins already handled by PySH stay native, and native
-command failures are not hidden.
+PySH does not fall back to zsh automatically: an unknown command, a missing
+pipeline command, or a failed expansion is a PySH diagnostic. The former
+`zsh_fallback` builtin, `PYSH_ZSH_FALLBACK` variable and `zsh <command>`
+builtin were removed before 1.0. If zsh is installed you can still run it like
+any other program (`zsh -c '...'`); PySH adds no flags and no semantics.
+Bash/Zsh/Fish comparison for migration evidence is done by test/CI differential
+tooling, not by the shell runtime.
 
 ---
 
@@ -727,8 +720,8 @@ Architecture contract:
   unchanged and run PySH explicitly as `pysh`.
 - Native glob expansion is supported for unquoted `*`, `?`, character classes
   and `**`; brace expansion remains unsupported.
-- No full zsh compatibility. The zsh compatibility bridge is a transition
-  layer with safe static alias import and explicit delegation to real zsh.
+- No full zsh compatibility. The migration helpers provide safe static alias
+  import only; PySH has no zsh bridge.
 - `svc start` and `svc restart` to actually re-launch a process require a
   PyInit control interface; without one they return a deterministic error.
 - Multiline `py { ... }` blocks do not support nested blocks; the opener
@@ -753,7 +746,7 @@ twine check dist/*
 The project ships unit tests for the parser, the redirection module, the
 rc loader and mini-interpreter, command substitution, the history manager,
 the highlighting helpers, the plugin loader, directory stack, `unalias`,
-the `svc` builtin, the PyInit metadata parser, the zsh transition layer and
+the `svc` builtin, the PyInit metadata parser, the static zsh migration helpers and
 the Python runtime bridge.
 
 ---

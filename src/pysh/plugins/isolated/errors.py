@@ -23,6 +23,10 @@ class CapabilityDeniedError(CapabilityError):
     """Raised when a broker request lacks its required parent-side grant."""
 
 
+class ResourcePolicyError(IsolatedPluginError, ValueError):
+    """Raised when a resource budget, profile, or resolution request is invalid."""
+
+
 class ProtocolError(IsolatedPluginError):
     """Raised for malformed or unexpected IPC input."""
 

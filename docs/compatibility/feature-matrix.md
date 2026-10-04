@@ -65,10 +65,11 @@ shell feature area in the current PySH release. Category definitions are in
 | Builtins | `source_sh_aliases` | Supported | Transition | `tests/test_profile_importer.py` | — |
 | Builtins | `compat_check` | Supported | Transition | `tests/test_profile_importer.py` | — |
 | Builtins | `run_script` | Partial | Delegated | `tests/test_script_runner.py` | #14 |
-| Builtins | `zsh` (explicit delegation) | Supported | Delegated | `tests/test_zsh_bridge.py` | — |
-| Builtins | `zsh_fallback` | Supported | Delegated | `tests/test_zsh_transition.py` | — |
+| Builtins | `zsh` | Removed before 1.0 (ordinary external program) | Unsupported | `tests/test_no_production_zsh_bridge.py` | #54 |
 | Diagnostics | `--debug`, `--trace` stderr trace | Supported | Native | `tests/test_observability_diagnostics.py` | #13 |
 | Diagnostics | Diagnostic redaction policy | Supported | Native | `tests/test_observability_diagnostics.py`, `tests/test_security_trust_model.py` | #13 |
+| Diagnostics | Structured diagnostics JSONL (`--diagnostics-json`, schema v1) | Supported | Native | `tests/test_structured_diagnostics.py`, `tests/test_diagnostics_jsonl.py` | #50 |
+| Diagnostics | Opt-in persistent audit log (`--audit-log PATH`) | Supported | Native | `tests/test_audit_log.py` | #50 |
 
 ## Aliases
 
@@ -152,7 +153,8 @@ shell feature area in the current PySH release. Category definitions are in
 | Redirection | `2>> file` (stderr append) | Supported | Native | `tests/test_redirection.py` | — |
 | Redirection | `&> file` (stdout+stderr truncate) | Supported | Native | `tests/test_redirection.py` | — |
 | Redirection | `&>> file` (stdout+stderr append) | Supported | Native | `tests/test_redirection.py` | — |
-| Redirection | Fd duplication: `2>&1` | Unsupported | Unsupported | — | — |
+| Redirection | Standard fd duplication: `2>&1`, `1>&2`, `>&2` | Supported | Native | `tests/test_redirection.py` | — |
+| Redirection | Arbitrary fd duplication/closing | Unsupported | Unsupported | `docs/spec/pysh-language.md` | — |
 | Redirection | `/dev/null` shorthand | Supported | Native | — | — |
 
 ## Command substitution
@@ -318,8 +320,8 @@ shell feature area in the current PySH release. Category definitions are in
 | ---- | ------- | ------ | -------- | -------- | ----------- |
 | Security | Foreign profile execution by default | Unsupported | Forbidden by default | `tests/test_security_trust_model.py` | #7 |
 | Security | Static profile import (no execution) | Supported | Transition | `tests/test_security_trust_model.py` | #7 |
-| Security | Explicit delegation (`zsh`, `run_script`, `zsh_fallback on`) | Supported | Delegated | `tests/test_security_trust_model.py` | #7 |
-| Security | `zsh_fallback` off by default | Supported | Delegated | `tests/test_security_trust_model.py` | #7 |
+| Security | Explicit shebang delegation (`run_script`) | Supported | Delegated | `tests/test_security_trust_model.py` | #7 |
+| Security | No automatic zsh fallback | Supported | Native | `tests/test_no_automatic_legacy_fallback.py` | #54 |
 | Security | Normal command does not use PTY bridge | Supported | Native | `tests/test_security_trust_model.py` | #7 |
 | Security | `secure <cmd>` explicit PTY bridge opt-in | Supported | Native | `tests/test_secure_runner.py` | #7 |
 | Security | `env_audit` redacts sensitive variable names | Supported | Native | `tests/test_security_trust_model.py` | #7 |
@@ -330,7 +332,9 @@ shell feature area in the current PySH release. Category definitions are in
 | Security | Strict safe startup (`--no-rc`) | Supported | Native | `tests/test_safe_startup.py`, `docs/security/threat-model.md` | #43 |
 | Security | Isolated-plugin process and parent capability broker | Supported | Native | `tests/test_isolated_plugin_manifest.py`, `tests/test_isolated_plugin_protocol.py`, `tests/test_isolated_plugin_runtime.py` | #44 |
 | Security | Direct-syscall confinement for hostile plugin code | Planned | Planned | `docs/security/plugin-isolation.md` | #52 |
-| Security | Centralized redaction across all egress seams | Partial | Native | `tests/test_observability_diagnostics.py`, `docs/security/threat-model.md` | #50 |
+| Security | Centralized diagnostic/audit redaction before serialization/persistence | Supported | Native | `tests/test_structured_diagnostics.py`, `tests/test_diagnostics_jsonl.py`, `tests/test_audit_log.py`, `tests/test_observability_diagnostics.py`, `docs/security/threat-model.md` | #50 |
+| Security | Redaction of future AI, remote, and package egress | Planned | Planned | `docs/security/threat-model.md` | Future issues (reserved) |
+| Security | Isolated-plugin lifecycle and capability grant/deny decision events | Supported | Native | `tests/test_isolated_plugin_diagnostics.py`, `tests/test_isolated_plugin_runtime.py` | #50 |
 
 ## Signal handling
 
@@ -399,24 +403,21 @@ shell feature area in the current PySH release. Category definitions are in
 | bash/sh import | Skips bash-specific syntax | Supported | Transition | `tests/test_profile_importer.py` | — |
 | bash/sh import | Full bash profile execution | Unsupported | Forbidden by default | — | #7 |
 
-## Explicit zsh delegation
+## zsh migration helpers
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| zsh delegation | `zsh COMMAND` | Supported | Delegated | `tests/test_zsh_bridge.py` | — |
-| zsh delegation | Returns 127 when zsh is not installed | Supported | Delegated | `tests/test_zsh_bridge.py` | — |
-| zsh delegation | Exit status forwarded | Supported | Delegated | `tests/test_zsh_bridge.py` | — |
+| zsh | `zsh COMMAND` builtin | Removed before 1.0; `zsh` is an ordinary external program | Unsupported | `tests/test_no_production_zsh_bridge.py` | #54 |
 | zsh delegation | `compat_check FILE` (static report) | Supported | Transition | `tests/test_profile_importer.py` | — |
 | zsh delegation | `run_script FILE [args]` (shebang dispatch) | Supported | Delegated | `tests/test_script_runner.py` | #14 |
 
-## Fallback mode
+## Automatic fallback
 
 | Area | Feature | Status | Category | Evidence | Owner issue |
 | ---- | ------- | ------ | -------- | -------- | ----------- |
-| Fallback | `zsh_fallback on` / `off` | Supported | Delegated | `tests/test_zsh_transition.py` | — |
-| Fallback | `PYSH_ZSH_FALLBACK=1` env var | Supported | Delegated | `tests/test_zsh_transition.py` | — |
-| Fallback | Off by default | Supported | Delegated | `tests/test_zsh_transition.py` | — |
-| Fallback | Does not hide native command failures | Supported | Delegated | `tests/test_zsh_transition.py` | — |
+| Fallback | `zsh_fallback` builtin | Removed before 1.0 | Unsupported | `tests/test_no_automatic_legacy_fallback.py` | #54 |
+| Fallback | `PYSH_ZSH_FALLBACK` env var | No effect | Unsupported | `tests/test_no_automatic_legacy_fallback.py` | #54 |
+| Fallback | Unknown commands are never delegated | Supported | Native | `tests/test_no_automatic_legacy_fallback.py` | #54 |
 
 ## Script mode
 

@@ -16,7 +16,7 @@ This document defines how PySH compatibility claims are validated. A claim is
 only valid when it has evidence in this matrix. Claims without current evidence
 are gaps that must be resolved before the claim can be published.
 
-Current release line: **PySH 0.9.1**.
+Current release line: **PySH 1.0.0**.
 
 ---
 
@@ -72,8 +72,8 @@ Current release line: **PySH 0.9.1**.
 | Static profile import does not execute code | Unit test | `tests/test_security_trust_model.py` | None | #7 |
 | Static importer does not spawn subprocess | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
 | `eval` lines classified RISKY (not executed) | Unit test | `tests/test_security_trust_model.py` | None | #7 |
-| `zsh_fallback` off by default | Unit test | `tests/test_security_trust_model.py` | None | #7 |
-| `zsh <cmd>` uses `zsh -lc` | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
+| No automatic zsh fallback | Unit test | `tests/test_no_automatic_legacy_fallback.py` | None | #54 |
+| No dedicated `zsh` builtin; a program named `zsh` is an ordinary external command | Unit test (fake zsh) | `tests/test_no_production_zsh_bridge.py` | None | #54 |
 | Normal command does not use PTY bridge | Unit test (spy) | `tests/test_security_trust_model.py` | None | #7 |
 | `env_audit` redacts sensitive variable names | Unit test | `tests/test_security_trust_model.py` | None | #7 |
 | `apt_check` / `apt_search` do not use sudo | Unit test (mock) | `tests/test_security_trust_model.py` | None | #7 |
@@ -91,6 +91,20 @@ Current release line: **PySH 0.9.1**.
 | `--no-rc` does not create `~/.pyshrc.py` or default TOML | Unit/integration test | `tests/test_safe_startup.py` | None | #43 |
 | Console and `python -m pysh` accept `--no-rc` with `-c` | Unit/subprocess test | `tests/test_safe_startup.py` | None | #43 |
 | Debug trace redacts stderr while command stdout remains unchanged | Unit test | `tests/test_observability_diagnostics.py` | None | #43 / #50 |
+| Structured event schema v1 has an explicit version; malformed events fail closed | Unit test | `tests/test_structured_diagnostics.py` | None | #50 |
+| Structured JSONL is deterministic (sorted keys, one object per line, no NaN) | Unit test | `tests/test_diagnostics_jsonl.py` | None | #50 |
+| `--diagnostics-json` writes schema-v1 JSONL to stderr and is exclusive with `--debug`/`--trace` | Unit/CLI test | `tests/test_diagnostics_jsonl.py` | None | #50 |
+| Structured diagnostics keep command stdout separate and unchanged | Unit/CLI test | `tests/test_diagnostics_jsonl.py` | None | #50 |
+| Audit logging is off by default (no file opened or created without `--audit-log`) | Unit/CLI test | `tests/test_audit_log.py` | None | #50 |
+| Audit log is created private (`0600`); symlink, FIFO, device, directory and insecure files are rejected | Unit/CLI test | `tests/test_audit_log.py` | None | #50 |
+| Audit log appends and never truncates an existing file | Unit/CLI test | `tests/test_audit_log.py` | None | #50 |
+| Audit initialization failure prevents execution (fail closed) | Unit/CLI test | `tests/test_audit_log.py` | None | #50 |
+| Audit mid-run write failure is contained and preserves the command exit status | Unit/CLI test | `tests/test_audit_log.py` | None | #50 |
+| Secrets and nested fields are redacted on disk before persistence | Unit/CLI test | `tests/test_audit_log.py`, `tests/test_structured_diagnostics.py` | None | #50 |
+| Isolated-plugin lifecycle events map to structured `plugin.*` events and reach JSONL/audit via the real runtime | Subprocess test | `tests/test_isolated_plugin_diagnostics.py` | None | #50 |
+| Capability grant and denial decisions emit `security.capability_granted`/`security.capability_denied` with bounded capability declarations as metadata, excluding environment values, file contents, command argv/output, and IPC payloads | Subprocess test | `tests/test_isolated_plugin_diagnostics.py`, `tests/test_isolated_plugin_runtime.py` | None | #50 |
+| Diagnostics sink failure does not replace the isolated runtime result | Subprocess test | `tests/test_isolated_plugin_diagnostics.py` | None | #50 |
+| Protected PTY bytes have no route into audit events | Unit/CLI test | `tests/test_audit_log.py`, `tests/test_security_trust_model.py` | None | #50 |
 | Isolated manifest and typed capabilities fail closed | Unit test | `tests/test_isolated_plugin_manifest.py` | None | #44 |
 | Isolated IPC rejects malformed, oversized, unknown and incompatible messages | Unit test | `tests/test_isolated_plugin_protocol.py`, `tests/test_isolated_plugin_runtime.py` | None | #44 |
 | Isolated child receives scrubbed env, private cwd and no unrelated parent fd | Subprocess test | `tests/test_isolated_plugin_runtime.py` | FreeBSD 14.4 CI/VM evidence pending | #44 / #52 |
@@ -149,12 +163,9 @@ Current release line: **PySH 0.9.1**.
 
 | Claim | Required evidence | Current evidence | Gap | Owner issue |
 | ----- | ----------------- | ---------------- | --- | ----------- |
-| `zsh COMMAND` delegates to `zsh -lc` | Unit test with real zsh | `tests/test_zsh_bridge.py` | None | — |
-| `zsh COMMAND` returns 127 when zsh is absent | Unit test | `tests/test_zsh_bridge.py` | None | — |
 | `run_script` delegates bash/zsh/sh shebangs | Script fixture test | `tests/test_script_runner.py` | None | #14 |
-| `zsh_fallback on` enables delegation | Unit test | `tests/test_zsh_transition.py` | None | — |
-| `zsh_fallback off` disables delegation | Unit test | `tests/test_zsh_transition.py` | None | — |
-| Fallback is off by default | Unit test | `tests/test_zsh_transition.py` | None | — |
+| `zsh_fallback` removed; `PYSH_ZSH_FALLBACK` has no effect | Unit test (fake zsh) | `tests/test_no_automatic_legacy_fallback.py` | None | #54 |
+| Unknown commands are never delegated to zsh | Unit test (fake zsh) | `tests/test_zsh_transition.py`, `tests/test_no_automatic_legacy_fallback.py` | None | #54 |
 
 ### Negative / unsupported-construct claims
 
@@ -222,5 +233,4 @@ acceptance gates, not automated tests.
 | Ctrl+C during `py` execution | Run `py import time; time.sleep(60)` then Ctrl+C; verify no traceback; `echo $?` returns 130 | Per release |
 | Terminal state after Ctrl+C | Type text, press Ctrl+C, type `echo hello`, press Enter; verify clean output | Per release |
 | `secure sudo -v` PTY ring | Run `secure sudo -v` and type password; verify ring indicator appears without revealing length | Per release |
-| `zsh_fallback on` delegation | Enable fallback; type a zsh-specific construct; verify it runs in zsh | Per release |
 | `mc` integration | Launch `mc`; verify PySH resumes correctly on exit | Per release |

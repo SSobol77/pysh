@@ -8,23 +8,25 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pysh-shell"
-version = "0.9.1"
+version = "1.0.0"
 description = "PySH — fast, Python-first universal interactive shell for Debian and Unix-like systems."
 readme = "README.md"
 requires-python = ">=3.13"
 license = "GPL-2.0-only"
 authors = [
     { name = "Siergej Sobolewski", email = "siergej@proton.me" },
+    { name = "Jozef Sobolewski" },
     { name = "Karol Sobolewski", email = "karl.sobolewski@outlook.com" },
 ]
 dependencies = []
 keywords = ["shell", "python", "terminal", "cli", "debian"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
     "Operating System :: POSIX :: Linux",
+    "Operating System :: POSIX :: BSD :: FreeBSD",
     "Operating System :: POSIX",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
@@ -69,4 +71,7 @@ dev = [
     "pytest>=9.0.3",
     "ruff>=0.15.15",
     "twine>=5.0",
+]
+fuzz = [
+    "atheris>=3.1.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]

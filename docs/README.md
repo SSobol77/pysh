@@ -22,7 +22,7 @@ source of truth. All canonical documentation lives here under `docs/`.
 
 | Attribute            | Value                                             |
 | -------------------- | ------------------------------------------------- |
-| Version              | 0.9.1 release candidate                         |
+| Version              | 1.0.0 release candidate                         |
 | Language             | Pure Python (stdlib only, no external deps)       |
 | Runtime policy       | Supported Unix families with CPython 3.13+       |
 | Shell type           | Python-first interactive shell and script runner  |
@@ -37,6 +37,8 @@ source of truth. All canonical documentation lives here under `docs/`.
 ```text
 docs/
 ├── README.md                          ← this file (documentation index)
+├── spec/                              ← normative language semantics
+│   └── pysh-language.md
 ├── user/                              ← end-user guides
 │   ├── installation.md
 │   ├── usage.md
@@ -82,6 +84,7 @@ docs/
 │   └── zsh-compatibility.md
 ├── architecture/                      ← architecture decisions and roadmap
 │   ├── architecture.md
+│   ├── layering.md
 │   ├── error-exit-code-contract.md
 │   ├── completion-engine-contract.md
 │   ├── heredoc-contract.md
@@ -100,6 +103,7 @@ docs/
 │   └── release-quality-gate-2-audit.md
 ├── development/                       ← contributor and release guides
 │   ├── api-stability.md
+│   ├── performance.md
 │   ├── development.md
 │   ├── history-engine.md
 │   ├── prompt-engine.md
@@ -110,6 +114,8 @@ docs/
 │   ├── release.md
 │   ├── release-notes-template.md
 │   ├── release-notes-0.9.1.md
+│   ├── release-notes-1.0.0.md
+│   ├── v1.0.0-readiness.md
 │   └── packaging.md
 └── img/                               ← project images and icons
 ```
@@ -140,6 +146,19 @@ Documentation for people who install and use PySH day to day.
 
 ---
 
+## Language specification
+
+| Document | Description |
+| -------- | ----------- |
+| [pysh-language.md](spec/pysh-language.md) | Normative current PySH v1 language semantics, stable contract identifiers, conformance-corpus schema, and semantic-change procedure |
+
+Authority hierarchy: `docs/spec/pysh-language.md` defines normative current
+PySH v1 language semantics. Architecture documents retain detailed subsystem,
+history, and design contracts. Compatibility documents classify compatibility;
+they are not independent grammar definitions.
+
+---
+
 ## Shell behavior
 
 Internal shell feature documentation.
@@ -158,6 +177,7 @@ Internal shell feature documentation.
 | Document | Description |
 | -------- | ----------- |
 | [threat-model.md](security/threat-model.md) | PySH v1.0 threat model: STRIDE register, data classification, trust boundaries, `--no-rc`, redaction policy, and deferred capability requirements |
+| [supply-chain.md](security/supply-chain.md) | Issue #51 supply-chain assurance contract: artifact families, SBOM, provenance, verification, fail-closed policy, trust root, reproducibility status |
 | [plugin-isolation.md](security/plugin-isolation.md) | Issue #44 isolated-plugin manifest, bounded JSON IPC, parent capability broker, lifecycle, and OS-level limitations |
 
 ---
@@ -192,7 +212,7 @@ Guides for users transitioning from zsh, bash, sh, or Fish.
 | Document | Description |
 | -------- | ----------- |
 | [migration.md](migration/migration.md) | Static profile import, script transition runner, compatibility reporting |
-| [zsh-compatibility.md](migration/zsh-compatibility.md) | Transition bridge, safe profile import, explicit zsh delegation, fallback mode |
+| [zsh-compatibility.md](migration/zsh-compatibility.md) | Static migration helpers and safe profile import; no zsh builtin, no production bridge and no fallback (a program named `zsh` is an ordinary external command) |
 
 ---
 
@@ -222,7 +242,8 @@ Internal architecture decisions, issue tracking, and roadmap.
 
 | Document | Description |
 | -------- | ----------- |
-| [architecture.md](architecture/architecture.md) | Architecture contracts (Issue #3): boundaries, protocols, ratchet, shim policy |
+| [architecture.md](architecture/architecture.md) | Architecture contracts: protocols, enforced boundaries, and shim policy |
+| [layering.md](architecture/layering.md) | Normative Issue #46 v1.0 ownership map, dependency directions, extension seams, and exact debt exceptions |
 | [error-exit-code-contract.md](architecture/error-exit-code-contract.md) | Error and exit-code contract (Issue #5): ExitCode enum, PyShError taxonomy, $? propagation |
 | [heredoc-contract.md](architecture/heredoc-contract.md) | Here-document and here-string stdin contract (Issue #10) |
 | [observability-diagnostics-contract.md](architecture/observability-diagnostics-contract.md) | Observability and diagnostics contract (Issue #13): opt-in trace, stderr contract, redaction, diagnostic builtins |
@@ -248,6 +269,8 @@ Documentation for contributors, maintainers, and the release process.
 | Document | Description |
 | -------- | ----------- |
 | [api-stability.md](development/api-stability.md) | Normative Issue #45 public/internal inventory, embedding API, SemVer, version-domain, and deprecation contract |
+| [performance.md](development/performance.md) | Normative Issue #47 benchmark definitions, versioned budgets, noise model, and Linux/FreeBSD CI gates |
+| [fuzzing.md](development/fuzzing.md) | Issue #49 parser/tokenizer fuzzing and property evidence: portable vs Linux-only Atheris engines, replay, regression and finding workflow |
 | [development.md](development/development.md) | Test suite, linting, build commands, repository layout |
 | [prompt-engine.md](development/prompt-engine.md) | Prompt Engine 2.0 implementation invariants and validation |
 | [completion-engine.md](development/completion-engine.md) | Completion Engine 2.0 architecture, cache contract, manual validation |
@@ -256,7 +279,9 @@ Documentation for contributors, maintainers, and the release process.
 | [repository-structure.md](development/repository-structure.md) | Repository-relative path map and guidance for similarly named files |
 | [release.md](development/release.md) | Release checklist, tagging, PyPI Trusted Publishing via GitHub Actions |
 | [release-notes-template.md](development/release-notes-template.md) | Canonical GitHub Release notes template with platform and validation evidence sections |
-| [release-notes-0.9.1.md](development/release-notes-0.9.1.md) | Prepared maintenance-release notes for PySH 0.9.1 |
+| [release-notes-0.9.1.md](development/release-notes-0.9.1.md) | Historical maintenance-release notes for PySH 0.9.1 |
+| [release-notes-1.0.0.md](development/release-notes-1.0.0.md) | Prepared release notes for PySH 1.0.0 |
+| [v1.0.0-readiness.md](development/v1.0.0-readiness.md) | Issue #35 PySH v1.0.0 readiness audit: critical-path closure, blockers, evidence matrix and release decision |
 | [packaging.md](development/packaging.md) | Canonical naming contract; PyPI / `.deb` / `.rpm` / `.pkg` artifact filenames and build scripts |
 
 ---
@@ -291,3 +316,5 @@ Suggested future Wiki structure when mirroring is implemented:
 5. Documentation must not be duplicated into divergent copies across the tree.
 6. All compatibility and feature claims in documentation must be backed by
    tests or the current test matrix. Aspirational claims are not permitted.
+7. `docs/spec/pysh-language.md` is the normative authority for current PySH v1
+   command-language semantics.

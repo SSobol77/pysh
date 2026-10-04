@@ -47,7 +47,7 @@ not provide:
 | 1 | **Explicit execution only.** PySH does not silently execute foreign shell code. |
 | 2 | **Static import is not execution.** Profile importers parse text; they never execute it. |
 | 3 | **Foreign profile execution is forbidden by default.** `.zshrc`, `.bashrc`, `.profile` are not executed automatically. |
-| 4 | **Delegation must be explicit.** `zsh <cmd>`, `run_script`, `zsh_fallback on` are opt-in. |
+| 4 | **Delegation must be explicit.** `run_script` shebang delegation is opt-in by the script; there is no automatic fallback and no zsh builtin. |
 | 5 | **Sensitive input is a strict boundary.** Normal commands inherit the terminal; PySH does not observe password bytes. |
 | 6 | **`secure <cmd>` is opt-in.** The PTY bridge is never created for ordinary commands. |
 | 7 | **Plugins and rc files are trusted local PySH code.** Not sandboxed; not foreign shell code. |
@@ -62,7 +62,7 @@ not provide:
 | Trust level | Description | Examples |
 |-------------|-------------|---------|
 | `TRUSTED_LOCAL` | Local user-owned PySH config and code, runs in-process, not sandboxed | `~/.pyshrc`, `~/.pyshrc.py`, `~/.pyshrc.d/*.pysh`, `py` builtin |
-| `TRUSTED_DELEGATED` | Explicit user delegation to an external interpreter | `zsh <cmd>`, `run_script`, `zsh_fallback on` |
+| `TRUSTED_DELEGATED` | Explicit user delegation to an external interpreter | `run_script` (script shebang) |
 | `STATIC_IMPORT` | Read-only text parse — no shell code executed | `source_zsh`, `source_zsh_profile`, `source_sh_aliases`, `compat_check` |
 | `ISOLATED_BROKERED` | Separate process with bounded IPC and parent-mediated default-deny operations; not a kernel filesystem/network sandbox | Issue #44 isolated-plugin runtime |
 | `UNTRUSTED` | Not supported — automatic execution of foreign profiles or untrusted code | (no current surface) |
@@ -105,8 +105,6 @@ sandbox, or complete confinement mechanism for arbitrary same-UID code.
 | `source_zsh_profile` | `STATIC_IMPORT` | No — text parse only | Aliases, exports | Static parse, no subprocess | — |
 | `source_sh_aliases` | `STATIC_IMPORT` | No — text parse only | Aliases (PySH) | Static parse, no subprocess | — |
 | `compat_check` | `STATIC_IMPORT` | No — text parse only | None | Static parse, no subprocess | — |
-| `zsh <command>` | `TRUSTED_DELEGATED` | Yes (zsh subprocess) | External | Explicit `zsh -lc` only | — |
-| `zsh_fallback on` | `TRUSTED_DELEGATED` | Yes (zsh subprocess) | External | Explicit opt-in, off by default | — |
 | `pysh script.pysh` | `TRUSTED_LOCAL` | Yes (PySH script) | Script state | Explicit local file, not sandboxed | #14 |
 | `run_script` | `TRUSTED_DELEGATED` / `TRUSTED_LOCAL` | Yes | External or PySH script | Shebang delegation or native script mode | #14 |
 | `secure <cmd>` | `TRUSTED_DELEGATED` | Yes (PTY bridge) | Subprocess | Explicit opt-in PTY bridge | — |
@@ -151,16 +149,14 @@ PySH will execute foreign shell code only when the user **explicitly requests it
 
 | Command | When | How |
 |---------|------|-----|
-| `zsh <command>` | Any time | `zsh -lc "<command>"` with 30 s timeout |
 | `run_script <file>` | When file has a supported shebang | `interpreter file` subprocess |
-| `zsh_fallback on` | When enabled by the user | Falls back to `zsh -lc` on unknown command |
 
-**`zsh_fallback` is off by default.**  PySH reports a deterministic
-"command not found" (exit 127) for unknown commands when fallback is disabled.
-Enabling fallback with `zsh_fallback on` is an explicit user action.
+**There is no automatic fallback.**  PySH reports a deterministic
+"command not found" (exit 127) for unknown commands. The former `zsh_fallback`
+builtin and `PYSH_ZSH_FALLBACK` variable were removed before PySH 1.0.
 
-No hidden fallback exists.  If a command is not found and fallback is disabled,
-PySH does not silently retry through zsh or bash.
+No hidden fallback exists.  If a command is not found, PySH does not silently
+retry through zsh or bash.
 
 ---
 
@@ -282,8 +278,7 @@ Full diagnostics contract: [Observability and Diagnostics Contract](observabilit
 
 ## Environment variable trust policy
 
-PySH reads environment variables to configure behavior (`PYSH_ZSH_FALLBACK`,
-`PYSH_PASTE_DEBUG`, `NO_COLOR`, `TERM`, `HOME`, `USER`, `PATH`, etc.).
+PySH reads environment variables to configure behavior (`PYSH_PASTE_DEBUG`, `NO_COLOR`, `TERM`, `HOME`, `USER`, `PATH`, etc.).
 
 PySH does not:
 - Blindly execute commands from environment variables.
@@ -291,8 +286,8 @@ PySH does not:
 - Expand environment variables that could cause code injection (all expansion
   is via `expand_variables`, which performs substitution, not evaluation).
 
-`PYSH_ZSH_FALLBACK=1` enables zsh fallback.  This is an explicit opt-in;
-it is not set by default.
+`PYSH_ZSH_FALLBACK` has no meaning: automatic zsh fallback was removed before
+PySH 1.0.
 
 ---
 
@@ -354,8 +349,8 @@ These are enforced by `tests/test_docs_consistency.py::test_no_forbidden_securit
 | Static importer marks command substitution UNSUPPORTED | `test_security_trust_model.py` | `TestStaticProfileImportSafety` | PASS |
 | Static importer marks `eval` RISKY in compat report | `test_security_trust_model.py` | `TestStaticProfileImportSafety` | PASS |
 | Static importer does not spawn subprocess | `test_security_trust_model.py` | `TestStaticProfileImportSafety` | PASS |
-| `zsh_fallback` off by default | `test_security_trust_model.py` | `TestExplicitDelegation` | PASS |
-| `ZshBridge` uses `zsh -lc` | `test_security_trust_model.py` | `TestExplicitDelegation` | PASS |
+| No automatic zsh fallback | `test_no_automatic_legacy_fallback.py` | all | PASS |
+| No `zsh` builtin or bridge | `test_no_production_zsh_bridge.py` | all | PASS |
 | Normal external command does not use SecureRunner | `test_security_trust_model.py` | `TestSensitiveInputBoundary` | PASS |
 | `plan` classify does not execute target | `test_security_trust_model.py` | `TestDiagnosticsNonMutation` | PASS |
 | `env_audit` redacts secret variable names | `test_security_trust_model.py` | `TestDiagnosticsNonMutation` | PASS |

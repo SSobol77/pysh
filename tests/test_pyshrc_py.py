@@ -2045,6 +2045,8 @@ def test_pyshell_two_line_fully_enabled_exact_render(
     venv.mkdir()
     monkeypatch.chdir(cwd)
     monkeypatch.setenv("USER", "ssobol")
+    for name in ("SSH_CLIENT", "SSH_TTY", "SSH_CONNECTION"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(
         PyShell,
         "_effective_username",

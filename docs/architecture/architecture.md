@@ -19,6 +19,7 @@ direction, the contract protocol layer, boundary rules, known violations, and
 shim lifecycle policy.
 
 **Relation to other documents:**
+- [layering.md](layering.md) — Issue #46: canonical v1.0 layer ownership, dependency policy, exceptions, and enforcement.
 - [source-tree.md](source-tree.md) — post-Issue #2 source tree: packages, modules, dependency diagram.
 - [error-exit-code-contract.md](error-exit-code-contract.md) — Issue #5: canonical exit codes, PyShError taxonomy, $? propagation, boundary function.
 - [parser-expansion-contract.md](parser-expansion-contract.md) — Issue #8: parser modules, expansion order, multiline grammar, unsupported syntax ownership.
@@ -41,13 +42,16 @@ shim lifecycle policy.
 | No import cycles | **Hard gate** — `tests/test_architecture_import_boundaries.py::test_no_import_cycles` |
 | contracts isolation | **Hard gate** — `tests/test_architecture_import_boundaries.py::test_contracts_isolation` |
 | `__init__.py` side-effect policy | **Hard gate** — `tests/test_architecture_import_boundaries.py::test_init_files_are_side_effect_minimal` |
-| Cross-domain ratchet | **Ratcheted** — `tests/test_architecture_import_boundaries.py::test_cross_domain_ratchet` |
+| Declarative domain boundaries | **Hard gate** — `architecture.toml` consumed by `tests/test_architecture_import_boundaries.py::test_cross_domain_ratchet` |
+| Exact debt exceptions | **Hard gate** — wildcard, new, broadened, and stale exceptions fail |
 | Public API snapshot | **Hard gate** — `tests/test_public_api_snapshot.py` |
 | Cold-import budget | **Hard gate** — `tests/test_import_time_budget.py` |
 
-**No-cycles** and **contracts isolation** are unconditional hard gates.
-The cross-domain ratchet documents current violations and blocks new ones.
-It is not a full layer-boundary enforcement; that belongs to Issue #3's successors.
+Issue #46 upgrades the Issue #3 ratchet to an unconditional, deny-by-default
+layer-boundary gate. Domain ownership, public/internal classification, exact
+allowed edges, and temporary exceptions are machine-readable in
+[`architecture.toml`](../../architecture.toml) and normative in
+[layering.md](layering.md).
 
 ---
 
@@ -193,8 +197,8 @@ read-only or action surfaces that cross package boundaries.
 
 **Why protocols, not abstract base classes:**
 Protocol (structural subtyping) allows existing classes to satisfy the
-interface without modification, which is safer for a ratcheted refactor
-where full boundary enforcement is deferred.
+interface without modification while the boundary gate keeps contracts
+independent of their implementations.
 
 **`@runtime_checkable` policy:**
 Added only to protocols where `isinstance` checks are genuinely useful.
@@ -230,15 +234,15 @@ pysh.core     ──►  imports from: all leaf packages (fan-in)
 ## Compatibility-layer boundaries
 
 ```text
-pysh.compat   ──►  provides: ZshBridge, zsh/sh alias importers, MC detection
+pysh.compat   ──►  provides: zsh/sh alias importers, MC detection
                    consumed by: core
                    must not: import from core, python_layer, config
                    current state: clean (no known violations)
 ```
 
 The compat layer is a **transition** layer, not a permanent broad compatibility
-layer. `zsh_fallback` and `run_script` delegation are explicit operations, not
-transparent wrappers. No new broad compatibility layers are permitted.
+layer. PySH has no zsh bridge; `run_script` shebang delegation is an explicit
+operation requested by the script, not a transparent wrapper. No new broad compatibility layers are permitted.
 
 ---
 
@@ -282,9 +286,9 @@ compatibility shims.
 ## Known layering violations
 
 The following cross-domain boundary imports exist in the current codebase.
-Each is documented here and in
-`tests/test_architecture_import_boundaries.py::KNOWN_VIOLATIONS`.
-New violations fail the ratchet test automatically.
+Each is documented here and as an exact `[[exceptions]]` pair in
+[`architecture.toml`](../../architecture.toml). New, wildcard, broadened, and
+stale exceptions fail the architecture gate automatically.
 
 | Importing package | Imported package | Reason retained | Cleanup issue |
 | ----------------- | ---------------- | --------------- | ------------- |
@@ -297,8 +301,8 @@ New violations fail the ratchet test automatically.
 **Total known violations: 5.**
 
 To resolve a violation: remove the cross-package import (refactor or extract
-to contracts), remove the entry from `KNOWN_VIOLATIONS` in the test file,
-and update this table.
+to contracts), remove the exact exception from `architecture.toml`, and update
+this table and [layering.md](layering.md) in the same change.
 
 ---
 
@@ -314,10 +318,11 @@ defined in [api-stability.md](../development/api-stability.md).
 
 ---
 
-## Cold-start import budget
+## Import hygiene and process-start performance
 
 `tests/test_import_time_budget.py` enforces that a bare `import pysh` in a
-clean subprocess completes within **2.0 seconds** (conservative CI budget).
+clean subprocess completes within **2.0 seconds**. This is a conservative
+eager-import regression guard, not the v1.0 cold-process performance contract.
 
 Typical measured values:
 - Subprocess creation overhead: 50–150 ms
@@ -327,6 +332,11 @@ Typical measured values:
 Failure of the budget test indicates that a package initializer is performing
 heavy work (heavy module loading, terminal I/O, config reads, git probing, or
 subprocess calls) that should be deferred to first use.
+
+Issue #47 separately measures a fresh `python -m pysh --no-rc -c ""` process
+with robust sampling and structured CI evidence. Its definitions, numeric
+budgets, variance policy, and Linux/FreeBSD profiles are normative in
+[performance.md](../development/performance.md).
 
 ---
 
@@ -341,6 +351,8 @@ subprocess calls) that should be deferred to first use.
 | Issue #43 | v1.0 threat model and security architecture: `--no-rc` startup policy, data classification, trust-boundary diagram, threat register, centralized redaction requirements, and capability principles for #44. See [threat-model.md](../security/threat-model.md). |
 | Issue #44 | Separate isolated-plugin subprocess, bounded protocol, manifest and parent-owned capability grants; current in-process Plugin API remains trusted. See [plugin-isolation.md](../security/plugin-isolation.md). |
 | Issue #45 | Stable external API contract: `pysh.api`, embedding lifecycle, public/internal inventory, SemVer, deprecation policy, and signature snapshot. See [api-stability.md](../development/api-stability.md). |
+| Issue #46 | Canonical v1.0 ownership and dependency freeze, backed by `architecture.toml` and negative AST regression tests. See [layering.md](layering.md). |
+| Issue #47 | Versioned performance budgets, stdlib benchmark harness, structured evidence, and gating Linux/FreeBSD jobs. See [performance.md](../development/performance.md). |
 | Issue #8 | Parser/expansion/multiline foundation: decomposes parser modules, defines unsupported syntax ownership, and classifies `pysh.parsing` as a shared leaf consumed by editor, diagnostics and script runner. |
 | Issue #9 | Native path and glob expansion: `tokenize_and_glob_expand`, tilde expansion, dotfile policy, no-match policy. See [path-expansion-contract.md](path-expansion-contract.md). |
 | Issue #13 | Observability and diagnostics: opt-in `--debug`/`--trace`, stderr-only trace output, redaction policy, and formalized diagnostic builtins. See [observability-diagnostics-contract.md](observability-diagnostics-contract.md). |

@@ -10,6 +10,8 @@ contracts without importing PySH runtime modules.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import subprocess
@@ -17,9 +19,22 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).parent.parent
 README = REPO_ROOT / "README.md"
 DOCS = REPO_ROOT / "docs"
+ARCHITECTURE_POLICY = REPO_ROOT / "architecture.toml"
+LAYERING_DOC = DOCS / "architecture" / "layering.md"
+PERFORMANCE_POLICY = REPO_ROOT / "performance.toml"
+PERFORMANCE_DOC = DOCS / "development" / "performance.md"
+LANGUAGE_SPEC = DOCS / "spec" / "pysh-language.md"
+LANGUAGE_CORPUS = REPO_ROOT / "tests" / "conformance" / "pysh-language-v1.json"
+LANGUAGE_RUNNER = REPO_ROOT / "scripts" / "run_language_conformance.py"
+PERFORMANCE_TABLE_HEADER = (
+    "| Benchmark ID | Scope | Samples / warmups | Nominal budget | CI threshold | "
+    "Status of Issue #47 target |"
+)
 
 MARKDOWN_FILES: tuple[Path, ...] = (
     *tuple(
@@ -62,6 +77,70 @@ def _markdown_link_targets(text: str) -> list[str]:
     return [match.group(1) for match in LOCAL_LINK_RE.finditer(text)]
 
 
+def _performance_table_budgets(text: str) -> dict[str, str]:
+    """Return benchmark-to-budget bindings from the normative Markdown table."""
+    lines = text.splitlines()
+    header_indexes = [
+        index for index, line in enumerate(lines) if line == PERFORMANCE_TABLE_HEADER
+    ]
+    assert len(header_indexes) == 1, (
+        "Expected exactly one normative performance budget table; "
+        f"found {len(header_indexes)}"
+    )
+
+    header_index = header_indexes[0]
+    assert header_index + 2 < len(lines), "Normative performance budget table is incomplete"
+    separator = lines[header_index + 1]
+    assert separator.startswith("| ---"), (
+        "Normative performance budget table is missing its separator row"
+    )
+
+    budgets: dict[str, str] = {}
+    for line in lines[header_index + 2 :]:
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        assert len(cells) == 6, f"Malformed normative performance table row: {line}"
+        identifier_match = re.fullmatch(r"`([^`]+)`", cells[0])
+        assert identifier_match is not None, (
+            f"Malformed benchmark ID in normative performance table row: {line}"
+        )
+        identifier = identifier_match.group(1)
+        assert identifier not in budgets, (
+            f"Duplicate benchmark ID in normative performance table: {identifier}"
+        )
+        budgets[identifier] = cells[3]
+
+    assert budgets, "Normative performance budget table has no benchmark rows"
+    return budgets
+
+
+def _assert_documented_budgets_match_policy(
+    performance: str,
+    benchmarks: list[dict[str, object]],
+) -> None:
+    """Assert each policy budget is bound to its benchmark's normative row."""
+    documented_budgets = _performance_table_budgets(performance)
+    policy_ids = {str(benchmark["id"]) for benchmark in benchmarks}
+    documented_ids = set(documented_budgets)
+    missing = sorted(policy_ids - documented_ids)
+    unexpected = sorted(documented_ids - policy_ids)
+    assert not missing and not unexpected, (
+        "Normative performance table benchmark IDs disagree with policy; "
+        f"missing from documentation: {missing!r}; "
+        f"unexpected in documentation: {unexpected!r}"
+    )
+
+    for benchmark in benchmarks:
+        identifier = str(benchmark["id"])
+        expected = f"{float(benchmark['budget']):g} ms"
+        actual = documented_budgets[identifier]
+        assert actual == expected, (
+            f"Normative budget mismatch for {identifier!r}: "
+            f"expected {expected!r}, found {actual!r}"
+        )
+
+
 def test_docs_markdown_local_links_resolve() -> None:
     """All relative Markdown links in README.md and docs/**/*.md must resolve."""
     errors: list[str] = []
@@ -83,6 +162,25 @@ def test_docs_markdown_local_links_resolve() -> None:
                 )
 
     assert not errors, "Broken local Markdown links:\n" + "\n".join(errors)
+
+
+def test_language_specification_and_conformance_artifacts_are_indexed() -> None:
+    """The normative v1 language oracle must be present and discoverable."""
+    assert LANGUAGE_SPEC.exists()
+    assert LANGUAGE_CORPUS.exists()
+    assert LANGUAGE_RUNNER.exists()
+    docs_index = (DOCS / "README.md").read_text(encoding="utf-8")
+    specification = LANGUAGE_SPEC.read_text(encoding="utf-8")
+    corpus = json.loads(LANGUAGE_CORPUS.read_text(encoding="utf-8"))
+    assert "spec/pysh-language.md" in docs_index
+    assert "normative current pysh v1 language semantics" in docs_index.lower()
+    assert corpus["schema_version"] == 1
+    assert "`schema_version` is **1**" in specification
+    contract_ids = set(re.findall(r'<a id="(PYSH-LANG-[A-Z0-9-]+)"></a>', specification))
+    assert contract_ids
+    assert all(case["contract_ref"] in contract_ids for case in corpus["cases"])
+    represented = {case["category"] for case in corpus["cases"]}
+    assert represented == set(corpus["required_categories"])
 
 
 def test_tracked_source_docs_and_scripts_declare_repository_relative_file_path() -> None:
@@ -378,7 +476,7 @@ def test_v1_threat_model_preserves_security_assurance_contract() -> None:
         "CPython in-process execution is\n**not a security boundary**",
         "## Data classification",
         "## Safe startup: `--no-rc`",
-        "`pysh.diagnostics.trace.RedactionPolicy` is the canonical policy",
+        "`pysh.diagnostics.redaction.RedactionPolicy` (default instance",
         "## Threat register",
         "TM-PARSER-001",
         "TM-RUNTIME-001",
@@ -878,15 +976,19 @@ def test_freebsd_pkg_builder_script_exists_and_is_executable() -> None:
 
 
 def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg() -> None:
-    """On non-FreeBSD hosts, the builder must fail before creating fake .pkg bytes."""
+    """Non-FreeBSD builder failure must not alter prepared .pkg artifacts."""
     if os.uname().sysname == "FreeBSD":
         return
-    import tomllib
 
-    version = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
-    expected = REPO_ROOT / "dist" / "os" / "freebsd" / f"pysh-shell-{version}.pkg"
-    if expected.exists():
-        expected.unlink()
+    artifact_dir = REPO_ROOT / "dist" / "os" / "freebsd"
+    before = {
+        candidate.name: (
+            candidate.stat().st_size,
+            candidate.stat().st_mtime_ns,
+            hashlib.sha256(candidate.read_bytes()).hexdigest(),
+        )
+        for candidate in artifact_dir.glob("*.pkg")
+    }
 
     result = subprocess.run(
         ["bash", "scripts/build_freebsd_pkg.sh"],
@@ -897,12 +999,21 @@ def test_freebsd_pkg_builder_refuses_non_freebsd_without_fake_pkg() -> None:
         timeout=10,
     )
 
+    after = {
+        candidate.name: (
+            candidate.stat().st_size,
+            candidate.stat().st_mtime_ns,
+            hashlib.sha256(candidate.read_bytes()).hexdigest(),
+        )
+        for candidate in artifact_dir.glob("*.pkg")
+    }
+
     assert result.returncode != 0
     assert (
         "FreeBSD .pkg must be built in a native FreeBSD-family pkg environment; "
         f"refusing to fake .pkg on {os.uname().sysname}."
     ) in result.stderr
-    assert not expected.exists()
+    assert after == before
 
 
 def test_docs_freebsd_pkg_is_mandatory_for_current_release() -> None:
@@ -1284,3 +1395,190 @@ def test_issue_34_fish_migration_and_manual_evidence_contract() -> None:
     assert "# Release Notes Template" in release_template
     assert "## Validation evidence" in release_template
     assert "## Known limitations" in release_template
+
+
+# ---------------------------------------------------------------------------
+# Issue #46 — architecture policy/documentation consistency
+# ---------------------------------------------------------------------------
+
+
+def test_issue_46_layering_policy_is_normative_and_indexed() -> None:
+    """The machine policy and normative layer document must be discoverable."""
+    assert ARCHITECTURE_POLICY.is_file()
+    assert LAYERING_DOC.is_file()
+
+    index = (DOCS / "README.md").read_text(encoding="utf-8")
+    architecture = (DOCS / "architecture" / "architecture.md").read_text(
+        encoding="utf-8"
+    )
+    source_tree = (DOCS / "architecture" / "source-tree.md").read_text(
+        encoding="utf-8"
+    )
+    assert "[layering.md](architecture/layering.md)" in index
+    assert "[layering.md](layering.md)" in architecture
+    assert "[layering.md](layering.md)" in source_tree
+    assert "architecture.toml" in architecture
+    assert "architecture.toml" in source_tree
+
+
+def test_issue_46_layering_document_covers_policy_domains_and_exceptions() -> None:
+    """Every machine-owned domain and debt edge must appear in normative prose."""
+    with ARCHITECTURE_POLICY.open("rb") as stream:
+        policy = tomllib.load(stream)
+    layering = LAYERING_DOC.read_text(encoding="utf-8")
+
+    for domain in policy["domains"]:
+        assert f"`{domain['module']}`" in layering
+    for exception in policy["exceptions"]:
+        assert f"`{exception['importer']}`" in layering
+        assert f"`{exception['imported']}`" in layering
+        assert exception["cleanup_issue"] in layering
+
+    assert "boundary freeze, not implementation freeze" in layering
+    assert "Private helper" in layering
+    assert "ordinary `pytest -q` step" in layering
+
+
+def test_issue_46_related_contracts_reference_layering_owner() -> None:
+    """API and both plugin contracts must point to the same ownership model."""
+    api_stability = (DOCS / "development" / "api-stability.md").read_text(
+        encoding="utf-8"
+    )
+    plugin_api = (DOCS / "plugins" / "plugin-api.md").read_text(encoding="utf-8")
+    isolation = (DOCS / "security" / "plugin-isolation.md").read_text(
+        encoding="utf-8"
+    )
+    roadmap = (DOCS / "roadmap" / "ROADMAP-v1-2.md").read_text(encoding="utf-8")
+
+    for text in (api_stability, plugin_api, isolation, roadmap):
+        assert "layering.md" in text
+    assert "architecture.toml" in api_stability
+    assert "core-to-extension integration boundary" in isolation
+    assert "pysh.plugins.isolated" in isolation
+
+
+# ---------------------------------------------------------------------------
+# Issue #47 — performance contract/documentation consistency
+# ---------------------------------------------------------------------------
+
+
+def test_issue_47_performance_contract_is_normative_and_indexed() -> None:
+    """The performance policy, methodology, harness, and index stay linked."""
+    assert PERFORMANCE_POLICY.is_file()
+    assert PERFORMANCE_DOC.is_file()
+    performance = PERFORMANCE_DOC.read_text(encoding="utf-8")
+    index = (DOCS / "README.md").read_text(encoding="utf-8")
+    architecture = (DOCS / "architecture" / "architecture.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "[performance.md](development/performance.md)" in index
+    assert "[performance.md](../development/performance.md)" in architecture
+    assert "performance.toml" in performance
+    assert "scripts/benchmark_performance.py" in performance
+    assert "not implementations" in performance
+    assert "Issue #52" in performance
+
+
+def test_issue_47_documented_budgets_match_machine_policy() -> None:
+    """Every benchmark budget matches its normative Markdown table row."""
+    with PERFORMANCE_POLICY.open("rb") as stream:
+        policy = tomllib.load(stream)
+    performance = PERFORMANCE_DOC.read_text(encoding="utf-8")
+    _assert_documented_budgets_match_policy(performance, policy["benchmarks"])
+    for profile in policy["profiles"]:
+        assert f"`{profile}`" in performance
+    assert "Raising a release-blocking budget is not a normal regression fix" in performance
+
+
+def test_issue_47_unexpected_normative_benchmark_row_fails() -> None:
+    """A normative table row without a machine-policy owner must fail."""
+    with PERFORMANCE_POLICY.open("rb") as stream:
+        policy = tomllib.load(stream)
+    lines = PERFORMANCE_DOC.read_text(encoding="utf-8").splitlines()
+    header_index = lines.index(PERFORMANCE_TABLE_HEADER)
+    lines.insert(
+        header_index + 2,
+        "| `obsolete_contract_fixture` | In process | 5 / 0 | 1 ms | 1.2 ms | Test fixture |",
+    )
+    performance = "\n".join(lines)
+
+    with pytest.raises(
+        AssertionError,
+        match=r"unexpected in documentation: \['obsolete_contract_fixture'\]",
+    ):
+        _assert_documented_budgets_match_policy(performance, policy["benchmarks"])
+
+
+def test_issue_47_historical_budget_cannot_mask_normative_row_mismatch() -> None:
+    """Historical prose cannot satisfy a mismatched normative budget row."""
+    with PERFORMANCE_POLICY.open("rb") as stream:
+        policy = tomllib.load(stream)
+    performance = PERFORMANCE_DOC.read_text(encoding="utf-8")
+    documented_budgets = _performance_table_budgets(performance)
+    cold_start = next(
+        benchmark
+        for benchmark in policy["benchmarks"]
+        if benchmark["id"] == "cold_start"
+    )
+    original_budget = float(cold_start["budget"])
+    documented_budget = documented_budgets["cold_start"]
+
+    _assert_documented_budgets_match_policy(performance, policy["benchmarks"])
+    assert documented_budget == f"{original_budget:g} ms"
+
+    mismatched_budget = original_budget + 1.0
+    mismatched_budget_text = f"{mismatched_budget:g} ms"
+    performance += f"\nHistorical budget note: {mismatched_budget_text}\n"
+    cold_start["budget"] = mismatched_budget
+    expected_diagnostic = (
+        "Normative budget mismatch for 'cold_start': "
+        f"expected {mismatched_budget_text!r}, found {documented_budget!r}"
+    )
+
+    with pytest.raises(
+        AssertionError,
+        match=re.escape(expected_diagnostic),
+    ):
+        _assert_documented_budgets_match_policy(performance, policy["benchmarks"])
+
+
+# ---------------------------------------------------------------------------
+# Issue #50 — structured diagnostics, audit log, and redaction contract
+# ---------------------------------------------------------------------------
+
+
+def test_issue_50_diagnostics_audit_contract_is_documented() -> None:
+    """Durable Issue #50 invariants must be stated in the public contract."""
+    contract = (
+        DOCS / "architecture" / "observability-diagnostics-contract.md"
+    ).read_text(encoding="utf-8")
+    normalized = " ".join(contract.split()).lower()
+
+    assert "schema_version" in normalized and "currently `1`" in normalized
+    assert "--diagnostics-json" in contract
+    assert "--audit-log" in contract
+    assert "off by default" in normalized
+    assert "redaction always precedes serialization" in normalized
+    assert "not part of the diagnostic or audit pipeline" in normalized
+    assert "reserved" in normalized and "does not mean" in normalized
+    for reserved_class in ("`ai`", "`remote`", "`package`"):
+        assert reserved_class in contract
+
+    usage = (DOCS / "user" / "usage.md").read_text(encoding="utf-8")
+    limitations = (DOCS / "user" / "limitations.md").read_text(encoding="utf-8")
+    assert "--audit-log" in usage and "--diagnostics-json" in usage
+    assert "not a sandbox" in " ".join(limitations.split()).lower()
+
+    threat_model = (DOCS / "security" / "threat-model.md").read_text(encoding="utf-8")
+    assert "pysh.diagnostics.redaction" in threat_model
+    # Isolated-plugin events carry capability declarations (which may name a
+    # filesystem root, variable name, command, or endpoint) but no payload values.
+    assert "bounded authorization metadata" in normalized
+    assert "canonical capability declarations" in normalized
+    assert "are not copied into diagnostic/audit events" in normalized
+    assert "requested paths" not in normalized
+    feature_matrix = (DOCS / "compatibility" / "feature-matrix.md").read_text(
+        encoding="utf-8"
+    )
+    assert "all egress seams" not in feature_matrix

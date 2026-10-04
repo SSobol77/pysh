@@ -41,8 +41,12 @@ compatibility guarantee.
 | `pysh.plugins.isolated.*` Python objects | `INTERNAL` | Runtime implementation; only manifest and IPC data contracts are external |
 
 Issue #46 owns structural enforcement of the internal dependency partition.
-Issue #45 does not mass-rename modules or make every currently importable name
-public.
+The public/internal module partition is machine-readable in
+[`architecture.toml`](../../architecture.toml) and enforced by Issue #46's
+[layering contract](../architecture/layering.md). The literal symbol and
+signature snapshots below remain independently authored expected values; they
+are not inferred from implementation. Issue #45 does not mass-rename modules
+or make every currently importable name public.
 
 ## Canonical `pysh.api`
 

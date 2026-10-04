@@ -21,8 +21,8 @@ enforcement.
 
 `plan <command...>` is intended for:
 
-- Inspecting how PySH will route a command (native vs subprocess vs
-  Python runtime vs zsh delegation).
+- Inspecting how PySH will route a command (native builtin vs external
+  subprocess vs plugin vs Python runtime).
 - Spotting risky constructs (`sudo`, `eval`, command substitution,
   redirection to system paths) before they execute.
 - Building higher-level tooling on top of the same classifier.
@@ -33,8 +33,8 @@ enforcement.
 
 ```sh
 original=<the command line that was planned>
-kind=<builtin|external|pipeline|chain|python|zsh-delegation|script|unknown>
-execution=<native|subprocess|python-runtime|zsh|bash|sh|none>
+kind=<builtin|external|plugin|pipeline|chain|python|script|unknown>
+execution=<native|subprocess|plugin|python-runtime|none>
 risk=<low|medium|high>
 reason=<short human-readable explanation>
 ```
@@ -48,8 +48,7 @@ contains sensitive assignments or known sensitive environment values.
 `plan` assigns a coarse risk:
 
 - `low` — ordinary builtins, external commands, simple pipelines.
-- `medium` — command substitution, `zsh` / `zsh_fallback` delegation,
-  `run_script` delegation.
+- `medium` — command substitution, `run_script` delegation.
 - `high` — commands matching `sudo` or `eval`, or redirection that targets
   a system path such as `/etc`, `/usr`, `/bin`, `/sbin`, `/boot`, `/lib`.
 
@@ -63,7 +62,6 @@ plan alias ll='ls -la'
 plan py print("x")
 plan source_zsh_profile ~/.zshrc
 plan run_script ./x.sh
-plan zsh 'echo hi'
 plan ls -la
 plan ls | head
 plan echo a && echo b
