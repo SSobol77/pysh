@@ -8,11 +8,13 @@
 
 Read-only, deterministic, stdlib-only and offline. The authority is the final
 ``SHA256SUMS`` of the validated release-assets directory: it lists the five package
-artifacts and their five ``.spdx.json`` SBOM files with exact names and digests, and
-intentionally does not list itself. This helper classifies those entries with the
-canonical family rules of ``scripts/generate_release_sboms.py`` (no second filename
-list), computes the digest of ``SHA256SUMS`` itself and emits GitHub step outputs, so
-the workflow never hardcodes a version-specific file name or digest.
+artifacts, their five ``.spdx.json`` SBOM files and ``REPRODUCIBILITY.json`` (eleven
+entries) with exact names and digests, and intentionally does not list itself. This helper
+classifies those entries with the canonical family rules of
+``scripts/generate_release_sboms.py`` (no second filename list), checks that the evidence
+is valid final evidence, computes the digest of ``SHA256SUMS`` itself and emits GitHub step
+outputs, so the workflow never hardcodes a version-specific file name or digest. Twelve
+files are provenance subjects: the eleven manifest entries and ``SHA256SUMS``.
 
 It never signs, attests or uploads anything.
 
@@ -30,14 +32,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts import check_reproducibility_evidence as repro  # noqa: E402
 from scripts import generate_release_sboms as sboms  # noqa: E402
 
 #: ``sha256sum`` text-mode line: lowercase digest, exactly two spaces, a flat basename.
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+~-]*")
 MANIFEST_LINE_RE = re.compile(r"([0-9a-f]{64})  (" + NAME_RE.pattern + ")")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
-#: Number of public release files: five packages, five SBOMs and SHA256SUMS.
-SUBJECT_COUNT = 11
+#: Number of public release files: five packages, five SBOMs, REPRODUCIBILITY.json and SHA256SUMS.
+SUBJECT_COUNT = 12
 
 
 class SubjectError(Exception):
@@ -66,15 +69,16 @@ class SubjectSet:
     """Every release subject of one final bundle."""
 
     packages: tuple[PackageSubject, ...]
+    evidence: Subject
     checksums: Subject
 
     def manifest_subjects(self) -> tuple[Subject, ...]:
-        """The ten subjects listed in ``SHA256SUMS`` (packages and SBOMs), sorted by name."""
+        """The eleven subjects listed in ``SHA256SUMS`` (packages, SBOMs, evidence), sorted by name."""
         listed = [s for entry in self.packages for s in (entry.package, entry.sbom)]
-        return tuple(sorted(listed, key=lambda s: s.name))
+        return tuple(sorted([*listed, self.evidence], key=lambda s: s.name))
 
     def all_subjects(self) -> tuple[Subject, ...]:
-        """All eleven public release files, manifest subjects first."""
+        """All twelve public release files, manifest subjects first."""
         return (*self.manifest_subjects(), self.checksums)
 
 
@@ -102,8 +106,8 @@ def parse_manifest(text: str) -> dict[str, str]:
     return listed
 
 
-def prepare(directory: Path, version: str) -> SubjectSet:
-    """Classify the final bundle; every family exactly once, nothing unknown."""
+def prepare(directory: Path, version: str, source_commit: str | None = None) -> SubjectSet:
+    """Classify the final bundle; every family exactly once, valid evidence, nothing unknown."""
     try:
         sboms.validate_checksums(directory)
         artifacts = sboms.locate_artifacts(directory, version)
@@ -124,11 +128,23 @@ def prepare(directory: Path, version: str) -> SubjectSet:
             Subject(artifact.name, listed[artifact.name]),
             Subject(sbom_file, listed[sbom_file]),
         ))
+    evidence_file = directory / sboms.EVIDENCE
+    if sboms.EVIDENCE not in listed:
+        raise SubjectError(f"{sboms.CHECKSUMS} does not list the reproducibility evidence {sboms.EVIDENCE}")
+    claimed.add(sboms.EVIDENCE)
+    if evidence_file.is_symlink() or not evidence_file.is_file() or evidence_file.stat().st_size == 0:
+        raise SubjectError(f"{sboms.EVIDENCE} is missing, empty or not a regular file")
+    try:
+        problems = repro.check_document(repro.load(evidence_file), mode="final", source_commit=source_commit)
+    except ValueError as error:
+        raise SubjectError(str(error)) from error
+    if problems:
+        raise SubjectError(f"{sboms.EVIDENCE} is not valid final evidence: {'; '.join(problems[:3])}")
     unknown = sorted(set(listed) - claimed)
     if unknown:
         raise SubjectError(f"{sboms.CHECKSUMS} lists unknown release subjects: {unknown}")
     checksums = Subject(sboms.CHECKSUMS, sboms.sha256_of(directory / sboms.CHECKSUMS))
-    result = SubjectSet(tuple(entries), checksums)
+    result = SubjectSet(tuple(entries), Subject(sboms.EVIDENCE, listed[sboms.EVIDENCE]), checksums)
     names = [s.name for s in result.all_subjects()]
     if len(names) != SUBJECT_COUNT or len(set(names)) != SUBJECT_COUNT:
         raise SubjectError(f"expected {SUBJECT_COUNT} distinct release subjects, found {len(set(names))}")
@@ -145,6 +161,8 @@ def outputs(subjects: SubjectSet, assets_dir: Path) -> dict[str, str]:
         values[f"{entry.family_id}_name"] = entry.package.name
         values[f"{entry.family_id}_sha256"] = entry.package.sha256
         values[f"{entry.family_id}_sbom_path"] = (assets_dir / entry.sbom.name).as_posix()
+    values["evidence_name"] = subjects.evidence.name
+    values["evidence_sha256"] = subjects.evidence.sha256
     values["checksums_name"] = subjects.checksums.name
     values["checksums_sha256"] = subjects.checksums.sha256
     values["subject_count"] = str(SUBJECT_COUNT)
@@ -158,11 +176,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--assets-dir", type=Path, required=True, help="the final dist/release-assets directory")
     parser.add_argument("--version", help="release version (default: pyproject.toml)")
+    parser.add_argument("--source-commit", help="the exact commit SHA the reproducibility evidence must be bound to")
     parser.add_argument("--github-output", type=Path, help="append the outputs to this GITHUB_OUTPUT file")
     args = parser.parse_args(argv)
     try:
         version = args.version or sboms.project_version()
-        values = outputs(prepare(args.assets_dir, version), args.assets_dir)
+        values = outputs(prepare(args.assets_dir, version, args.source_commit), args.assets_dir)
     except (SubjectError, OSError, KeyError) as error:
         print(f"prepare_attestation_subjects: {error}", file=sys.stderr)
         return 1

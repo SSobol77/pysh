@@ -3,7 +3,7 @@
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
-"""Issue #51 Slices 1-3: the repository-owned supply-chain contract and its checker.
+"""Issue #51 Slices 1-4: the repository-owned supply-chain contract and its checker.
 
 Hermetic: no network, GitHub CLI, Docker, FreeBSD, signing or SBOM tool. Negative
 cases mutate a temporary copy of the real documents, scripts and workflows.
@@ -27,6 +27,8 @@ PUBLISH_WF = Path(".github/workflows/publish.yml")
 SBOM_GENERATOR = Path("scripts/generate_release_sboms.py")
 SUBJECT_HELPER = Path("scripts/prepare_attestation_subjects.py")
 VERIFIER = Path("scripts/verify_release_attestations.py")
+HARNESS = Path("scripts/measure_release_reproducibility.py")
+EVIDENCE_VALIDATOR = Path("scripts/check_reproducibility_evidence.py")
 ATTEST_SHA = "1e69f48acb82d1966a394da916b4c1698aa569d6"
 ATTEST_USES = f"actions/attest@{ATTEST_SHA} # actions/attest v4.2.2"
 
@@ -36,6 +38,7 @@ def repo(tmp_path: Path) -> Path:
     """A copy of just the files the checker reads."""
     for relative in (
         DOC, PACKAGING, Path("scripts/check_release_artifacts.sh"), SBOM_GENERATOR, SUBJECT_HELPER, VERIFIER,
+        HARNESS, EVIDENCE_VALIDATOR,
         Path("pyproject.toml"), Path("uv.lock"),
     ):
         target = tmp_path / relative
@@ -63,29 +66,26 @@ def test_the_real_repository_satisfies_the_contract() -> None:
     assert contract.run_checks(REPO_ROOT) == []
 
 
-def test_slice_three_reports_attestations_implemented_and_the_rest_deferred(repo: Path) -> None:
+def test_slice_four_reports_reproducibility_implemented_and_only_the_final_evidence_deferred(repo: Path) -> None:
     assert contract.run_checks(repo) == []
-    status = contract.future_status(repo)
-    assert status[:2] == [
+    assert contract.future_status(repo) == [
         "implemented: SPDX 2.3 JSON SBOM generation (Slice 2)",
         "implemented: keyless provenance and SPDX SBOM attestations, verified before upload (Slice 3)",
-    ]
-    assert status[2:] == [
-        "deferred: reproducibility measurement (Slice 4): not yet implemented",
+        "implemented: per-artifact reproducibility measurement and evidence (Slice 4)",
         "deferred: final Tier-1 dry-run release evidence (Slice 5): not yet implemented",
     ]
 
 
-def test_deferred_reproducibility_being_present_never_fails_the_checker(repo: Path) -> None:
-    """Slice 4 and 5 items are reported, not enforced."""
-    extra = repo / ".github" / "workflows" / "future-repro.yml"
+def test_the_deferred_final_evidence_being_present_never_fails_the_checker(repo: Path) -> None:
+    """The Slice 5 item is reported, not enforced."""
+    extra = repo / ".github" / "workflows" / "future-final.yml"
     extra.write_text(
-        "name: future\non: workflow_dispatch\npermissions:\n  contents: read\njobs:\n  repro:\n"
-        "    runs-on: ubuntu-latest\n    steps:\n      - run: echo reproducibility measurement\n",
+        "name: future\non: workflow_dispatch\npermissions:\n  contents: read\njobs:\n  final:\n"
+        "    runs-on: ubuntu-latest\n    steps:\n      - run: echo tier-1 evidence\n",
         encoding="utf-8",
     )
     assert contract.run_checks(repo) == []
-    assert any(line.endswith("present") for line in contract.future_status(repo))
+    assert contract.future_status(repo)[-1].endswith("present")
 
 
 def test_the_artifact_family_model_matches_the_documents() -> None:
@@ -113,12 +113,12 @@ def test_required_anchors_and_reproducibility_statuses_are_exact() -> None:
     assert not re.search(r"\bX\.Y\.Z\b|pysh[-_]shell[-_]", text)
 
 
-def test_the_policy_status_table_marks_slices_one_to_three_implemented() -> None:
+def test_the_policy_status_table_marks_slices_one_to_four_implemented() -> None:
     text = " ".join((REPO_ROOT / DOC).read_text(encoding="utf-8").split())
     assert "Policy, anchors and structural contract check | IMPLEMENTED (Slice 1)" in text
     assert "SPDX 2.3 JSON SBOM generation | IMPLEMENTED (Slice 2)" in text
     assert "SBOM attestations, verified before upload | IMPLEMENTED (Slice 3)" in text
-    assert "Reproducibility measurement | DEFERRED (Slice 4)" in text
+    assert "Reproducibility measurement | IMPLEMENTED (Slice 4)" in text
     assert "Final Tier-1 dry-run release evidence | DEFERRED (Slice 5)" in text
     assert "Not implemented" not in text
 
@@ -225,7 +225,8 @@ def test_an_invalid_reproducibility_status_fails(repo: Path) -> None:
 
 
 def test_a_missing_reproducibility_status_definition_fails(repo: Path) -> None:
-    edit(repo, DOC, "- `PLATFORM_BLOCKED`\n", "")
+    path = repo / DOC
+    path.write_text(path.read_text(encoding="utf-8").replace("`PLATFORM_BLOCKED`", "PLATFORM_BLOCKED"), encoding="utf-8")
     assert "DOC-REPRODUCIBILITY" in codes(repo)
 
 
@@ -279,17 +280,17 @@ def test_the_trust_model_must_state_the_key_prohibition(repo: Path) -> None:
 
 
 def test_a_missing_future_pipeline_ordering_contract_fails(repo: Path) -> None:
-    edit(repo, DOC, "4. SBOM generation\n5. SHA256SUMS finalization\n", "")
+    edit(repo, DOC, "4. SBOM generation\n5. reproducibility evidence (A/B measurement, combined into `REPRODUCIBILITY.json`)\n6. SHA256SUMS finalization\n", "")
     assert "DOC-PIPELINE" in codes(repo)
 
 
 def test_a_reordered_pipeline_fails(repo: Path) -> None:
-    edit(repo, DOC, "7. provenance and attestation generation\n8. attestation verification against the exact subjects\n9. upload of the validated release bundle", "7. upload of the validated release bundle\n8. provenance and attestation generation\n9. attestation verification against the exact subjects")
+    edit(repo, DOC, "8. provenance and attestation generation\n9. attestation verification against the exact subjects\n10. upload of the validated release bundle", "8. upload of the validated release bundle\n9. provenance and attestation generation\n10. attestation verification against the exact subjects")
     assert "DOC-PIPELINE" in codes(repo)
 
 
 def test_overclaiming_that_implementation_exists_fails(repo: Path) -> None:
-    edit(repo, DOC, "are implemented in later slices", "are implemented")
+    edit(repo, DOC, "is implemented in a later\nslice", "is implemented")
     assert "DOC-PIPELINE" in codes(repo)
 
 
@@ -762,7 +763,7 @@ def test_missing_provenance_for_sha256sums_fails(repo: Path) -> None:
 
 
 def test_missing_provenance_for_the_manifest_subjects_fails(repo: Path) -> None:
-    remove_step(repo, "Attest provenance for the SHA256SUMS subjects (packages and SBOM files)")
+    remove_step(repo, "Attest provenance for the SHA256SUMS subjects (packages, SBOM files and REPRODUCIBILITY.json)")
     assert "ATT-SUBJECTS" in codes(repo)
 
 
@@ -937,3 +938,317 @@ def test_the_user_verification_documentation_is_required(repo: Path, needle: str
 def test_slice_three_status_must_read_implemented(repo: Path) -> None:
     edit(repo, DOC, "SBOM attestations, verified before upload | IMPLEMENTED (Slice 3)", "SBOM attestations, verified before upload | DEFERRED (Slice 3)")
     assert "DOC-STATUS" in codes(repo)
+
+
+# --- Slice 4: reproducibility measurement and evidence ---------------------------------------------------------------
+
+MEASURE = "Measure Linux reproducibility (A/B builds of wheel, sdist, deb and rpm)"
+DOWNLOAD = "Download native FreeBSD reproducibility evidence"
+MERGE = "Combine platform evidence into REPRODUCIBILITY.json"
+FINAL_CHECK = "Validate the final reproducibility evidence"
+EPOCH = "Derive SOURCE_DATE_EPOCH from the release source commit"
+VALIDATE_SBOM = "Validate SBOM completeness"
+
+
+def test_the_real_repository_satisfies_every_reproducibility_rule(repo: Path) -> None:
+    assert [v for v in contract.run_checks(repo) if v.code.startswith("REPRO-")] == []
+    text = (repo / RELEASE_WF).read_text(encoding="utf-8")
+    assert "git log -1 --format=%ct" in text and "date +%s" not in text
+    assert text.index(MEASURE) < text.index(MERGE) < text.index(FINAL_CHECK) < text.index(FINALIZE)
+
+
+@pytest.mark.parametrize("script", [HARNESS, EVIDENCE_VALIDATOR])
+def test_a_missing_reproducibility_script_fails(repo: Path, script: Path) -> None:
+    (repo / script).unlink()
+    assert {"REPRO-HARNESS", "REPRO-VALIDATOR"} & codes(repo)
+
+
+# -- ordering: evidence before the checksums and the attestations (negatives 21-22) --
+
+
+def test_evidence_generated_after_the_final_checksums_fails(repo: Path) -> None:
+    move_step(repo, MEASURE, "Validate the complete release bundle (packages, SBOMs, SHA256SUMS)")
+    assert "REPRO-ORDER" in codes(repo)
+
+
+def test_evidence_merged_after_the_final_checksums_fails(repo: Path) -> None:
+    move_step(repo, MERGE, "Validate the complete release bundle (packages, SBOMs, SHA256SUMS)")
+    assert "REPRO-ORDER" in codes(repo)
+
+
+def test_evidence_generated_after_the_attestations_fails(repo: Path) -> None:
+    move_step(repo, MERGE, VERIFY)
+    assert "REPRO-ORDER" in codes(repo)
+    move_step(repo, MEASURE, VERIFY)
+    assert "REPRO-ORDER" in codes(repo)
+
+
+def test_evidence_validated_after_the_subjects_were_prepared_fails(repo: Path) -> None:
+    move_step(repo, FINAL_CHECK, SELF_PROVENANCE)
+    assert "REPRO-ORDER" in codes(repo)
+
+
+def test_evidence_measured_before_the_sboms_exist_fails(repo: Path) -> None:
+    move_step(repo, MEASURE, "Fetch pinned SBOM tool (CI-only, digest-verified)")
+    assert "REPRO-ORDER" in codes(repo)
+
+
+def test_merging_before_the_native_evidence_is_downloaded_fails(repo: Path) -> None:
+    move_step(repo, DOWNLOAD, FINAL_CHECK)
+    assert "REPRO-ORDER" in codes(repo)
+
+
+# -- the workflow structure --
+
+
+@pytest.mark.parametrize("step", [MEASURE, DOWNLOAD, MERGE, FINAL_CHECK])
+def test_a_missing_evidence_step_fails(repo: Path, step: str) -> None:
+    remove_step(repo, step)
+    assert "REPRO-WORKFLOW" in codes(repo)
+
+
+@pytest.mark.parametrize("family", ["wheel", "sdist", "deb", "rpm"])
+def test_the_linux_measurement_must_cover_every_linux_family(repo: Path, family: str) -> None:
+    edit(repo, RELEASE_WF, f"--family {family}", "--family nothing")
+    assert "REPRO-WORKFLOW" in codes(repo)
+
+
+def test_the_linux_job_must_not_claim_the_freebsd_measurement(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "--family wheel --family sdist --family deb --family rpm", "--all")
+    assert "REPRO-WORKFLOW" in codes(repo)
+
+
+def test_the_merge_must_publish_reproducibility_json_and_pin_the_commit(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "--output dist/release-assets/REPRODUCIBILITY.json", "--output dist/reproducibility/REPRODUCIBILITY.json")
+    assert "REPRO-WORKFLOW" in codes(repo)
+
+
+def test_the_final_check_must_be_final_mode(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "            --mode final \\\n", "            --mode local \\\n")
+    assert "REPRO-WORKFLOW" in codes(repo)
+
+
+@pytest.mark.parametrize("step", [MEASURE, DOWNLOAD, MERGE, FINAL_CHECK])
+def test_evidence_steps_must_fail_closed(repo: Path, step: str) -> None:
+    edit(repo, RELEASE_WF, f"{STEP}{step}\n", f"{STEP}{step}\n        continue-on-error: true\n")
+    assert "REPRO-WORKFLOW" in codes(repo)
+
+
+def test_the_attestation_subjects_must_be_bound_to_the_release_commit(repo: Path) -> None:
+    edit(repo, RELEASE_WF, '            --source-commit "${GITHUB_SHA}" \\\n            --github-output', "            --github-output")
+    assert "REPRO-WORKFLOW" in codes(repo)
+
+
+# -- the native FreeBSD measurement (negatives 14, 28) --
+
+
+def test_the_native_freebsd_measurement_is_required_in_the_reference_job(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "--family freebsd_pkg", "--family nothing")
+    assert "REPRO-NATIVE" in codes(repo)
+
+
+def test_the_freebsd_measurement_must_be_reference_only_and_uploaded(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "name: freebsd-reproducibility-evidence", "name: something-else", count=1)
+    assert "REPRO-NATIVE" in codes(repo)
+
+
+def test_the_freebsd_job_must_not_measure_other_families(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "--family freebsd_pkg", "--family freebsd_pkg --family wheel")
+    assert "REPRO-NATIVE" in codes(repo)
+
+
+def test_the_freebsd_job_needs_the_commit_epoch(repo: Path) -> None:
+    edit(repo, RELEASE_WF, 'echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "${GITHUB_ENV}"\n          echo "PYSH_SOURCE_COMMIT', 'echo "PYSH_SOURCE_COMMIT')
+    assert "REPRO-EPOCH" in codes(repo)
+
+
+# -- the epoch policy (negative 27) --
+
+
+def test_a_wall_clock_epoch_in_a_workflow_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, 'echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "${GITHUB_ENV}"\n\n      - name: Set up', 'echo "SOURCE_DATE_EPOCH=$(date +%s)" >> "${GITHUB_ENV}"\n\n      - name: Set up')
+    assert "REPRO-EPOCH" in codes(repo)
+
+
+def test_an_epoch_that_is_not_derived_from_the_commit_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, 'echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "${GITHUB_ENV}"\n\n      - name: Set up', 'echo "SOURCE_DATE_EPOCH=0" >> "${GITHUB_ENV}"\n\n      - name: Set up')
+    assert "REPRO-EPOCH" in codes(repo)
+
+
+def test_the_epoch_must_be_set_before_the_first_build(repo: Path) -> None:
+    move_step(repo, EPOCH, "Build Debian .deb")
+    assert "REPRO-EPOCH" in codes(repo)
+
+
+def test_a_wall_clock_epoch_in_the_harness_fails(repo: Path) -> None:
+    path = repo / HARNESS
+    path.write_text(path.read_text(encoding="utf-8") + "\nEPOCH = str(int(time.time()))\n", encoding="utf-8")
+    assert "REPRO-EPOCH" in codes(repo)
+
+
+# -- no post-build normalization (negative 26) --
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        "      - run: strip-nondeterminism dist/os/deb/*.deb\n",
+        "      - run: touch -d @0 dist/release-assets/*\n",
+        "      - run: add-determinism dist/*.whl\n",
+    ],
+)
+def test_post_build_normalization_in_the_workflow_fails(repo: Path, step: str) -> None:
+    path = repo / RELEASE_WF
+    text = path.read_text(encoding="utf-8")
+    target = text.index(STEP + MEASURE)
+    path.write_text(text[:target] + step + text[target:], encoding="utf-8")
+    assert "REPRO-NORMALIZE" in codes(repo)
+
+
+@pytest.mark.parametrize("script", [HARNESS, EVIDENCE_VALIDATOR])
+def test_post_build_normalization_in_the_scripts_fails(repo: Path, script: Path) -> None:
+    path = repo / script
+    path.write_text(path.read_text(encoding="utf-8") + "\nos.utime(artifact, (0, 0))\n", encoding="utf-8")
+    assert "REPRO-NORMALIZE" in codes(repo)
+
+
+# -- the harness and the validator --
+
+
+@pytest.mark.parametrize(
+    ("script", "old", "new", "code"),
+    [
+        (HARNESS, "start_new_session=True", "start_new_session=False", "REPRO-HARNESS"),
+        (HARNESS, "separate_output_files", "separate_outputs", "REPRO-HARNESS"),
+        (HARNESS, "%ct", "%at", "REPRO-HARNESS"),
+        (EVIDENCE_VALIDATOR, 'REPRODUCIBLE = "REPRODUCIBLE"', 'REPRODUCIBLE = "MOSTLY"', "REPRO-VALIDATOR"),
+        (EVIDENCE_VALIDATOR, "is not accepted in final evidence", "is accepted in final evidence", "REPRO-VALIDATOR"),
+        (EVIDENCE_VALIDATOR, '"rpm": ("rpmbuild",)', '"rpm": ()', "REPRO-VALIDATOR"),
+        (EVIDENCE_VALIDATOR, 'NATIVE_ONLY = {"freebsd_pkg": "FreeBSD"}', "NATIVE_ONLY = {}", "REPRO-VALIDATOR"),
+        (EVIDENCE_VALIDATOR, '"deb": "scripts/build_deb.sh"', '"deb": "scripts/make_deb.sh"', "REPRO-VALIDATOR"),
+    ],
+)
+def test_the_harness_and_validator_contracts_are_enforced(repo: Path, script: Path, old: str, new: str, code: str) -> None:
+    path = repo / script
+    text = path.read_text(encoding="utf-8")
+    assert old in text, f"fixture drift: {old!r}"
+    path.write_text(text.replace(old, new), encoding="utf-8")  # every occurrence, not just the first
+    assert code in codes(repo)
+
+
+def test_the_harness_must_not_use_a_shell(repo: Path) -> None:
+    path = repo / HARNESS
+    path.write_text(path.read_text(encoding="utf-8") + "\nsubprocess.run('x', shell=True)\n", encoding="utf-8")
+    assert "REPRO-HARNESS" in codes(repo)
+
+
+def test_the_harness_must_never_upload(repo: Path) -> None:
+    path = repo / HARNESS
+    path.write_text(path.read_text(encoding="utf-8") + '\nsubprocess.run(["gh release upload", "v1"])\n', encoding="utf-8")
+    assert "WF-UPLOAD-BYPASS" in codes(repo)
+
+
+# -- publication: REPRODUCIBILITY.json in the public set (negatives 23-25) --
+
+
+def test_the_published_evidence_must_be_known_to_the_artifact_checker(repo: Path) -> None:
+    path = repo / "scripts/check_release_artifacts.sh"
+    path.write_text(path.read_text(encoding="utf-8").replace("REPRODUCIBILITY.json", "evidence.json"), encoding="utf-8")
+    assert "REPRO-CHECKSUMS" in codes(repo)
+
+
+def test_a_provenance_helper_that_omits_the_evidence_subject_fails(repo: Path) -> None:
+    path = repo / SUBJECT_HELPER
+    path.write_text(path.read_text(encoding="utf-8").replace("EVIDENCE", "OTHER"), encoding="utf-8")
+    assert "ATT-SUBJECTS" in codes(repo)
+
+
+def test_a_stale_eleven_subject_count_fails(repo: Path) -> None:
+    edit(repo, SUBJECT_HELPER, "SUBJECT_COUNT = 12", "SUBJECT_COUNT = 11")
+    assert "ATT-SUBJECTS" in codes(repo)
+
+
+def test_the_sbom_generator_must_know_the_published_evidence(repo: Path) -> None:
+    path = repo / SBOM_GENERATOR
+    path.write_text(path.read_text(encoding="utf-8").replace("REPRODUCIBILITY.json", "evidence.json"), encoding="utf-8")
+    assert "REPRO-SUBJECTS" in codes(repo)
+
+
+# -- the documentation --
+
+
+@pytest.mark.parametrize(
+    "needle",
+    [
+        "byte-for-byte", "SHA-256", "SOURCE_DATE_EPOCH", "commit timestamp", "REPRODUCIBILITY.json", "native FreeBSD",
+        "rpmbuild", "check_reproducibility_evidence.py", "independent controls", "NOT_YET_MEASURED",
+    ],
+)
+def test_the_reproducibility_documentation_is_required(repo: Path, needle: str) -> None:
+    path = repo / DOC
+    path.write_text(path.read_text(encoding="utf-8").replace(needle, "REDACTED"), encoding="utf-8")
+    assert {"REPRO-DOC", "DOC-REPRODUCIBILITY", "ATT-DOC", "DOC-STATUS"} & codes(repo)
+
+
+def test_the_documentation_does_not_claim_blanket_reproducibility() -> None:
+    text = " ".join((REPO_ROOT / DOC).read_text(encoding="utf-8").split()).lower()
+    assert "all pysh artifacts are reproducible" not in text
+    assert "no claim that pysh artifacts are reproducible is made beyond what the recorded measurements show" in text
+
+
+# --- Slice 4 hardening: release-byte binding and the resolved toolchain ----------------------------------------------------
+
+
+def test_the_linux_measurement_must_bind_to_the_staged_public_artifacts(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "            --release-dir dist/release-assets \\\n            --output dist/reproducibility/linux.json", "            --output dist/reproducibility/linux.json")
+    assert "REPRO-RELEASE-BINDING" in codes(repo)
+
+
+def test_the_merge_must_bind_to_the_staged_public_artifacts(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "            --release-dir dist/release-assets \\\n            --output dist/release-assets/REPRODUCIBILITY.json", "            --output dist/release-assets/REPRODUCIBILITY.json")
+    assert "REPRO-RELEASE-BINDING" in codes(repo)
+
+
+def test_the_binding_must_not_point_at_another_directory(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "--release-dir dist/release-assets", "--release-dir dist/reproducibility", count=2)
+    assert "REPRO-RELEASE-BINDING" in codes(repo)
+
+
+@pytest.mark.parametrize(
+    ("script", "old", "code"),
+    [
+        (HARNESS, "release_matches_build_a", "REPRO-HARNESS"),
+        (HARNESS, "release_matches_build_b", "REPRO-HARNESS"),
+        (HARNESS, "matches neither measured build", "REPRO-HARNESS"),
+        (HARNESS, "def bind_release", "REPRO-HARNESS"),
+        (HARNESS, "PIP_LOG", "REPRO-HARNESS"),
+        (HARNESS, "def resolved_backend", "REPRO-HARNESS"),
+        (HARNESS, "def wheel_generator", "REPRO-HARNESS"),
+        (HARNESS, "umask=evidence.BUILD_UMASK", "REPRO-HARNESS"),
+        (EVIDENCE_VALIDATOR, "requires the release-byte binding", "REPRO-VALIDATOR"),
+        (EVIDENCE_VALIDATOR, "matches neither measured build", "REPRO-VALIDATOR"),
+        (EVIDENCE_VALIDATOR, "EXACT_VERSION_RE", "REPRO-VALIDATOR"),
+        (EVIDENCE_VALIDATOR, "declared_requirements", "REPRO-VALIDATOR"),
+        (EVIDENCE_VALIDATOR, '"wheel": ("python", "build", "hatchling")', "REPRO-VALIDATOR"),
+        (EVIDENCE_VALIDATOR, '"freebsd_pkg": ("pkg", "python")', "REPRO-VALIDATOR"),
+    ],
+)
+def test_the_binding_and_toolchain_contracts_are_enforced(repo: Path, script: Path, old: str, code: str) -> None:
+    path = repo / script
+    text = path.read_text(encoding="utf-8")
+    assert old in text, f"fixture drift: {old!r}"
+    path.write_text(text.replace(old, "removed_contract_marker"), encoding="utf-8")
+    assert code in codes(repo)
+
+
+@pytest.mark.parametrize("needle", ["release_sha256", "resolved version", "umask"])
+def test_the_binding_and_toolchain_documentation_is_required(repo: Path, needle: str) -> None:
+    path = repo / DOC
+    path.write_text(path.read_text(encoding="utf-8").replace(needle, "REDACTED"), encoding="utf-8")
+    assert "REPRO-DOC" in codes(repo)
+
+
+def test_the_documentation_states_the_non_reproducible_release_consequence() -> None:
+    text = " ".join((REPO_ROOT / DOC).read_text(encoding="utf-8").split())
+    assert "a shipped artifact that still equals a measured build" in text
+    assert "The release artifact must equal build A or build B" in text

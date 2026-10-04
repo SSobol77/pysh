@@ -43,11 +43,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # Issue #51 (Slice 4): the only deterministic build epoch is the commit timestamp of
+      # the exact source commit, never wall-clock time. The reference run also hands the VM
+      # an archive of that exact commit, so the native A/B measurement needs no git there.
+      - name: Derive SOURCE_DATE_EPOCH and the source archive from the release commit
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "${GITHUB_ENV}"
+          echo "PYSH_SOURCE_COMMIT=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          mkdir -p dist/reproducibility
+          git archive --format=tar --output dist/reproducibility/source.tar "${GITHUB_SHA}"
+
       - name: Build and inspect FreeBSD .pkg
         uses: vmactions/freebsd-vm@v1
         with:
           release: "${{ matrix.release }}"
           usesh: true
+          envs: "SOURCE_DATE_EPOCH PYSH_SOURCE_COMMIT"
           prepare: |
             pkg update -f
             pkg install -y python313
@@ -71,6 +82,18 @@ jobs:
             grep -E '^/usr/local/lib/pysh-shell/pysh(/|$)' \
               /tmp/pysh-freebsd-pkg-files
             sh scripts/smoke_freebsd_package.sh "${PKG_PATH}"
+            # Native reproducibility measurement (Issue #51, Slice 4): two independent
+            # builds of the same source commit with the real FreeBSD pkg tooling,
+            # reference package only. A failure to measure fails this job.
+            if [ "${{ matrix.reference-pkg }}" = "true" ]; then
+              python3.13 scripts/measure_release_reproducibility.py \
+                --family freebsd_pkg \
+                --source-archive dist/reproducibility/source.tar \
+                --source-commit "${PYSH_SOURCE_COMMIT}" \
+                --source-date-epoch "${SOURCE_DATE_EPOCH}" \
+                --python python3.13 \
+                --output dist/reproducibility/freebsd_pkg.json
+            fi
 
       - name: Verify FreeBSD .pkg artifact on host
         run: |
@@ -82,6 +105,14 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: dist/os/freebsd/pysh-shell-*.pkg
+          if-no-files-found: error
+
+      - name: Upload FreeBSD reproducibility evidence (reference package only)
+        if: ${{ matrix.reference-pkg }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-reproducibility-evidence
+          path: dist/reproducibility/freebsd_pkg.json
           if-no-files-found: error
 
   build-and-validate:
@@ -100,6 +131,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      # Issue #51 (Slice 4): one deterministic build epoch for every build below and for the
+      # A/B measurement: the commit timestamp of the exact source commit, never wall-clock time.
+      - name: Derive SOURCE_DATE_EPOCH from the release source commit
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "${GITHUB_ENV}"
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v6
@@ -170,6 +206,46 @@ jobs:
       - name: Validate SBOM completeness
         run: python scripts/generate_release_sboms.py validate --dir dist/release-assets
 
+      # Issue #51 (Slice 4): per-artifact reproducibility evidence, created BEFORE the final
+      # SHA256SUMS so that it is a listed, attested, published release asset. Linux measures
+      # wheel, sdist, deb and rpm with two independent clean builds each; the native FreeBSD
+      # measurement comes from the freebsd-pkg reference job. The platforms are combined only
+      # when both succeeded and the result is valid FINAL evidence (no PLATFORM_BLOCKED, no
+      # NOT_YET_MEASURED). The evidence never depends on the provenance bundle. Every measured
+      # family is also bound to the SHIPPED bytes: the already-staged public artifact in
+      # dist/release-assets must hash to build A or build B (nothing is copied into it), and the
+      # evidence records the resolved build toolchain, not only declared requirements.
+      - name: Measure Linux reproducibility (A/B builds of wheel, sdist, deb and rpm)
+        run: |
+          python scripts/measure_release_reproducibility.py \
+            --family wheel --family sdist --family deb --family rpm \
+            --python "$(command -v python)" \
+            --source-commit "${GITHUB_SHA}" \
+            --release-dir dist/release-assets \
+            --output dist/reproducibility/linux.json
+
+      - name: Download native FreeBSD reproducibility evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: freebsd-reproducibility-evidence
+          path: dist/reproducibility/freebsd
+
+      - name: Combine platform evidence into REPRODUCIBILITY.json
+        run: |
+          python scripts/measure_release_reproducibility.py merge \
+            --input dist/reproducibility/linux.json \
+            --input dist/reproducibility/freebsd/freebsd_pkg.json \
+            --source-commit "${GITHUB_SHA}" \
+            --release-dir dist/release-assets \
+            --output dist/release-assets/REPRODUCIBILITY.json
+
+      - name: Validate the final reproducibility evidence
+        run: |
+          python scripts/check_reproducibility_evidence.py \
+            --mode final \
+            --source-commit "${GITHUB_SHA}" \
+            dist/release-assets/REPRODUCIBILITY.json
+
       - name: Finalize SHA256SUMS over the complete published set
         run: bash scripts/check_release_artifacts.sh --finalize-release-assets
 
@@ -187,9 +263,10 @@ jobs:
         run: |
           python scripts/prepare_attestation_subjects.py \
             --assets-dir dist/release-assets \
+            --source-commit "${GITHUB_SHA}" \
             --github-output "${GITHUB_OUTPUT}"
 
-      - name: Attest provenance for the SHA256SUMS subjects (packages and SBOM files)
+      - name: Attest provenance for the SHA256SUMS subjects (packages, SBOM files and REPRODUCIBILITY.json)
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
         with:
           subject-checksums: dist/release-assets/SHA256SUMS

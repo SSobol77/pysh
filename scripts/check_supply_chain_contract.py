@@ -4,7 +4,7 @@
 #
 # Copyright (C) 2026 Siergej Sobolewski
 
-"""Structural supply-chain contract check for Issue #51 (Slices 1-3).
+"""Structural supply-chain contract check for Issue #51 (Slices 1-4).
 
 Read-only, deterministic and offline: it validates the repository-owned policy
 (``docs/security/supply-chain.md``), its agreement with the packaging contract, and
@@ -19,8 +19,11 @@ Two classes of requirements are kept apart:
   position in the release workflow and the checksum policy); since Slice 3 they include
   keyless provenance and SBOM attestations with verification before upload (the pinned
   attestation action, the permission split, the step ordering and the verifier pins).
-* FUTURE implementation requirements (reproducibility measurement, the final evidence
-  run) are only *reported* as deferred or present, never enforced.
+  Since Slice 4 they include per-artifact reproducibility measurement (the A/B harness,
+  the evidence validator, the published ``REPRODUCIBILITY.json``, the commit-timestamp
+  epoch policy and the evidence-before-checksums ordering).
+* FUTURE implementation requirements (the final Tier-1 evidence run) are only *reported*
+  as deferred or present, never enforced.
 
 Exit codes: 0 contract holds, 1 contract violation, 2 command-line misuse.
 """
@@ -83,6 +86,8 @@ ARTIFACT_CHECKER = Path("scripts/check_release_artifacts.sh")
 SBOM_GENERATOR = Path("scripts/generate_release_sboms.py")
 SUBJECT_HELPER = Path("scripts/prepare_attestation_subjects.py")
 ATTESTATION_VERIFIER = Path("scripts/verify_release_attestations.py")
+REPRO_HARNESS = Path("scripts/measure_release_reproducibility.py")
+REPRO_VALIDATOR = Path("scripts/check_reproducibility_evidence.py")
 WORKFLOWS = Path(".github/workflows")
 RELEASE_WORKFLOW = WORKFLOWS / "release-artifacts.yml"
 PUBLISH_WORKFLOW = WORKFLOWS / "publish.yml"
@@ -265,8 +270,8 @@ def check_documentation(root: Path) -> list[Violation]:
             out.append(Violation("DOC-PIPELINE", f"the numbered future ordering must contain stage {stage!r} after the previous stage"))
             break
         position = found
-    if "later slices" not in " ".join(sections.get("PYSH-SC-SCOPE", "").lower().split()):
-        out.append(Violation("DOC-PIPELINE", "the scope must state that reproducibility measurement and the final evidence run are implemented in later slices"))
+    if "later slice" not in " ".join(sections.get("PYSH-SC-SCOPE", "").lower().split()):
+        out.append(Violation("DOC-PIPELINE", "the scope must state that the final evidence run is implemented in a later slice"))
 
     pypi = sections.get("PYSH-SC-PYPI", "")
     if "Trusted Publishing" not in pypi or "publish.yml" not in pypi or "second PyPI publisher" not in pypi:
@@ -425,23 +430,17 @@ def check_publication_and_secrets(root: Path) -> list[Violation]:
 
 
 def future_status(root: Path) -> list[str]:
-    """Implemented and deferred items (informational; only the deferred ones are not enforced)."""
+    """Implemented and deferred items (informational; only the deferred one is not enforced)."""
     directory = root / WORKFLOWS
     corpus = "\n".join(
         _code(p.read_text(encoding="utf-8")) for p in sorted(directory.glob("*.y*ml"))
     ) if directory.is_dir() else ""
-    deferred = (
-        ("reproducibility measurement (Slice 4)", r"reproducib"),
-        ("final Tier-1 dry-run release evidence (Slice 5)", r"tier-?1[ -]evidence"),
-    )
-    lines = [
-        f"deferred: {name}: " + ("present" if re.search(pattern, corpus, re.I) else "not yet implemented")
-        for name, pattern in deferred
-    ]
+    final = "present" if re.search(r"tier-?1[ -]evidence", corpus, re.I) else "not yet implemented"
     return [
         "implemented: SPDX 2.3 JSON SBOM generation (Slice 2)",
         "implemented: keyless provenance and SPDX SBOM attestations, verified before upload (Slice 3)",
-        *lines,
+        "implemented: per-artifact reproducibility measurement and evidence (Slice 4)",
+        f"deferred: final Tier-1 dry-run release evidence (Slice 5): {final}",
     ]
 
 
@@ -452,7 +451,7 @@ STATUS_ROWS = (
     ("policy, anchors and structural contract check", "IMPLEMENTED (Slice 1)"),
     ("spdx 2.3 json sbom generation", "IMPLEMENTED (Slice 2)"),
     ("keyless provenance and spdx sbom attestations", "IMPLEMENTED (Slice 3)"),
-    ("reproducibility measurement", "DEFERRED (Slice 4)"),
+    ("reproducibility measurement", "IMPLEMENTED (Slice 4)"),
     ("final tier-1 dry-run release evidence", "DEFERRED (Slice 5)"),
 )
 
@@ -750,8 +749,10 @@ def _check_attestation_scripts(root: Path) -> list[Violation]:
         body = _code(helper)
         if "subprocess" in body or re.search(r"\b(?:urllib|socket|requests|http)\b", body):
             out.append(Violation("ATT-SUBJECTS", f"{SUBJECT_HELPER} must be offline and run no subprocess"))
-        if "SUBJECT_COUNT = 11" not in body:
-            out.append(Violation("ATT-SUBJECTS", f"{SUBJECT_HELPER} must derive exactly eleven release subjects"))
+        if "SUBJECT_COUNT = 12" not in body:
+            out.append(Violation("ATT-SUBJECTS", f"{SUBJECT_HELPER} must derive exactly twelve release subjects"))
+        if "EVIDENCE" not in body:
+            out.append(Violation("ATT-SUBJECTS", f"{SUBJECT_HELPER} must include the published REPRODUCIBILITY.json as a subject"))
     return out
 
 
@@ -772,9 +773,215 @@ def _check_attestation_documentation(root: Path) -> list[Violation]:
     return out
 
 
+#: Anything that rewrites build output after the fact to force equal hashes.
+NORMALIZATION_RE = re.compile(
+    r"strip-nondeterminism|add-determinism|\butime\b|touch\s+-[a-z]*[dtrm]\b|\brepack\b|\bzipnote\b"
+    r"|normali[sz]e_(?:archive|artifact|timestamps?)",
+    re.I,
+)
+#: Wall-clock time feeding the build epoch.
+WALL_CLOCK_EPOCH_RE = re.compile(
+    r"SOURCE_DATE_EPOCH[^\n]*(?:\$\(\s*date\b|`date\b|\bdate\s+\+%s|\btime\.time\(|datetime\.now|utcnow)"
+)
+REPRO_FAMILIES = ("wheel", "sdist", "deb", "rpm")
+EVIDENCE_PUBLIC_NAME = "REPRODUCIBILITY.json"
+
+
+def _step_text(steps: list[tuple[int, str]], needle: str, exclude: str | None = None) -> tuple[int, str] | None:
+    for at, text in steps:
+        if needle in text and (exclude is None or exclude not in text):
+            return at, text
+    return None
+
+
+def check_reproducibility_implementation(root: Path) -> list[Violation]:
+    """Slice 4: per-artifact A/B measurement, validated evidence, published before the checksums."""
+    out: list[Violation] = []
+    harness = _read(root, REPRO_HARNESS)
+    validator = _read(root, REPRO_VALIDATOR)
+    if harness is None:
+        out.append(Violation("REPRO-HARNESS", f"{REPRO_HARNESS} is missing"))
+    else:
+        body = _code(harness)
+        for needle, why in (
+            ("git", "extract the exact source commit with git archive"),
+            ('"archive"', "extract the exact source commit with git archive"),
+            ("SOURCE_DATE_EPOCH", "set SOURCE_DATE_EPOCH from the commit timestamp"),
+            ("%ct", "derive the epoch from the commit timestamp"),
+            ("start_new_session=True", "bound each build in its own process group"),
+            ("shell=False", "execute argv lists, never a shell"),
+            ("separate_source_roots", "record that the A/B source roots are independent"),
+            ("separate_output_files", "record that the A/B outputs are separate files"),
+            ("sha256_of", "compute the SHA-256 itself"),
+            ("def bind_release", "bind the evidence to the staged public artifact"),
+            ("release_matches_build_a", "record whether the release artifact equals build A"),
+            ("release_matches_build_b", "record whether the release artifact equals build B"),
+            ("matches neither measured build", "fail when the shipped artifact equals neither build"),
+            ("--release-dir", "accept the staged release directory"),
+            ("PIP_LOG", "capture the resolved build backend from the isolated build environment"),
+            ("def resolved_backend", "record the resolved (not only declared) build backend version"),
+            ("def wheel_generator", "corroborate the resolved backend with the built wheel"),
+            ("umask=evidence.BUILD_UMASK", "run builds under the declared umask"),
+        ):
+            if needle not in body:
+                out.append(Violation("REPRO-HARNESS", f"{REPRO_HARNESS} must {why}"))
+        if "shell=True" in body or "os.system" in body:
+            out.append(Violation("REPRO-HARNESS", f"{REPRO_HARNESS} must never use a shell"))
+        if re.search(r"time\.time\(|datetime\.(?:now|utcnow)|date\s+\+%s", body):
+            out.append(Violation("REPRO-EPOCH", f"{REPRO_HARNESS} must never use wall-clock time as the build epoch"))
+        if NORMALIZATION_RE.search(body):
+            out.append(Violation("REPRO-NORMALIZE", f"{REPRO_HARNESS} must not normalize or rewrite build output"))
+        for pattern in RELEASE_UPLOAD_PATTERNS:
+            if re.search(pattern, body):
+                out.append(Violation("WF-UPLOAD-BYPASS", f"{REPRO_HARNESS}: must never upload release assets ({pattern})"))
+    if validator is None:
+        out.append(Violation("REPRO-VALIDATOR", f"{REPRO_VALIDATOR} is missing"))
+    else:
+        body = _code(validator)
+        states = re.findall(r'^(REPRODUCIBLE|NON_REPRODUCIBLE|NOT_YET_MEASURED|PLATFORM_BLOCKED) = "\1"$', body, re.M)
+        if sorted(states) != sorted(REPRODUCIBILITY_STATUSES):
+            out.append(Violation("REPRO-VALIDATOR", f"{REPRO_VALIDATOR} must define exactly the four classifications {sorted(REPRODUCIBILITY_STATUSES)}"))
+        for needle, why in (
+            ("is not accepted in final evidence", "reject PLATFORM_BLOCKED and NOT_YET_MEASURED in final mode"),
+            ('"final"', "support a final mode"),
+            ('"local"', "support a local mode"),
+            ('NATIVE_ONLY = {"freebsd_pkg": "FreeBSD"}', "require a native FreeBSD builder for the FreeBSD package"),
+            ('"rpm": ("rpmbuild",)', "require real rpmbuild metadata for an RPM measurement"),
+            ("source_date_epoch_origin", "reject a wall-clock build epoch"),
+            ("separate_source_roots", "require independent A/B source roots"),
+            ("separate_output_files", "reject output reuse between A and B"),
+            ("release_sha256", "require the release-byte binding"),
+            ("requires the release-byte binding", "require the release-byte binding in final mode"),
+            ("matches neither measured build", "reject a release artifact that equals neither build"),
+            ("EXACT_VERSION_RE", "require exact resolved tool versions"),
+            ("declared_requirements", "keep the declared requirement apart from the resolved version"),
+            ('"wheel": ("python", "build", "hatchling")', "require the resolved hatchling version for wheel"),
+            ('"freebsd_pkg": ("pkg", "python")', "require the pkg and Python versions for the FreeBSD package"),
+            ("NON_REPRODUCIBLE requires", "reject contradictory classifications"),
+        ):
+            if needle not in body:
+                out.append(Violation("REPRO-VALIDATOR", f"{REPRO_VALIDATOR} must {why}"))
+        for family, script in (("wheel", "build_pysh_package"), ("sdist", "build_pysh_package"), ("deb", "build_deb"),
+                               ("rpm", "build_rpm"), ("freebsd_pkg", "build_freebsd_pkg")):
+            if not re.search(rf'"{family}": "scripts/{script}\.sh"', body):
+                out.append(Violation("REPRO-VALIDATOR", f"{REPRO_VALIDATOR} must map {family} to the repository builder scripts/{script}.sh"))
+        if NORMALIZATION_RE.search(body):
+            out.append(Violation("REPRO-NORMALIZE", f"{REPRO_VALIDATOR} must not normalize or rewrite build output"))
+
+    raw = _read(root, RELEASE_WORKFLOW)
+    if raw is None:
+        return out + [Violation("REPRO-WORKFLOW", f"{RELEASE_WORKFLOW} is missing")]
+    code = _code(raw)
+    jobs = split_jobs(code)
+    build = jobs.get("build-and-validate", "")
+    freebsd = jobs.get("freebsd-pkg", "")
+    steps = _steps(build)
+    directory = root / WORKFLOWS
+    for path in sorted(directory.glob("*.y*ml")) if directory.is_dir() else []:
+        text = _code(path.read_text(encoding="utf-8"))
+        if WALL_CLOCK_EPOCH_RE.search(text):
+            out.append(Violation("REPRO-EPOCH", f"{path.relative_to(root)}: SOURCE_DATE_EPOCH must be the commit timestamp, never wall-clock time"))
+        if NORMALIZATION_RE.search(text):
+            out.append(Violation("REPRO-NORMALIZE", f"{path.relative_to(root)}: build output must not be normalized or rewritten after the build"))
+
+    epoch = _step_text(steps, "SOURCE_DATE_EPOCH=")
+    first_build = build.find("build_pysh_package.sh")
+    if epoch is None or "git log -1 --format=%ct" not in epoch[1] or "GITHUB_ENV" not in epoch[1]:
+        out.append(Violation("REPRO-EPOCH", "build-and-validate must export SOURCE_DATE_EPOCH from `git log -1 --format=%ct`"))
+    elif first_build >= 0 and epoch[0] > first_build:
+        out.append(Violation("REPRO-EPOCH", "SOURCE_DATE_EPOCH must be set before the first build"))
+    if "git log -1 --format=%ct" not in freebsd or "SOURCE_DATE_EPOCH" not in freebsd:
+        out.append(Violation("REPRO-EPOCH", "the freebsd-pkg job must derive SOURCE_DATE_EPOCH from the commit timestamp"))
+
+    measure = _step_text(steps, "measure_release_reproducibility.py", exclude="measure_release_reproducibility.py merge")
+    download = _step_text(steps, "name: freebsd-reproducibility-evidence")
+    merge = _step_text(steps, "measure_release_reproducibility.py merge")
+    final = _step_text(steps, "check_reproducibility_evidence.py")
+    if measure is None:
+        out.append(Violation("REPRO-WORKFLOW", "build-and-validate must measure Linux reproducibility (wheel, sdist, deb, rpm)"))
+    else:
+        for family in REPRO_FAMILIES:
+            if f"--family {family}" not in measure[1]:
+                out.append(Violation("REPRO-WORKFLOW", f"the Linux measurement must include --family {family}"))
+        if "freebsd_pkg" in measure[1] or "--all" in measure[1]:
+            out.append(Violation("REPRO-WORKFLOW", "the Linux job must not claim the FreeBSD measurement (native FreeBSD only)"))
+        if "--source-commit" not in measure[1]:
+            out.append(Violation("REPRO-WORKFLOW", "the Linux measurement must pin --source-commit to GITHUB_SHA"))
+        if "--release-dir dist/release-assets" not in measure[1]:
+            out.append(Violation("REPRO-RELEASE-BINDING", "the Linux measurement must bind to the staged public artifacts (--release-dir dist/release-assets)"))
+    if download is None:
+        out.append(Violation("REPRO-WORKFLOW", "build-and-validate must download the native FreeBSD reproducibility evidence"))
+    if merge is None or "--input dist/reproducibility/linux.json" not in merge[1] or f"--output dist/release-assets/{EVIDENCE_PUBLIC_NAME}" not in merge[1]:
+        out.append(Violation("REPRO-WORKFLOW", f"the platform evidence must be merged into dist/release-assets/{EVIDENCE_PUBLIC_NAME}"))
+    elif "freebsd_pkg.json" not in merge[1] or "--source-commit" not in merge[1]:
+        out.append(Violation("REPRO-WORKFLOW", "the merge must take the native FreeBSD evidence and pin --source-commit"))
+    elif "--release-dir dist/release-assets" not in merge[1]:
+        out.append(Violation("REPRO-RELEASE-BINDING", "the merge must bind every measured family to the staged public artifacts (--release-dir dist/release-assets)"))
+    if final is None or "--mode final" not in final[1] or "--source-commit" not in final[1]:
+        out.append(Violation("REPRO-WORKFLOW", "the published evidence must pass check_reproducibility_evidence.py --mode final --source-commit"))
+    for found in (measure, download, merge, final):
+        if found is not None and re.search(r"^\s+(?:continue-on-error:\s*true|if:)", found[1], re.M):
+            out.append(Violation("REPRO-WORKFLOW", "measurement and evidence steps must be unconditional and fail closed"))
+
+    validate_sbom = _stage_index(build, "generate_release_sboms.py validate --dir")
+    finalize = _stage_index(build, "check_release_artifacts.sh --finalize-release-assets")
+    prepare = _stage_index(build, "prepare_attestation_subjects.py")
+    first_attest = _stage_index(build, "uses: actions/attest@")
+    ordered = [validate_sbom, *(f[0] for f in (measure, download, merge, final) if f is not None), finalize]
+    if min(validate_sbom, finalize) >= 0 and None not in (measure, download, merge, final):
+        if ordered != sorted(ordered) or len(set(ordered)) != len(ordered):
+            out.append(Violation("REPRO-ORDER", "the reproducibility evidence must be measured, combined and validated after the SBOMs and before the final SHA256SUMS"))
+    for found in (measure, merge, final):
+        if found is not None and finalize >= 0 and found[0] > finalize:
+            out.append(Violation("REPRO-ORDER", "reproducibility evidence must exist before the final SHA256SUMS"))
+        if found is not None and first_attest >= 0 and found[0] > first_attest:
+            out.append(Violation("REPRO-ORDER", "reproducibility evidence must exist before any attestation"))
+    if prepare >= 0 and final is not None and final[0] > prepare:
+        out.append(Violation("REPRO-ORDER", "the evidence must be validated before the attestation subjects are prepared"))
+    if "REPRODUCIBILITY.json" in _code(raw) and "--source-commit" not in build[prepare:prepare + 400]:
+        out.append(Violation("REPRO-WORKFLOW", "the attestation subjects must be prepared with --source-commit so that the evidence is bound to the release commit"))
+
+    native = (
+        "measure_release_reproducibility.py" in freebsd and "--family freebsd_pkg" in freebsd
+        and "--source-archive" in freebsd and "--source-commit" in freebsd and "--source-date-epoch" in freebsd
+        and "matrix.reference-pkg" in freebsd and "freebsd-reproducibility-evidence" in freebsd
+    )
+    if not native:
+        out.append(Violation("REPRO-NATIVE", "the FreeBSD reference job must run the native A/B measurement and upload freebsd-reproducibility-evidence"))
+    if "--family wheel" in freebsd or "--all" in freebsd:
+        out.append(Violation("REPRO-NATIVE", "the FreeBSD job must measure only the freebsd_pkg family"))
+
+    if "SUBJECT_COUNT" in (_read(root, SUBJECT_HELPER) or "") and EVIDENCE_PUBLIC_NAME not in (_read(root, SBOM_GENERATOR) or ""):
+        out.append(Violation("REPRO-SUBJECTS", f"{SBOM_GENERATOR} must know the published {EVIDENCE_PUBLIC_NAME}"))
+    artifacts_script = _read(root, ARTIFACT_CHECKER) or ""
+    if EVIDENCE_PUBLIC_NAME not in artifacts_script:
+        out.append(Violation("REPRO-CHECKSUMS", f"{ARTIFACT_CHECKER} must require {EVIDENCE_PUBLIC_NAME} among the files covered by the final SHA256SUMS"))
+
+    doc = " ".join((_read(root, DOC) or "").split())
+    for needle, why in (
+        ("byte-for-byte", "define reproducibility as byte-for-byte identical artifacts"),
+        ("SHA-256", "state that A/B equality is SHA-256 equality"),
+        ("SOURCE_DATE_EPOCH", "document the SOURCE_DATE_EPOCH policy"),
+        ("commit timestamp", "bind SOURCE_DATE_EPOCH to the commit timestamp"),
+        (EVIDENCE_PUBLIC_NAME, "document the published evidence file"),
+        ("native FreeBSD", "require a native FreeBSD measurement"),
+        ("release_sha256", "document the release-byte binding"),
+        ("resolved version", "document the resolved build toolchain"),
+        ("umask", "document the declared build umask"),
+        ("rpmbuild", "require rpmbuild for the RPM measurement"),
+        ("check_reproducibility_evidence.py", "name the evidence validator"),
+        ("independent controls", "state that reproducibility and provenance are independent controls"),
+        ("NOT_YET_MEASURED", "define NOT_YET_MEASURED"),
+    ):
+        if needle not in doc:
+            out.append(Violation("REPRO-DOC", f"{DOC} must {why}: {needle!r}"))
+    return out
+
+
 CURRENT_CHECKS = (
     check_sbom_implementation,
     check_attestation_implementation,
+    check_reproducibility_implementation,
     check_documentation,
     check_packaging_agreement,
     check_release_workflow,

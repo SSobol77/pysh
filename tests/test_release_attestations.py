@@ -20,9 +20,11 @@ from typing import Any
 
 import pytest
 
+from scripts import check_reproducibility_evidence as repro_checker
 from scripts import generate_release_sboms as sboms
 from scripts import prepare_attestation_subjects as prep
 from scripts import verify_release_attestations as ver
+from tests.repro_support import final_document
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FAKE_GH = REPO_ROOT / "tests" / "fixtures" / "fake_gh.py"
@@ -31,13 +33,16 @@ SOURCE = "0123456789abcdef0123456789abcdef01234567"
 OTHER_SOURCE = "f" * 40
 
 
+canonical_json = repro_checker.canonical_json
+
+
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
 @pytest.fixture
 def assets(tmp_path: Path) -> Path:
-    """A final eleven-file bundle: five packages, five SBOMs, SHA256SUMS."""
+    """A final twelve-file bundle: five packages, five SBOMs, REPRODUCIBILITY.json and SHA256SUMS."""
     directory = tmp_path / "release-assets"
     directory.mkdir()
     for family in sboms.FAMILIES:
@@ -45,6 +50,7 @@ def assets(tmp_path: Path) -> Path:
         (directory / name).write_bytes(f"bytes of {name}".encode())
         document = {"spdxVersion": "SPDX-2.3", "name": name, "packages": [{"name": name, "SPDXID": "SPDXRef-1"}]}
         (directory / sboms.sbom_name(name)).write_text(json.dumps(document), encoding="utf-8")
+    (directory / sboms.EVIDENCE).write_text(canonical_json(final_document(version=VERSION, commit=SOURCE)), encoding="utf-8")
     write_manifest(directory)
     return directory
 
@@ -128,11 +134,13 @@ def world(tmp_path: Path, assets: Path, monkeypatch: pytest.MonkeyPatch) -> Worl
 # --- subjects: positive ----------------------------------------------------------------------------------------
 
 
-def test_eleven_subjects_are_derived_from_the_final_manifest(assets: Path) -> None:
+def test_twelve_subjects_are_derived_from_the_final_manifest(assets: Path) -> None:
     bundle = prep.prepare(assets, VERSION)
     assert [e.family_id for e in bundle.packages] == ["wheel", "sdist", "deb", "rpm", "freebsd_pkg"]
     names = [s.name for s in bundle.all_subjects()]
-    assert len(names) == len(set(names)) == prep.SUBJECT_COUNT == 11
+    assert len(names) == len(set(names)) == prep.SUBJECT_COUNT == 12
+    assert len(bundle.manifest_subjects()) == 11 and bundle.evidence.name == "REPRODUCIBILITY.json"
+    assert bundle.evidence.sha256 == sha((assets / "REPRODUCIBILITY.json").read_bytes())
     assert names[-1] == "SHA256SUMS" and "SHA256SUMS" not in names[:-1]
     assert bundle.checksums.sha256 == sha((assets / "SHA256SUMS").read_bytes())
     for entry in bundle.packages:
@@ -144,8 +152,11 @@ def test_step_outputs_are_deterministic_and_complete(assets: Path) -> None:
     first = prep.outputs(prep.prepare(assets, VERSION), assets)
     assert first == prep.outputs(prep.prepare(assets, VERSION), assets)
     expected = {f"{f}_{k}" for f in ("wheel", "sdist", "deb", "rpm", "freebsd_pkg") for k in ("name", "sha256", "sbom_path")}
-    assert set(first) == expected | {"checksums_name", "checksums_sha256", "subject_count"}
-    assert first["checksums_name"] == "SHA256SUMS" and first["subject_count"] == "11"
+    assert set(first) == expected | {
+        "checksums_name", "checksums_sha256", "evidence_name", "evidence_sha256", "subject_count",
+    }
+    assert first["checksums_name"] == "SHA256SUMS" and first["subject_count"] == "12"
+    assert first["evidence_name"] == "REPRODUCIBILITY.json"
     assert first["wheel_sbom_path"] == f"{assets.as_posix()}/pysh_shell-{VERSION}-py3-none-any.whl.spdx.json"
     assert all(re.fullmatch(r"[0-9a-f]{64}", v) for k, v in first.items() if k.endswith("_sha256"))
 
@@ -230,19 +241,100 @@ def test_the_helper_cli_reports_invalid_bundles(assets: Path, capsys) -> None:
     assert "prepare_attestation_subjects:" in capsys.readouterr().err
 
 
+# --- the published reproducibility evidence (Slice 4) -------------------------------------------------------------
+
+
+def rewrite_evidence(directory: Path, document: dict) -> None:
+    (directory / sboms.EVIDENCE).write_text(canonical_json(document), encoding="utf-8")
+    write_manifest(directory)
+
+
+def test_a_manifest_that_omits_the_published_evidence_is_rejected(assets: Path) -> None:
+    edit_manifest(assets, lambda t: "".join(line for line in t.splitlines(keepends=True) if "REPRODUCIBILITY.json" not in line))
+    with pytest.raises(prep.SubjectError, match="must cover every published file"):
+        prep.prepare(assets, VERSION)
+
+
+def test_the_evidence_must_be_listed_even_if_the_file_set_is_consistent(assets: Path) -> None:
+    (assets / sboms.EVIDENCE).unlink()
+    write_manifest(assets)
+    with pytest.raises(prep.SubjectError, match="does not list the reproducibility evidence"):
+        prep.prepare(assets, VERSION)
+
+
+@pytest.mark.parametrize("blocked", ["rpm", "freebsd_pkg"])
+def test_non_final_evidence_is_not_a_provenance_subject(assets: Path, blocked: str) -> None:
+    from tests.repro_support import result
+
+    document = final_document(version=VERSION, commit=SOURCE)
+    document["results"] = [result(f, "PLATFORM_BLOCKED", version=VERSION, commit=SOURCE) if f == blocked else r
+                           for f, r in zip(repro_checker.FAMILY_ORDER, document["results"], strict=True)]
+    rewrite_evidence(assets, document)
+    with pytest.raises(prep.SubjectError, match="not valid final evidence"):
+        prep.prepare(assets, VERSION)
+
+
+def test_evidence_for_another_source_commit_is_rejected(assets: Path) -> None:
+    rewrite_evidence(assets, final_document(version=VERSION, commit="f" * 40))
+    prep.prepare(assets, VERSION)  # self-consistent evidence is fine without a pin ...
+    with pytest.raises(prep.SubjectError, match="does not match the expected commit"):
+        prep.prepare(assets, VERSION, SOURCE)  # ... but must match the release commit when pinned
+
+
+def test_the_verifier_binds_the_evidence_to_the_source_digest(world: World) -> None:
+    rewrite_evidence(world.directory, final_document(version=VERSION, commit="f" * 40))
+    world.scenario = good_scenario(world.directory)
+    with pytest.raises(prep.SubjectError, match="does not match the expected commit"):
+        world.verify()
+    assert world.calls() == []
+
+
+def test_provenance_that_omits_the_published_evidence_fails(world: World) -> None:
+    digest = sha((world.directory / sboms.EVIDENCE).read_bytes())
+    world.scenario["attestations"][0]["subjects"] = [
+        s for s in world.scenario["attestations"][0]["subjects"] if s[1] != digest
+    ]
+    with pytest.raises(ver.AttestationError, match="partial subject set|no attestations found"):
+        world.verify()
+
+
+def test_a_stale_eleven_subject_provenance_set_fails(world: World) -> None:
+    """The pre-evidence layout (five packages, five SBOMs, SHA256SUMS) is no longer enough."""
+    world.scenario["attestations"] = [
+        a for a in world.scenario["attestations"]
+        if not any(s[0] == sboms.EVIDENCE for s in a["subjects"])
+    ]
+    with pytest.raises(ver.AttestationError):
+        world.verify()
+
+
+def test_the_evidence_itself_has_provenance_verified(world: World) -> None:
+    world.verify()
+    verified = [Path(c[2]).name for c in world.calls() if ver.PROVENANCE_PREDICATE_TYPE in c]
+    assert sboms.EVIDENCE in verified and "SHA256SUMS" in verified
+    spdx = [Path(c[2]).name for c in world.calls() if ver.SPDX_PREDICATE_TYPE in c]
+    assert sboms.EVIDENCE not in spdx  # an SBOM attestation exists only for the five packages
+
+
+def test_the_subject_counts_are_twelve_with_eleven_checksum_entries(assets: Path) -> None:
+    assert prep.SUBJECT_COUNT == 12
+    entries = (assets / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+    assert len(entries) == 11 and not any(line.endswith("  SHA256SUMS") for line in entries)
+
+
 # --- verification: positive --------------------------------------------------------------------------------------------
 
 
-def test_all_eleven_provenance_and_five_sbom_attestations_are_verified(world: World) -> None:
-    assert world.verify() == 11
+def test_all_twelve_provenance_and_five_sbom_attestations_are_verified(world: World) -> None:
+    assert world.verify() == 12
     calls = world.calls()
-    assert len(calls) == 16
+    assert len(calls) == 17
     provenance = [c for c in calls if c[c.index("--predicate-type") + 1] == ver.PROVENANCE_PREDICATE_TYPE]
     spdx = [c for c in calls if c[c.index("--predicate-type") + 1] == ver.SPDX_PREDICATE_TYPE]
-    assert len(provenance) == 11 and len(spdx) == 5
+    assert len(provenance) == 12 and len(spdx) == 5
     assert {Path(c[2]).name for c in provenance} == {p.name for p in world.directory.iterdir()}
-    assert {Path(c[2]).name for c in spdx} == {p.name for p in world.directory.iterdir() if not p.name.endswith(".spdx.json") and p.name != "SHA256SUMS"}
-    assert sum(line.startswith("verified provenance:") for line in world.lines) == 11
+    assert {Path(c[2]).name for c in spdx} == {p.name for p in world.directory.iterdir() if not p.name.endswith(".spdx.json") and p.name not in {"SHA256SUMS", "REPRODUCIBILITY.json"}}
+    assert sum(line.startswith("verified provenance:") for line in world.lines) == 12
     assert sum(line.startswith("verified SPDX SBOM attestation:") for line in world.lines) == 5
 
 
@@ -267,13 +359,13 @@ def test_the_attested_sbom_is_compared_semantically_not_byte_for_byte(world: Wor
     for attestation in world.scenario["attestations"]:
         if attestation["predicateType"] == ver.SPDX_PREDICATE_TYPE and attestation["subjects"][0][0].endswith(".whl"):
             attestation["predicate"] = document  # the attested document has different key order
-    assert world.verify() == 11
+    assert world.verify() == 12
 
 
 def test_a_bounded_consistency_retry_can_succeed(world: World) -> None:
     wheel = f"pysh_shell-{VERSION}-py3-none-any.whl"
     world.scenario["hidden"] = {wheel: 2}
-    assert world.verify() == 11
+    assert world.verify() == 12
     wheel_calls = [c for c in world.calls() if Path(c[2]).name == wheel and ver.PROVENANCE_PREDICATE_TYPE in c]
     assert len(wheel_calls) == 3
     # the wheel is queried twice (provenance and SPDX), each answer hidden twice
@@ -284,7 +376,7 @@ def test_a_bounded_consistency_retry_can_succeed(world: World) -> None:
 def test_the_cli_passes_with_an_explicit_gh_and_verifies_before_returning(world: World, capsys) -> None:
     world.write()
     code = ver.main(["--assets-dir", str(world.directory), "--version", VERSION, "--source-digest", SOURCE, "--gh", str(world.gh)])
-    assert code == 0 and "PASS: 11 provenance attestations and 5 SPDX SBOM attestations" in capsys.readouterr().out
+    assert code == 0 and "PASS: 12 provenance attestations and 5 SPDX SBOM attestations" in capsys.readouterr().out
 
 
 def test_the_cli_defaults_the_pinned_identities(world: World) -> None:

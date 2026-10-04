@@ -462,6 +462,7 @@ def test_fast_mode_does_not_run_heavy_checks_end_to_end() -> None:
         "Debian install smoke",
         "RPM install smoke",
         "FreeBSD install smoke",
+        "reproducibility measurement",
     ):
         assert f"[NOT RUN] {heavy}" in result.stdout
     assert "Overall: PASS" in result.stdout
@@ -564,3 +565,67 @@ def test_installation_docs_check_is_real_and_passes(tmp_path: Path) -> None:
 def test_git_diff_check_is_real(tmp_path: Path) -> None:
     result = GATE.check_git_diff(tmp_path)
     assert result.status in (GATE.STATUS_PASS, GATE.STATUS_FAIL)
+
+
+# ---------------------------------------------- Issue #51 Slice 4: reproducibility measurement
+
+
+def test_reproducibility_check_is_full_mode_only_and_never_runs_in_fast_or_ci() -> None:
+    check = next(c for c in GATE.build_checks() if c.name == "reproducibility measurement")
+    assert check.category == "supply-chain" and check.modes == frozenset({"full"})
+
+
+def test_reproducibility_check_orchestrates_the_repository_scripts_without_duplicating_them() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "measure_release_reproducibility.py" in text and "check_reproducibility_evidence.py" in text
+    for marker in ("CLASSIFICATIONS", "NATIVE_ONLY", "REQUIRED_TOOLS", "check_document", "REQUIRED_PLATFORM"):
+        assert marker not in text
+
+
+def _fake_runner(statuses: list[str], validator_output: str, tmp_path: Path):
+    calls: list[list[str]] = []
+
+    def run(argv, *, log_dir, log_name, **kwargs):
+        calls.append(list(argv))
+        status = statuses[len(calls) - 1]
+        log = tmp_path / f"{log_name}.log"
+        log.write_text(validator_output if "evidence" in log_name else "", encoding="utf-8")
+        return GATE.CheckResult(status=status, exit_code=0 if status == GATE.STATUS_PASS else 1,
+                                diagnostic="" if status == GATE.STATUS_PASS else "boom", log_path=str(log))
+
+    return run, calls
+
+
+def test_a_host_that_cannot_build_a_family_is_platform_blocked_never_pass(tmp_path, monkeypatch) -> None:
+    output = (
+        "classification wheel: REPRODUCIBLE\nclassification deb: REPRODUCIBLE\n"
+        "classification rpm: PLATFORM_BLOCKED\nclassification freebsd_pkg: PLATFORM_BLOCKED\n"
+        "check_reproducibility_evidence: PASS (local mode, 4 families)\n"
+    )
+    run, calls = _fake_runner([GATE.STATUS_PASS, GATE.STATUS_PASS], output, tmp_path)
+    monkeypatch.setattr(GATE, "run_subprocess_check", run)
+    result = GATE.check_reproducibility(tmp_path)
+    assert result.status == GATE.STATUS_PLATFORM_BLOCKED
+    assert "freebsd_pkg, rpm" in result.diagnostic and "release-artifacts.yml" in result.diagnostic
+    assert "--all" in calls[0] and "--mode" in calls[1] and "local" in calls[1]
+    assert GATE.derive_overall([result.status]) == GATE.OVERALL_READY_EXCEPT_PLATFORM
+
+
+def test_a_fully_measured_host_passes_even_when_a_family_is_non_reproducible(tmp_path, monkeypatch) -> None:
+    output = "".join(
+        f"classification {f}: {state}\n"
+        for f, state in (("wheel", "REPRODUCIBLE"), ("sdist", "REPRODUCIBLE"), ("deb", "NON_REPRODUCIBLE"),
+                         ("rpm", "REPRODUCIBLE"), ("freebsd_pkg", "REPRODUCIBLE"))
+    )
+    run, _ = _fake_runner([GATE.STATUS_PASS, GATE.STATUS_PASS], output, tmp_path)
+    monkeypatch.setattr(GATE, "run_subprocess_check", run)
+    assert GATE.check_reproducibility(tmp_path).status == GATE.STATUS_PASS
+
+
+def test_a_failed_measurement_or_invalid_evidence_fails_the_check(tmp_path, monkeypatch) -> None:
+    run, calls = _fake_runner([GATE.STATUS_FAIL], "", tmp_path)
+    monkeypatch.setattr(GATE, "run_subprocess_check", run)
+    assert GATE.check_reproducibility(tmp_path).status == GATE.STATUS_FAIL and len(calls) == 1
+    run, calls = _fake_runner([GATE.STATUS_PASS, GATE.STATUS_FAIL], "", tmp_path)
+    monkeypatch.setattr(GATE, "run_subprocess_check", run)
+    assert GATE.check_reproducibility(tmp_path).status == GATE.STATUS_FAIL and len(calls) == 2

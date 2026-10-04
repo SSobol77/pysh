@@ -553,6 +553,57 @@ def check_freebsd_smoke(log_dir: Path) -> CheckResult:
     )
 
 
+def check_reproducibility(log_dir: Path) -> CheckResult:
+    """Local A/B reproducibility measurement, orchestrating the repository-owned scripts.
+
+    ``scripts/measure_release_reproducibility.py`` builds every family twice from the exact
+    HEAD commit and ``scripts/check_reproducibility_evidence.py`` validates the evidence in
+    local mode; this function only sequences them and maps the result. A family the host
+    genuinely cannot build (no rpmbuild, not native FreeBSD) is PLATFORM_BLOCKED, never PASS,
+    so on Linux this check can never read as a complete measurement.
+    """
+    with tempfile.TemporaryDirectory(prefix="pysh-gate-reproducibility-") as evidence_name:
+        return _measure_reproducibility(log_dir, Path(evidence_name) / "evidence.json")
+
+
+def _measure_reproducibility(log_dir: Path, evidence: Path) -> CheckResult:
+    measure = run_subprocess_check(
+        [
+            "uv", "run", "python", str(REPO_ROOT / "scripts" / "measure_release_reproducibility.py"),
+            "--all", "--output", str(evidence),
+        ],
+        log_dir=log_dir,
+        log_name="reproducibility-measure",
+        timeout=3600.0,
+    )
+    if measure.status != STATUS_PASS:
+        return measure
+    validate = run_subprocess_check(
+        [
+            "uv", "run", "python", str(REPO_ROOT / "scripts" / "check_reproducibility_evidence.py"),
+            str(evidence), "--mode", "local",
+        ],
+        log_dir=log_dir,
+        log_name="reproducibility-evidence",
+    )
+    if validate.status != STATUS_PASS or validate.log_path is None:
+        return validate
+    output = Path(validate.log_path).read_text(encoding="utf-8")
+    unmeasured = sorted(
+        line.split(":")[0].removeprefix("classification ")
+        for line in output.splitlines()
+        if line.startswith("classification ")
+        and line.rsplit(": ", 1)[-1] in ("PLATFORM_BLOCKED", "NOT_YET_MEASURED")
+    )
+    if unmeasured:
+        validate.status = STATUS_PLATFORM_BLOCKED
+        validate.diagnostic = (
+            f"not measured on this host: {', '.join(unmeasured)}; the real measurement runs in "
+            ".github/workflows/release-artifacts.yml (Linux job and native FreeBSD reference job)"
+        )
+    return validate
+
+
 # ------------------------------------------------------------- registry
 
 
@@ -587,6 +638,7 @@ def build_checks() -> list[Check]:
         Check("Debian install smoke", "platform", full_only, check_debian_smoke),
         Check("RPM install smoke", "platform", full_only, check_rpm_smoke),
         Check("FreeBSD install smoke", "platform", full_only, check_freebsd_smoke),
+        Check("reproducibility measurement", "supply-chain", full_only, check_reproducibility),
     ]
 
 

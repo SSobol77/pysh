@@ -24,8 +24,9 @@ Subcommands
     Validate the five artifacts and their SBOMs (completeness, naming, SPDX 2.3
     structure, artifact binding, leaks, no unexpected siblings).
 ``validate-bundle --dir DIR``
-    ``validate`` plus the final ``SHA256SUMS`` policy: it covers every published
-    release file except ``SHA256SUMS`` itself, and every digest is correct.
+    ``validate`` plus the published ``REPRODUCIBILITY.json`` and the final ``SHA256SUMS``
+    policy: it covers every published release file except ``SHA256SUMS`` itself, and
+    every digest is correct.
 
 Nothing here uploads anything, uses a shell, or scans a path other than the explicit
 input directory. The SBOM file name is the artifact basename plus ``.spdx.json``.
@@ -65,6 +66,9 @@ SYFT_URL = (
 SPDX_VERSION = "SPDX-2.3"
 SBOM_SUFFIX = ".spdx.json"
 CHECKSUMS = "SHA256SUMS"
+#: The public reproducibility evidence (Issue #51 Slice 4): a published release asset that is
+#: listed in SHA256SUMS and attested like the packages and SBOMs. It is created after the SBOMs.
+EVIDENCE = "REPRODUCIBILITY.json"
 SYFT_TIMEOUT_SECONDS = 300
 MAX_EXTRACTED_BYTES = 512 * 1024 * 1024
 MAX_EXTRACTED_MEMBERS = 20000
@@ -327,11 +331,11 @@ def validate_document(
 
 def validate_set(directory: Path, version: str, forbidden: tuple[str, ...] = (),
                  environ: Mapping[str, str] | None = None) -> dict[str, Path]:
-    """The five artifacts and exactly their five SBOMs; nothing else except SHA256SUMS."""
+    """The five artifacts and exactly their five SBOMs; nothing else except SHA256SUMS and REPRODUCIBILITY.json."""
     artifacts = locate_artifacts(directory, version)
     expected_sboms = {sbom_name(p.name): p for p in artifacts.values()}
     present = {p.name for p in directory.iterdir()}
-    allowed = {p.name for p in artifacts.values()} | set(expected_sboms) | {CHECKSUMS}
+    allowed = {p.name for p in artifacts.values()} | set(expected_sboms) | {CHECKSUMS, EVIDENCE}
     for family_id, artifact in artifacts.items():
         if sbom_name(artifact.name) not in present:
             raise SbomError(f"missing SBOM for the {family_id} artifact: {sbom_name(artifact.name)}")
@@ -345,6 +349,15 @@ def validate_set(directory: Path, version: str, forbidden: tuple[str, ...] = (),
             raise SbomError(f"duplicate SBOM for {artifact.name}")
         roots.add(artifact.name)
     return artifacts
+
+
+def validate_bundle(directory: Path, version: str, forbidden: tuple[str, ...] = ()) -> None:
+    """The complete public set: packages, SBOMs, the reproducibility evidence and a final SHA256SUMS."""
+    validate_set(directory, version, forbidden)
+    evidence_path = directory / EVIDENCE
+    if not evidence_path.is_file() or evidence_path.is_symlink() or evidence_path.stat().st_size == 0:
+        raise SbomError(f"{EVIDENCE} is missing or empty: the reproducibility evidence is a published release asset")
+    validate_checksums(directory)
 
 
 def validate_checksums(directory: Path) -> None:
@@ -452,9 +465,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"sbom: {path.name}")
             return 0
         forbidden = (str(args.dir.resolve()), str(REPO_ROOT))
-        validate_set(args.dir, version, forbidden)
         if args.command == "validate-bundle":
-            validate_checksums(args.dir)
+            validate_bundle(args.dir, version, forbidden)
+        else:
+            validate_set(args.dir, version, forbidden)
         print(f"sbom: {args.command} OK")
         return 0
     except SbomError as error:

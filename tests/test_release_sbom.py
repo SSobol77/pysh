@@ -25,6 +25,8 @@ from pathlib import Path
 import pytest
 
 from scripts import generate_release_sboms as gen
+from scripts.check_reproducibility_evidence import canonical_json
+from tests.repro_support import final_document
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FAKE = REPO_ROOT / "tests" / "fixtures" / "fake_syft.py"
@@ -82,8 +84,15 @@ def generated(release: Path, fake_tool, name: str = "syft", out: Path | None = N
     return target
 
 
+def publish_evidence(directory: Path) -> None:
+    """The reproducibility evidence is a published asset created after the SBOMs (Slice 4)."""
+    if not (directory / gen.EVIDENCE).exists():
+        (directory / gen.EVIDENCE).write_text(canonical_json(final_document(version=VERSION)), encoding="utf-8")
+
+
 def finalize(directory: Path) -> subprocess.CompletedProcess[str]:
     """The real bash finalizer, run on a fixture dist tree (directory is dist/release-assets)."""
+    publish_evidence(directory)
     return subprocess.run(
         ["bash", str(REPO_ROOT / "scripts" / "check_release_artifacts.sh"), "--finalize-release-assets",
          str(directory.parent)],
@@ -129,7 +138,7 @@ def test_final_checksums_cover_every_published_file_except_themselves(release, f
     assert done.returncode == 0, done.stderr
     lines = (release / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
     names = [line.split()[1].lstrip("*") for line in lines]
-    assert names == sorted(names) and len(names) == 10
+    assert names == sorted(names) and len(names) == 11
     assert "SHA256SUMS" not in names
     assert set(names) == {p.name for p in release.iterdir()} - {"SHA256SUMS"}
     gen.validate_checksums(release)
@@ -441,3 +450,63 @@ def test_the_generator_never_uploads_or_uses_a_shell_and_is_not_imported_by_the_
     assert not re.search(r"gh\s+release|upload-release|softprops", code)
     for path in (REPO_ROOT / "src").rglob("*.py"):
         assert "generate_release_sboms" not in path.read_text(encoding="utf-8")
+
+
+# --- the published reproducibility evidence (Issue #51 Slice 4) -------------------------------------------------
+
+
+def test_the_evidence_is_a_published_file_covered_by_the_final_checksums(release, fake_tool) -> None:
+    generated(release, fake_tool)
+    assert finalize(release).returncode == 0
+    names = [line.split()[1] for line in (release / "SHA256SUMS").read_text(encoding="utf-8").splitlines()]
+    assert gen.EVIDENCE in names and len(names) == 11 and "SHA256SUMS" not in names
+    gen.validate_bundle(release, VERSION)
+    assert gen.main(["validate-bundle", "--dir", str(release), "--version", VERSION]) == 0
+
+
+def test_the_sbom_set_validation_tolerates_the_evidence_but_does_not_require_it(release, fake_tool) -> None:
+    generated(release, fake_tool)
+    gen.validate_set(release, VERSION)  # before the evidence exists (workflow: the validate step)
+    publish_evidence(release)
+    gen.validate_set(release, VERSION)  # after it exists
+
+
+def test_a_bundle_without_the_published_evidence_fails(release, fake_tool) -> None:
+    generated(release, fake_tool)
+    assert finalize(release).returncode == 0
+    (release / gen.EVIDENCE).unlink()
+    write = [
+        f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n"
+        for p in sorted(release.iterdir()) if p.name != "SHA256SUMS"
+    ]
+    (release / "SHA256SUMS").write_text("".join(write), encoding="utf-8")
+    with pytest.raises(gen.SbomError, match="REPRODUCIBILITY.json is missing or empty"):
+        gen.validate_bundle(release, VERSION)
+
+
+def test_a_manifest_that_omits_the_published_evidence_fails(release, fake_tool) -> None:
+    generated(release, fake_tool)
+    assert finalize(release).returncode == 0
+    manifest = release / "SHA256SUMS"
+    kept = [line for line in manifest.read_text().splitlines() if gen.EVIDENCE not in line]
+    manifest.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    with pytest.raises(gen.SbomError, match="must cover every published file"):
+        gen.validate_checksums(release)
+
+
+def test_the_bash_finalizer_requires_the_published_evidence(release, fake_tool) -> None:
+    generated(release, fake_tool)
+    done = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts" / "check_release_artifacts.sh"), "--finalize-release-assets",
+         str(release.parent)],
+        capture_output=True, text=True, check=False,
+    )
+    assert done.returncode == 1 and "missing release asset: REPRODUCIBILITY.json" in done.stderr
+    assert not (release / "SHA256SUMS").exists()
+    (release / gen.EVIDENCE).write_bytes(b"")
+    done = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts" / "check_release_artifacts.sh"), "--finalize-release-assets",
+         str(release.parent)],
+        capture_output=True, text=True, check=False,
+    )
+    assert done.returncode == 1 and "release asset is empty: REPRODUCIBILITY.json" in done.stderr

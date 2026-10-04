@@ -14,8 +14,8 @@ closed. Identities are pinned in this file:
 * signer workflow ``SSobol77/pysh/.github/workflows/release-artifacts.yml``;
 * the exact source commit (``--source-digest``, the Actions ``GITHUB_SHA``).
 
-For every one of the eleven public release files it verifies the SLSA provenance
-attestation. For each of the five package artifacts it additionally verifies the signed
+For every one of the twelve public release files (five packages, five SBOMs,
+``REPRODUCIBILITY.json`` and ``SHA256SUMS``) it verifies the SLSA provenance attestation. For each of the five package artifacts it additionally verifies the signed
 SPDX 2.3 SBOM attestation and requires the attested predicate to equal the local
 ``.spdx.json`` document that will be published.
 
@@ -195,8 +195,8 @@ class Verifier:
     # -- whole bundle ---------------------------------------------------------------------------------------
 
     def verify_bundle(self, assets_dir: Path, version: str) -> int:
-        """All eleven provenance attestations and all five SBOM attestations; fail fast."""
-        bundle = subjects.prepare(assets_dir, version)
+        """All twelve provenance attestations and all five SBOM attestations; fail fast."""
+        bundle = subjects.prepare(assets_dir, version, self.source_digest)
         manifest_subjects = bundle.manifest_subjects()
         for subject in manifest_subjects:
             self.verify_provenance(assets_dir / subject.name, subject.sha256, manifest_subjects)

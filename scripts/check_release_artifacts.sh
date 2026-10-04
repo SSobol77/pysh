@@ -29,9 +29,10 @@ cd "${REPO_ROOT}"
 #
 # --finalize-release-assets [ARTIFACT_DIR]: the last step of the release-asset
 # pipeline (Issue #51). It runs AFTER scripts/generate_release_sboms.py has added
-# the five SPDX SBOMs to ARTIFACT_DIR/release-assets, and (re)writes the one
-# public SHA256SUMS over every published release file except SHA256SUMS itself
-# (packages and SBOMs), then verifies it. It never builds, never generates an
+# the five SPDX SBOMs and the reproducibility evidence (REPRODUCIBILITY.json) to
+# ARTIFACT_DIR/release-assets, and (re)writes the one public SHA256SUMS over every
+# published release file except SHA256SUMS itself (packages, SBOMs and the evidence),
+# then verifies it. It never builds, never generates an
 # SBOM and never uploads anything.
 CONTRACT_ONLY=0
 FINALIZE_RELEASE_ASSETS=0
@@ -88,6 +89,7 @@ EXPECTED_RPM="${PKG_NAME}-${VERSION}-${PKG_RELEASE}.noarch.rpm"
 EXPECTED_FREEBSD_PKG="${PKG_NAME}-${VERSION}.pkg"
 
 SBOM_SUFFIX=".spdx.json"
+EVIDENCE_FILE="REPRODUCIBILITY.json"
 
 WHEEL_PATH="${DIST_DIR}/${EXPECTED_WHEEL_NAME}"
 DEB_PATH="${DIST_DIR}/os/deb/${EXPECTED_DEB}"
@@ -135,6 +137,16 @@ if [ "${FINALIZE_RELEASE_ASSETS}" -eq 1 ]; then
             ALLOWED+=("${required}")
         done
     done
+    # The reproducibility evidence (Issue #51 Slice 4) is a published release asset that
+    # exists before this step, so it is covered by the final SHA256SUMS like every other file.
+    if [ ! -f "${ASSETS}/${EVIDENCE_FILE}" ]; then
+        echo "check_release_artifacts.sh: missing release asset: ${EVIDENCE_FILE}" >&2
+        missing=1
+    elif [ ! -s "${ASSETS}/${EVIDENCE_FILE}" ]; then
+        echo "check_release_artifacts.sh: release asset is empty: ${EVIDENCE_FILE}" >&2
+        missing=1
+    fi
+    ALLOWED+=("${EVIDENCE_FILE}")
     for path in "${ASSETS}"/*; do
         base="$(basename "${path}")"
         found=0
@@ -168,7 +180,7 @@ if [ "${FINALIZE_RELEASE_ASSETS}" -eq 1 ]; then
     if [ "${missing}" -ne 0 ]; then
         exit 1
     fi
-    echo "==> Final SHA256SUMS covers ${#PUBLISHED[@]} published files (packages + SBOMs), excluding itself."
+    echo "==> Final SHA256SUMS covers ${#PUBLISHED[@]} published files (packages + SBOMs + evidence), excluding itself."
     exit 0
 fi
 

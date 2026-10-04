@@ -25,9 +25,10 @@ and never becomes a PySH runtime dependency.
 ## Scope and implementation status
 
 **Issue #51 defines the supply-chain contract. SPDX 2.3 JSON SBOM generation
-(Slice 2) and keyless provenance and SBOM attestations with verification before
-upload (Slice 3) are implemented; reproducibility measurement and the final evidence
-run are implemented in later slices.** Attestations are created and verified only by
+(Slice 2), keyless provenance and SBOM attestations with verification before upload
+(Slice 3) and per-artifact reproducibility measurement with published evidence
+(Slice 4) are implemented; the final Tier-1 evidence run is implemented in a later
+slice.** Attestations are created and verified only by
 the release workflow when it runs on GitHub; nothing in this repository creates one
 locally, and an SBOM is not provenance.
 
@@ -36,7 +37,7 @@ locally, and an SBOM is not provenance.
 | Policy, anchors and structural contract check | IMPLEMENTED (Slice 1) |
 | SPDX 2.3 JSON SBOM generation | IMPLEMENTED (Slice 2) |
 | Keyless provenance and SPDX SBOM attestations, verified before upload | IMPLEMENTED (Slice 3) |
-| Reproducibility measurement | DEFERRED (Slice 4) |
+| Reproducibility measurement | IMPLEMENTED (Slice 4) |
 | Final Tier-1 dry-run release evidence | DEFERRED (Slice 5) |
 
 Non-goals. This contract does not:
@@ -72,7 +73,10 @@ version-specific file names, and no supply-chain layer may rename a subject.
 
 `SHA256SUMS` is an integrity manifest, not a package payload, so it has no
 package-content SBOM but is still an attested release subject. Published SBOM files
-are themselves release subjects once they are published as release assets.
+are themselves release subjects once they are published as release assets, and so is
+the published reproducibility evidence `REPRODUCIBILITY.json`, which is assurance
+metadata rather than an artifact family: it has no SBOM and no reproducibility status
+of its own.
 
 <a id="PYSH-SC-TRUST"></a>
 
@@ -148,11 +152,12 @@ attestation bound to:
 
 **Subjects** are derived from the final, already-validated `SHA256SUMS` by
 `scripts/prepare_attestation_subjects.py`, never from an independent file-name list
-that could drift. The release has eleven public files and all eleven are provenance
+that could drift. The release has twelve public files and all twelve are provenance
 subjects:
 
 - one SLSA provenance attestation takes its subjects from `SHA256SUMS`: the five
-  package artifacts and the five `.spdx.json` SBOM files, with exact names and digests;
+  package artifacts, the five `.spdx.json` SBOM files and `REPRODUCIBILITY.json`,
+  with exact names and digests (eleven entries);
 - `SHA256SUMS`, which intentionally does not hash itself, has its own separate
   provenance attestation (subject name `SHA256SUMS`, digest computed from the file).
 
@@ -163,7 +168,7 @@ file is never itself the subject of an SBOM attestation; as a published file it 
 covered by `SHA256SUMS` and by the provenance attestation.
 
 **Verification before upload**: after the last attestation is created,
-`scripts/verify_release_attestations.py` runs `gh attestation verify` for all eleven
+`scripts/verify_release_attestations.py` runs `gh attestation verify` for all twelve
 provenance attestations and all five SBOM attestations, pinned to the repository, the
 signer workflow and the exact source commit, and requires each attested SBOM predicate
 to be semantically equal to the local `.spdx.json` that will be published. A missing,
@@ -185,7 +190,7 @@ Three independent controls are required, and none substitutes for another:
 
 1. **Checksum integrity**: `sha256sum -c SHA256SUMS`. The published `SHA256SUMS` covers
    every published release file except `SHA256SUMS` itself, that is the five package
-   artifacts and their five SBOMs. It is written only after the complete asset set
+   artifacts, their five SBOMs and `REPRODUCIBILITY.json`. It is written only after the complete asset set
    exists (a preliminary manifest of the packages is replaced), so it never lists
    itself.
 2. **Provenance verification**: the attestation is verified against the expected
@@ -291,11 +296,89 @@ Reproducibility is measured, never assumed. The only valid statuses are:
 - `NOT_YET_MEASURED`
 - `PLATFORM_BLOCKED`
 
-A `NON_REPRODUCIBLE` result is a measured result to be documented with its known
-source of variance and release impact. A check may become release-blocking only
-after its policy classification is defined. Measurement evidence records the source
-commit, canonical basename, build A and build B SHA256, the equality result, the
-relevant platform and tool versions, and the classification.
+**Definition.** An artifact is `REPRODUCIBLE` only when the same source commit, the
+same declared build contract and toolchain, and two independent clean build roots
+produce byte-for-byte identical public artifacts. The comparison is SHA-256 equality of
+the two files, computed by the measurement harness itself. Semantic equivalence is never
+reproducibility. If the bytes differ the result is `NON_REPRODUCIBLE`, a measured result
+that records the reason (how the archives differ) and whose release impact is reviewed in
+the readiness audit (#35). `PLATFORM_BLOCKED` means the host genuinely cannot build the
+family; `NOT_YET_MEASURED` means no A/B build was attempted. An unattempted build is never
+reported as reproducible. A build that fails is an error, not a classification.
+
+**A/B methodology.** `scripts/measure_release_reproducibility.py` extracts the exact
+source commit twice (`git archive`, or a host-provided archive of that commit) into two
+separate source/build roots, checks that both trees are identical, and runs the existing
+repository builder in each: `scripts/build_pysh_package.sh` (wheel and sdist, measured
+and classified independently), `scripts/build_deb.sh`, `scripts/build_rpm.sh` and
+`scripts/build_freebsd_pkg.sh`. The extracted tree has the file modes a `git checkout` creates
+under umask 022 (`git archive` records group-writable modes that a checkout does not have).
+The two builds share no `dist/`, `build/`, staging tree or output file, run under a private
+home and temporary directory with a fixed locale, time zone and umask (022, also the default
+of GitHub-hosted runners: package directory modes depend on it), and are bounded by a timeout. Filenames reported by a builder are never trusted: the
+canonical names are validated. No artifact is renamed, copied between builds or rewritten
+after the build.
+
+**SOURCE_DATE_EPOCH policy.** The only deterministic build epoch is the commit timestamp of
+the exact source commit (`git log -1 --format=%ct`), never wall-clock time. It was adopted
+after measurement: without it, two independent Debian builds differ because `dpkg-deb`
+records the build-time modification times of the staging directories; with it the clamped
+timestamps no longer vary. The release workflow exports the same epoch for the shipped
+builds. It changes only timestamps, no package contents, and no output is normalized after
+the build. Whether the RPM and FreeBSD builders honor it is decided by their measured
+results, not assumed.
+
+**Platform requirements.** The RPM measurement needs a real `rpmbuild`; without one the
+result is `PLATFORM_BLOCKED`, never a substitute. A FreeBSD `.pkg` is measured only by a
+native FreeBSD builder (the FreeBSD 14.4 reference job) with the real pkg tooling; on any
+other host the only valid result is `PLATFORM_BLOCKED`. Placeholder, renamed or emulated
+packages are never evidence.
+
+**Resolved toolchain.** The evidence records the exact versions that performed the build,
+separately from what pyproject.toml merely declares. For wheel and sdist the build backend
+floats within its declared requirement (`declared_requirements`), so the real `hatchling`
+resolved version is read from the pip log of the isolated build environments (`PIP_LOG`) and
+corroborated by the `Generator` line of the built wheel; builds that resolved different
+versions, or a version that cannot be proven, are errors. A measured result must carry exact
+resolved versions: Python, `build` and `hatchling` for wheel and sdist, `dpkg-deb` for the
+Debian package, `rpmbuild` for the RPM, and `pkg` and Python for the FreeBSD package. A
+requirement such as `>=1.27.0` is never a version.
+
+**Release-byte binding.** A measurement of two build roots says nothing about the artifact
+that ships unless the two are tied together. With `--release-dir` the harness hashes the
+already-staged public artifact (it is only read, never copied into the release tree) and
+records `release_sha256`, `release_matches_build_a` and `release_matches_build_b`. The release
+artifact must equal build A or build B: for `REPRODUCIBLE` it therefore equals both, for
+`NON_REPRODUCIBLE` it must equal at least one measured output. If it equals neither, the
+evidence does not describe the shipped bytes and the measurement fails. Local evidence may
+omit the binding only when measured before a release artifact exists, and such evidence never
+satisfies final mode.
+
+**Evidence.** Each result records the family, the canonical artifact name, the source
+commit, the A and B SHA-256, the equality result, the classification, the platform,
+architecture and Python version, the tool versions, the epoch and its origin, the source
+tree digest of both builds, the independence of their roots and outputs, the release-byte binding, and a diagnostic.
+`scripts/check_reproducibility_evidence.py` validates the schema (version 1) and the
+semantics: the classification cannot contradict the hashes, families are unique and known,
+the source commit is bound, and a RPM or FreeBSD result needs the real tooling and platform, and tool versions must be exact.
+Local mode accepts `PLATFORM_BLOCKED` and `NOT_YET_MEASURED` with a diagnostic; final mode
+requires all five families to be measured (`REPRODUCIBLE` or `NON_REPRODUCIBLE`) on their
+required platform and rejects `PLATFORM_BLOCKED` and `NOT_YET_MEASURED`.
+
+**Publication.** The merged final evidence is published as `REPRODUCIBILITY.json`. It is
+created after the SBOMs and before the final `SHA256SUMS`, so it is listed in the checksums
+and is a provenance subject; it does not depend on the provenance bundle. The Linux job
+measures wheel, sdist, deb and rpm; the native FreeBSD reference job measures `freebsd_pkg`;
+the two are combined only when both succeeded.
+
+**Release policy.** Measurement must exist for every family and a missing measurement blocks
+the release. `REPRODUCIBLE` is preferred; `NON_REPRODUCIBLE` is permitted only with a
+documented reason, no evidence of source or artifact substitution, a reviewed impact in #35,
+and a shipped artifact that still equals a measured build (a family whose builds differ from
+one another and from the shipped bytes cannot yield final evidence). Reproducibility and provenance are independent controls: provenance says who built the
+artifact from which source, reproducibility says whether the build can be repeated, and
+neither implies the other. No claim that PySH artifacts are reproducible is made beyond
+what the recorded measurements show; the final Tier-1 measurement is Slice 5.
 
 | Family | A/B build environment | Status |
 | --- | --- | --- |
@@ -304,6 +387,9 @@ relevant platform and tool versions, and the classification.
 | `deb` | controlled Debian builder | NOT_YET_MEASURED |
 | `rpm` | controlled Fedora/RPM builder | NOT_YET_MEASURED |
 | `freebsd_pkg` | native FreeBSD reference builder | NOT_YET_MEASURED |
+
+The status column is the status of the final Tier-1 release evidence (Slice 5); a local
+developer measurement never changes it.
 
 <a id="PYSH-SC-PIPELINE"></a>
 
@@ -317,17 +403,18 @@ freebsd-pkg -> build-and-validate -> dist/release-assets -> upload -> GitHub Rel
 ```
 
 The release flow is strictly ordered, and the hand-off to the upload job happens only
-after step 8:
+after step 9:
 
 1. build
 2. package smoke and static validation
 3. stage canonical release artifacts
 4. SBOM generation
-5. SHA256SUMS finalization
-6. artifact-set validation
-7. provenance and attestation generation
-8. attestation verification against the exact subjects
-9. upload of the validated release bundle
+5. reproducibility evidence (A/B measurement, combined into `REPRODUCIBILITY.json`)
+6. SHA256SUMS finalization
+7. artifact-set validation
+8. provenance and attestation generation
+9. attestation verification against the exact subjects
+10. upload of the validated release bundle
 
 No SBOM generator, attestation helper or signing action may upload release assets
 itself; doing so would bypass the validate-to-upload boundary.

@@ -67,9 +67,13 @@ provenance, `SHA256SUMS`) may use; see
 generated for every package artifact (Issue #51 Slice 2) and named by appending
 `.spdx.json` to the artifact basename, for example
 `pysh-shell_X.Y.Z-1_all.deb.spdx.json`. Keyless GitHub OIDC provenance
-attestations (all eleven public release files) and signed SPDX SBOM attestations
+attestations (all twelve public release files) and signed SPDX SBOM attestations
 (the five packages) are created and verified by the release workflow before the
-bundle is handed to the upload job (Issue #51 Slice 3).
+bundle is handed to the upload job (Issue #51 Slice 3). The public set also contains
+`REPRODUCIBILITY.json`, the per-artifact reproducibility evidence (Issue #51 Slice 4):
+two independent clean builds of each family from the exact release commit, compared
+byte-for-byte by SHA-256, built with `SOURCE_DATE_EPOCH` set to the commit timestamp.
+`scripts/check_reproducibility_evidence.py` validates it.
 
 ## Output directories
 
@@ -93,6 +97,7 @@ dist/
 │   ├── pysh-shell_X.Y.Z-1_all.deb.spdx.json
 │   ├── pysh-shell-X.Y.Z-1.noarch.rpm.spdx.json
 │   ├── pysh-shell-X.Y.Z.pkg.spdx.json
+│   ├── REPRODUCIBILITY.json
 │   └── SHA256SUMS
 └── os/
     ├── deb/
@@ -230,9 +235,10 @@ launcher, and smoke interpreter together; it does not change OS ABI.
 ### Verify checksums
 
 GitHub Release assets are uploaded from `dist/release-assets/` as flat files:
-wheel, sdist, `.deb`, `.rpm`, `.pkg`, their five `.spdx.json` SBOMs, and
-`SHA256SUMS`. The release-facing `SHA256SUMS` contains flat filenames only and
-covers every published file except `SHA256SUMS` itself (packages and SBOMs); it
+wheel, sdist, `.deb`, `.rpm`, `.pkg`, their five `.spdx.json` SBOMs,
+`REPRODUCIBILITY.json`, and `SHA256SUMS`. The release-facing `SHA256SUMS` contains
+flat filenames only and covers every published file except `SHA256SUMS` itself
+(packages, SBOMs and the evidence); it
 is written once, after the complete set exists
 (`bash scripts/check_release_artifacts.sh --finalize-release-assets`). After downloading all release
 assets into one directory, checksum verification requires no directory
@@ -243,7 +249,7 @@ gh release download vX.Y.Z
 sha256sum -c SHA256SUMS
 ```
 
-Checksums prove integrity only. Each of the eleven release files also has a keyless
+Checksums prove integrity only. Each of the twelve release files also has a keyless
 GitHub OIDC provenance attestation, and each package has a signed SPDX SBOM
 attestation:
 
