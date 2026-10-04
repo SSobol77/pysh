@@ -1723,3 +1723,260 @@ def test_the_baseline_disclaimer_in_the_status_table_section_is_required(repo: P
     assert mutated != section, f"fixture drift: {phrase!r}"
     path.write_text(text.replace(section, mutated), encoding="utf-8")
     assert "EVID-BASELINE" in codes(repo)
+
+
+# --- PR #75 repair 2: checkout credential enforcement bound to real YAML step boundaries -----------------------------------------
+
+CHECKOUT_SHA = PINS["actions/checkout"]
+
+
+def reindent_steps(text: str, delta: int) -> str:
+    """Re-indent every job's ``steps:`` sequence (items and everything under them) by ``delta`` spaces.
+
+    The result is structurally valid YAML with the same meaning; only the steps' indentation changes.
+    """
+    out: list[str] = []
+    inside = False
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip(" "))
+        if stripped and inside and indent <= 4:
+            inside = False
+        if inside and stripped:
+            line = " " * (indent + delta) + line.lstrip(" ")
+        if re.fullmatch(r" {4}steps:\s*", line.rstrip("\n")):
+            inside = True
+        out.append(line)
+    return "".join(out)
+
+
+def checkout_violations(root: Path) -> list[contract.Violation]:
+    return [v for v in contract.check_attestation_implementation(root) if v.code == "ATT-CHECKOUT"]
+
+
+def write_release_workflow(root: Path, text: str) -> None:
+    path = root / RELEASE_WF
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def mini_workflow(steps_a: str, steps_b: str | None = None, *, indent: int = 6) -> str:
+    """A minimal workflow whose jobs hold the given step blocks (a block is a list of lines at column 0)."""
+    def render(block: str) -> str:
+        return "".join(" " * indent + line + "\n" if line.strip() else "\n" for line in block.strip("\n").splitlines())
+
+    text = "name: x\non: workflow_dispatch\npermissions:\n  contents: read\njobs:\n  alpha:\n    runs-on: ubuntu-latest\n    steps:\n"
+    text += render(steps_a)
+    if steps_b is not None:
+        text += "  beta:\n    runs-on: ubuntu-latest\n    steps:\n" + render(steps_b)
+    return text
+
+
+SECURE = f"- name: Checkout\n  uses: actions/checkout@{CHECKOUT_SHA} # actions/checkout v5\n  with:\n    persist-credentials: false\n"
+NO_CREDS = f"- name: Checkout\n  uses: actions/checkout@{CHECKOUT_SHA} # actions/checkout v5\n"
+CREDS_TRUE = f"- name: Checkout\n  uses: actions/checkout@{CHECKOUT_SHA}\n  with:\n    persist-credentials: true\n"
+OTHER = "- name: Build\n  run: echo build\n"
+
+
+# -- positives --
+
+
+def test_the_current_release_workflow_passes_the_checkout_rule(repo: Path) -> None:
+    assert checkout_violations(repo) == []
+    assert [v for v in contract.run_checks(repo) if v.code == "ATT-CHECKOUT"] == []
+
+
+def test_a_checkout_at_the_current_indentation_with_the_setting_passes(tmp_path: Path) -> None:
+    write_release_workflow(tmp_path, mini_workflow(SECURE + OTHER))
+    assert checkout_violations(tmp_path) == []
+
+
+@pytest.mark.parametrize("indent", [4, 8, 10])
+def test_the_same_checkout_step_at_another_valid_yaml_indentation_passes(tmp_path: Path, indent: int) -> None:
+    write_release_workflow(tmp_path, mini_workflow(SECURE + OTHER, SECURE, indent=indent))
+    assert checkout_violations(tmp_path) == []
+
+
+@pytest.mark.parametrize("delta", [-2, 2, 4])
+def test_the_real_release_workflow_reindented_end_to_end_still_passes(repo: Path, delta: int) -> None:
+    text = reindent_steps((repo / RELEASE_WF).read_text(encoding="utf-8"), delta)
+    assert text != (repo / RELEASE_WF).read_text(encoding="utf-8")
+    write_release_workflow(repo, text)
+    assert checkout_violations(repo) == []
+    assert [v for v in contract.run_checks(repo) if v.code.startswith("ATT-")] == []
+
+
+def test_multiple_checkouts_at_different_valid_step_indentations_each_pass(tmp_path: Path) -> None:
+    first = mini_workflow(SECURE + OTHER, indent=6)
+    second = mini_workflow(SECURE, indent=8)
+    combined = first + second.split("jobs:\n", 1)[1].replace("  alpha:", "  gamma:")
+    write_release_workflow(tmp_path, combined)
+    assert checkout_violations(tmp_path) == []
+    assert len([s for body in contract.split_jobs(combined).values() for s in contract._steps(body)]) == 3
+
+
+def test_steps_are_returned_in_source_order_with_increasing_offsets_relative_to_the_job(repo: Path) -> None:
+    code = contract._code((repo / RELEASE_WF).read_text(encoding="utf-8"))
+    for name, body in contract.split_jobs(code).items():
+        steps = contract._steps(body)
+        offsets = [offset for offset, _ in steps]
+        assert offsets == sorted(offsets) and len(set(offsets)) == len(offsets), name
+        for offset, text in steps:
+            assert body[offset:offset + len(text)] == text and text.lstrip(" ").startswith("- ")
+
+
+def test_the_attestation_steps_and_their_order_are_unchanged(repo: Path) -> None:
+    code = contract._code((repo / RELEASE_WF).read_text(encoding="utf-8"))
+    build = contract.split_jobs(code)["build-and-validate"]
+    steps = contract._steps(build)
+    attest = [(offset, text) for offset, text in steps if re.search(r"uses:\s*actions/attest@", text)]
+    assert len(attest) == 7 and [o for o, _ in attest] == sorted(o for o, _ in attest)
+    names = [re.search(r"name: (.+)", text).group(1) for _, text in attest]
+    assert names[0].startswith("Attest provenance for the SHA256SUMS subjects") and names[1] == "Attest provenance for SHA256SUMS itself"
+    assert names[2:] == [f"Attest SPDX SBOM ({family})" for family in ("wheel", "sdist", "deb", "rpm", "freebsd_pkg")]
+    order = [build.find(needle) for needle in (
+        "--finalize-release-assets", "validate-bundle", "prepare_attestation_subjects.py", "uses: actions/attest@",
+        "verify_release_attestations.py", "name: release-assets",
+    )]
+    assert order == sorted(order) and all(position >= 0 for position in order)
+    assert [v for v in contract.run_checks(repo) if v.code in {"ATT-ORDER", "ATT-WORKFLOW", "ATT-SUBJECTS", "ATT-SBOM-PAIR"}] == []
+
+
+def test_the_parser_matches_the_previous_fixed_indentation_implementation_on_the_real_workflow(repo: Path) -> None:
+    def previous(job: str) -> list[tuple[int, str]]:
+        starts = [m.start() for m in re.finditer(r"^      - ", job, re.M)]
+        return [(start, job[start:(starts[i + 1] if i + 1 < len(starts) else len(job))]) for i, start in enumerate(starts)]
+
+    code = contract._code((repo / RELEASE_WF).read_text(encoding="utf-8"))
+    for body in contract.split_jobs(code).values():
+        assert contract._steps(body) == previous(body)
+
+
+# -- negatives --
+
+
+@pytest.mark.parametrize("indent", [4, 6, 8, 10])
+def test_a_checkout_without_persist_credentials_fails_at_any_indentation(tmp_path: Path, indent: int) -> None:
+    write_release_workflow(tmp_path, mini_workflow(NO_CREDS + OTHER, indent=indent))
+    assert len(checkout_violations(tmp_path)) == 1
+
+
+@pytest.mark.parametrize("indent", [4, 8])
+def test_a_checkout_with_persist_credentials_true_fails_at_any_indentation(tmp_path: Path, indent: int) -> None:
+    write_release_workflow(tmp_path, mini_workflow(CREDS_TRUE, indent=indent))
+    assert len(checkout_violations(tmp_path)) == 1
+
+
+def test_a_secure_first_checkout_does_not_cover_an_insecure_second_one(tmp_path: Path) -> None:
+    write_release_workflow(tmp_path, mini_workflow(SECURE + NO_CREDS + OTHER, indent=8))
+    violations = checkout_violations(tmp_path)
+    assert len(violations) == 1
+
+
+def test_an_insecure_first_checkout_is_not_covered_by_a_secure_second_one(tmp_path: Path) -> None:
+    write_release_workflow(tmp_path, mini_workflow(NO_CREDS + SECURE + OTHER, indent=8))
+    assert len(checkout_violations(tmp_path)) == 1
+
+
+def test_a_secure_checkout_in_another_job_does_not_cover_an_insecure_one(tmp_path: Path) -> None:
+    write_release_workflow(tmp_path, mini_workflow(SECURE, NO_CREDS))
+    violations = checkout_violations(tmp_path)
+    assert len(violations) == 1 and "'beta'" in violations[0].message
+
+
+def test_persist_credentials_false_in_a_sibling_step_does_not_satisfy_the_checkout(tmp_path: Path) -> None:
+    sibling = "- name: Other\n  uses: some/action@" + "3" * 40 + "\n  with:\n    persist-credentials: false\n"
+    write_release_workflow(tmp_path, mini_workflow(NO_CREDS + sibling, indent=8))
+    assert len(checkout_violations(tmp_path)) == 1
+    write_release_workflow(tmp_path, mini_workflow(sibling + NO_CREDS))
+    assert len(checkout_violations(tmp_path)) == 1
+
+
+def test_persist_credentials_false_inside_a_run_script_does_not_satisfy_the_checkout(tmp_path: Path) -> None:
+    script = f"- name: Checkout\n  uses: actions/checkout@{CHECKOUT_SHA}\n  env:\n    NOTE: persist-credentials false\n"
+    block_scalar = f"- name: Checkout\n  uses: actions/checkout@{CHECKOUT_SHA}\n  run: |\n    echo 'persist-credentials: false'\n    persist-credentials: false\n"
+    for block in (script, block_scalar):
+        write_release_workflow(tmp_path, mini_workflow(block))
+        assert len(checkout_violations(tmp_path)) == 1, block
+
+
+def test_a_comment_cannot_satisfy_the_checkout(tmp_path: Path) -> None:
+    commented = f"- name: Checkout\n  uses: actions/checkout@{CHECKOUT_SHA}\n  # persist-credentials: false\n  with:\n    ref: main # persist-credentials: false\n"
+    write_release_workflow(tmp_path, mini_workflow(commented))
+    assert len(checkout_violations(tmp_path)) == 1
+
+
+def test_checkout_like_text_inside_a_run_block_is_not_a_step_level_checkout(tmp_path: Path) -> None:
+    run_text = "- name: Explain\n  run: |\n    # in a script, not a step\n    uses: actions/checkout@v9\n    - uses: actions/checkout@v9\n"
+    write_release_workflow(tmp_path, mini_workflow(run_text + SECURE, indent=8))
+    assert checkout_violations(tmp_path) == []
+    steps = [text for body in contract.split_jobs(contract._code((tmp_path / RELEASE_WF).read_text(encoding="utf-8"))).values() for _, text in contract._steps(body)]
+    assert len(steps) == 2 and sum(contract._is_checkout_step(text) for text in steps) == 1
+
+
+def test_a_deeper_nested_list_item_is_not_another_step(tmp_path: Path) -> None:
+    nested = (
+        "- name: Matrixish\n  with:\n    paths:\n      - uses: actions/checkout@v9\n      - other\n  run: echo hi\n"
+    )
+    write_release_workflow(tmp_path, mini_workflow(nested + SECURE, indent=6))
+    code = contract._code((tmp_path / RELEASE_WF).read_text(encoding="utf-8"))
+    steps = contract._steps(contract.split_jobs(code)["alpha"])
+    assert len(steps) == 2  # the nested list items are part of the first step
+    assert checkout_violations(tmp_path) == []
+
+
+def test_a_mutable_checkout_still_fails_the_pin_rule_separately(repo: Path) -> None:
+    write_release_workflow(repo, mini_workflow("- name: Checkout\n  uses: actions/checkout@v5\n  with:\n    persist-credentials: false\n"))
+    violations = contract.check_attestation_implementation(repo)
+    assert any(v.code == "ATT-PIN" and "actions/checkout@v5" in v.message for v in violations)
+    assert not [v for v in violations if v.code == "ATT-CHECKOUT"]
+
+
+def test_a_valid_sha_checkout_without_the_setting_still_fails_the_checkout_rule(tmp_path: Path) -> None:
+    write_release_workflow(tmp_path, mini_workflow("- name: Checkout\n  uses: actions/checkout@" + "4" * 40 + "\n"))
+    violations = contract.check_attestation_implementation(tmp_path)
+    assert [v.code for v in violations if v.code in {"ATT-PIN", "ATT-CHECKOUT"}] == ["ATT-CHECKOUT"]
+
+
+def test_flow_style_steps_cannot_hide_a_checkout(tmp_path: Path) -> None:
+    flow = f"name: x\non: workflow_dispatch\njobs:\n  alpha:\n    runs-on: ubuntu-latest\n    steps: [{{uses: actions/checkout@{CHECKOUT_SHA}}}]\n"
+    write_release_workflow(tmp_path, flow)
+    assert any("block sequence" in v.message for v in checkout_violations(tmp_path))
+
+
+# -- the CodeRabbit bypass itself, end to end --
+
+
+@pytest.mark.parametrize("delta", [-2, 2, 4])
+def test_reindenting_the_steps_no_longer_hides_an_insecure_checkout(repo: Path, delta: int) -> None:
+    """The original defect: a fixed six-space step indentation let a re-indented checkout escape the rule."""
+    original = (repo / RELEASE_WF).read_text(encoding="utf-8")
+    secured = reindent_steps(original, delta)
+    insecure = re.sub(r"\n *with:\n *persist-credentials: false", "", secured, count=1)
+    assert insecure != secured
+    write_release_workflow(repo, insecure)
+    violations = checkout_violations(repo)
+    assert len(violations) == 1 and "persist-credentials: false" in violations[0].message
+    assert "ATT-CHECKOUT" in {v.code for v in contract.run_checks(repo)}
+
+
+@pytest.mark.parametrize("delta", [-2, 4])
+def test_reindenting_the_steps_with_persist_credentials_true_is_detected_end_to_end(repo: Path, delta: int) -> None:
+    secured = reindent_steps((repo / RELEASE_WF).read_text(encoding="utf-8"), delta)
+    insecure = secured.replace("persist-credentials: false", "persist-credentials: true", 1)
+    write_release_workflow(repo, insecure)
+    assert len(checkout_violations(repo)) == 1
+
+
+def test_the_second_checkout_of_the_real_workflow_is_enforced_independently(repo: Path) -> None:
+    text = (repo / RELEASE_WF).read_text(encoding="utf-8")
+    matches = list(re.finditer(r"\n *with:\n *persist-credentials: false", text))
+    assert len(matches) == 2
+    second_removed = text[:matches[1].start()] + text[matches[1].end():]
+    write_release_workflow(repo, second_removed)
+    violations = checkout_violations(repo)
+    assert len(violations) == 1 and "'build-and-validate'" in violations[0].message
+    first_removed = text[:matches[0].start()] + text[matches[0].end():]
+    write_release_workflow(repo, first_removed)
+    violations = checkout_violations(repo)
+    assert len(violations) == 1 and "'freebsd-pkg'" in violations[0].message

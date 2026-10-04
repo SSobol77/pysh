@@ -579,10 +579,116 @@ def _permissions(text: str, indent: int) -> dict[str, str] | None:
     return found
 
 
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
 def _steps(job: str) -> list[tuple[int, str]]:
-    """``(offset, text)`` of each step of a job body."""
-    starts = [m.start() for m in re.finditer(r"^      - ", job, re.M)]
-    return [(start, job[start:(starts[i + 1] if i + 1 < len(starts) else len(job))]) for i, start in enumerate(starts)]
+    """``(offset, text)`` of each step of a job body: a small indentation-aware YAML-subset parser.
+
+    The ``steps:`` key is located at its real indentation, and the indentation of its sequence items
+    is taken from the first item below it (YAML allows items at the key's own indentation or deeper).
+    Only items at exactly that indentation are steps: deeper lines (``with:``/``env:`` content, nested
+    lists, ``run: |`` block scalars) belong to the current step, and the sequence ends at the first
+    dedent or sibling key. Offsets are relative to ``job`` and increase in source order.
+    """
+    lines = job.splitlines(keepends=True)
+    offsets: list[int] = []
+    position = 0
+    for line in lines:
+        offsets.append(position)
+        position += len(line)
+    steps_line = -1
+    steps_indent = 0
+    for index, line in enumerate(lines):
+        match = re.match(r"^( *)steps:\s*$", line)
+        if match and (steps_line < 0 or len(match.group(1)) < steps_indent):
+            steps_line, steps_indent = index, len(match.group(1))
+    if steps_line < 0:
+        return []
+    first = -1
+    item_indent = 0
+    for index in range(steps_line + 1, len(lines)):
+        text = lines[index].strip()
+        if not text:
+            continue
+        if (text == "-" or text.startswith("- ")) and _indent(lines[index]) >= steps_indent:
+            first, item_indent = index, _indent(lines[index])
+        break
+    if first < 0:
+        return []
+    starts: list[int] = []
+    end = len(job)
+    for index in range(first, len(lines)):
+        text = lines[index].strip()
+        if not text:
+            continue
+        indent = _indent(lines[index])
+        if indent < item_indent or (indent == item_indent and not (text == "-" or text.startswith("- "))):
+            end = offsets[index]  # dedent or a sibling key: the steps sequence is over
+            break
+        if indent == item_indent:
+            starts.append(offsets[index])
+    return [(start, job[start:(starts[n + 1] if n + 1 < len(starts) else end)]) for n, start in enumerate(starts)]
+
+
+def _strip_comment(value: str) -> str:
+    return re.sub(r"\s+#.*$", "", value).strip()
+
+
+def _step_keys(step: str) -> dict[str, tuple[str, list[str]]]:
+    """Step-level keys of one parsed step as ``{key: (inline value, nested lines)}``.
+
+    Only keys at the step mapping's own indentation count; ``run:`` script lines, nested ``with:``
+    content and anything deeper are nested lines of their key and never step-level keys.
+    """
+    lines = step.splitlines()
+    head = re.match(r"^( *)-( +)(.*)$", lines[0]) if lines else None
+    if head is None:
+        return {}
+    key_indent = len(head.group(1)) + 1 + len(head.group(2))
+    lines[0] = " " * key_indent + head.group(3)
+    keys: dict[str, tuple[str, list[str]]] = {}
+    current: str | None = None
+    for line in lines:
+        if not line.strip():
+            if current is not None:
+                keys[current][1].append(line)
+            continue
+        indent = _indent(line)
+        if indent == key_indent:
+            match = re.match(r"^ *([A-Za-z0-9_.-]+):[ \t]*(.*)$", line)
+            current = match.group(1) if match else None
+            if match and current not in keys:
+                keys[current] = (_strip_comment(match.group(2)), [])
+            elif match is None:
+                current = None
+        elif indent > key_indent and current is not None:
+            keys[current][1].append(line)
+    return keys
+
+
+def _persists_credentials(step: str) -> bool:
+    """``False`` only when this step's own ``with:`` mapping sets ``persist-credentials: false``."""
+    inline, nested = _step_keys(step).get("with", ("", []))
+    value = None
+    if inline.startswith("{"):
+        braces = re.search(r"persist-credentials:\s*([^,}\s]+)", inline)
+        value = braces.group(1) if braces else None
+    else:
+        body = [line for line in nested if line.strip()]
+        if body:
+            indent = _indent(body[0])
+            for line in body:
+                match = re.match(r"^ *persist-credentials:[ \t]*(.*)$", line)
+                if match and _indent(line) == indent:
+                    value = _strip_comment(match.group(1))
+                    break
+    return value not in {"false", "'false'", '"false"'}
+
+
+def _is_checkout_step(step: str) -> bool:
+    return re.match(r"actions/checkout@", _step_keys(step).get("uses", ("", []))[0]) is not None
 
 
 def _check_permissions(code: str, jobs: dict[str, str]) -> list[Violation]:
@@ -644,11 +750,11 @@ def check_attestation_implementation(root: Path) -> list[Violation]:
         if re.fullmatch(r"[0-9a-f]{40}", ref) is None:
             out.append(Violation("ATT-PIN", f"{RELEASE_WORKFLOW}: {action}@{ref} must be pinned to a full 40-hex commit SHA"))
     for job_name, job_body in jobs.items():
+        if re.search(r"^ *steps:[ \t]*[^\s#]", job_body, re.M):
+            out.append(Violation("ATT-CHECKOUT", f"{RELEASE_WORKFLOW}: job {job_name!r} must declare its steps as a block sequence"))
         for _, step_text in _steps(job_body):
-            if re.search(r"uses:\s*actions/checkout@", step_text) and not re.search(
-                r"^\s+persist-credentials:\s*false\s*$", step_text, re.M
-            ):
-                out.append(Violation("ATT-CHECKOUT", f"{RELEASE_WORKFLOW}: the checkout step in job {job_name!r} must set persist-credentials: false"))
+            if _is_checkout_step(step_text) and _persists_credentials(step_text):
+                out.append(Violation("ATT-CHECKOUT", f"{RELEASE_WORKFLOW}: the checkout step in job {job_name!r} must set its own with: persist-credentials: false"))
 
     steps = _steps(build)
     attest = [(at, text) for at, text in steps if re.search(r"uses:\s*actions/attest@", text)]
