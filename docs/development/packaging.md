@@ -61,6 +61,20 @@ For version `X.Y.Z` and package release `1`:
 The build scripts and CI **fail** if produced `.deb`, `.rpm`, or `.pkg`
 filenames drift from the canonical names above.
 
+These names are the only subject names any supply-chain layer (SBOM,
+provenance, `SHA256SUMS`) may use; see
+[`supply-chain.md`](../security/supply-chain.md). SPDX 2.3 JSON SBOMs are
+generated for every package artifact (Issue #51 Slice 2) and named by appending
+`.spdx.json` to the artifact basename, for example
+`pysh-shell_X.Y.Z-1_all.deb.spdx.json`. Keyless GitHub OIDC provenance
+attestations (all twelve public release files) and signed SPDX SBOM attestations
+(the five packages) are created and verified by the release workflow before the
+bundle is handed to the upload job (Issue #51 Slice 3). The public set also contains
+`REPRODUCIBILITY.json`, the per-artifact reproducibility evidence (Issue #51 Slice 4):
+two independent clean builds of each family from the exact release commit, compared
+byte-for-byte by SHA-256, built with `SOURCE_DATE_EPOCH` set to the commit timestamp.
+`scripts/check_reproducibility_evidence.py` validates it.
+
 ## Output directories
 
 The local build layout keeps PyPI artifacts at `dist/` and OS packages under
@@ -78,6 +92,12 @@ dist/
 │   ├── pysh-shell_X.Y.Z-1_all.deb
 │   ├── pysh-shell-X.Y.Z-1.noarch.rpm
 │   ├── pysh-shell-X.Y.Z.pkg
+│   ├── pysh_shell-X.Y.Z-py3-none-any.whl.spdx.json
+│   ├── pysh_shell-X.Y.Z.tar.gz.spdx.json
+│   ├── pysh-shell_X.Y.Z-1_all.deb.spdx.json
+│   ├── pysh-shell-X.Y.Z-1.noarch.rpm.spdx.json
+│   ├── pysh-shell-X.Y.Z.pkg.spdx.json
+│   ├── REPRODUCIBILITY.json
 │   └── SHA256SUMS
 └── os/
     ├── deb/
@@ -215,8 +235,12 @@ launcher, and smoke interpreter together; it does not change OS ABI.
 ### Verify checksums
 
 GitHub Release assets are uploaded from `dist/release-assets/` as flat files:
-wheel, sdist, `.deb`, `.rpm`, `.pkg`, and `SHA256SUMS`. The release-facing
-`SHA256SUMS` contains flat filenames only. After downloading all release
+wheel, sdist, `.deb`, `.rpm`, `.pkg`, their five `.spdx.json` SBOMs,
+`REPRODUCIBILITY.json`, and `SHA256SUMS`. The release-facing `SHA256SUMS` contains
+flat filenames only and covers every published file except `SHA256SUMS` itself
+(packages, SBOMs and the evidence); it
+is written once, after the complete set exists
+(`bash scripts/check_release_artifacts.sh --finalize-release-assets`). After downloading all release
 assets into one directory, checksum verification requires no directory
 reconstruction:
 
@@ -224,6 +248,26 @@ reconstruction:
 gh release download vX.Y.Z
 sha256sum -c SHA256SUMS
 ```
+
+Checksums prove integrity only. Each of the twelve release files also has a keyless
+GitHub OIDC provenance attestation, and each package has a signed SPDX SBOM
+attestation:
+
+```bash
+gh attestation verify pysh-shell_X.Y.Z-1_all.deb \
+  --repo SSobol77/pysh \
+  --signer-workflow SSobol77/pysh/.github/workflows/release-artifacts.yml
+
+gh attestation verify pysh-shell_X.Y.Z-1_all.deb \
+  --repo SSobol77/pysh \
+  --signer-workflow SSobol77/pysh/.github/workflows/release-artifacts.yml \
+  --predicate-type https://spdx.dev/Document/v2.3
+```
+
+Add `--source-digest <release-source-SHA>` to pin the exact source commit. Checksum
+validation, provenance verification and SBOM verification are complementary and none
+replaces another; the offline trust-root procedure is in
+[`supply-chain.md`](../security/supply-chain.md).
 
 ## Install layout for `.deb` / `.rpm`
 
@@ -287,7 +331,7 @@ bash scripts/build_pysh_package.sh    # dist/*.whl + dist/*.tar.gz
 bash scripts/build_deb.sh             # dist/os/deb/pysh-shell_*-1_all.deb
 bash scripts/build_rpm.sh             # dist/os/rpm/pysh-shell-*-1.noarch.rpm
 sh scripts/build_freebsd_pkg.sh       # dist/os/freebsd/pysh-shell-X.Y.Z.pkg (native FreeBSD)
-bash scripts/check_release_artifacts.sh   # naming + local and flat SHA256SUMS
+bash scripts/check_release_artifacts.sh   # naming + local and flat (package-only) SHA256SUMS
 ```
 
 `scripts/build_rpm.sh` requires `rpmbuild` (Debian package: `rpm`).

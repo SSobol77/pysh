@@ -9,8 +9,12 @@ on:
     types: [published]
   workflow_dispatch:
 
+# Least privilege (Issue #51, Slice 3): the workflow default is read-only. Each job
+# below declares exactly what it needs; attestation and OIDC rights exist ONLY in
+# build-and-validate, and the only write to repository contents (the release upload)
+# exists ONLY in the upload job.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   freebsd-pkg:
@@ -37,13 +41,25 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout v5
+        with:
+          persist-credentials: false
+      # Issue #51 (Slice 4): the only deterministic build epoch is the commit timestamp of
+      # the exact source commit, never wall-clock time. The reference run also hands the VM
+      # an archive of that exact commit, so the native A/B measurement needs no git there.
+      - name: Derive SOURCE_DATE_EPOCH and the source archive from the release commit
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "${GITHUB_ENV}"
+          echo "PYSH_SOURCE_COMMIT=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          mkdir -p dist/reproducibility
+          git archive --format=tar --output dist/reproducibility/source.tar "${GITHUB_SHA}"
 
       - name: Build and inspect FreeBSD .pkg
-        uses: vmactions/freebsd-vm@v1
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # vmactions/freebsd-vm v1
         with:
           release: "${{ matrix.release }}"
           usesh: true
+          envs: "SOURCE_DATE_EPOCH PYSH_SOURCE_COMMIT"
           prepare: |
             pkg update -f
             pkg install -y python313
@@ -67,6 +83,18 @@ jobs:
             grep -E '^/usr/local/lib/pysh-shell/pysh(/|$)' \
               /tmp/pysh-freebsd-pkg-files
             sh scripts/smoke_freebsd_package.sh "${PKG_PATH}"
+            # Native reproducibility measurement (Issue #51, Slice 4): two independent
+            # builds of the same source commit with the real FreeBSD pkg tooling,
+            # reference package only. A failure to measure fails this job.
+            if [ "${{ matrix.reference-pkg }}" = "true" ]; then
+              python3.13 scripts/measure_release_reproducibility.py \
+                --family freebsd_pkg \
+                --source-archive dist/reproducibility/source.tar \
+                --source-commit "${PYSH_SOURCE_COMMIT}" \
+                --source-date-epoch "${SOURCE_DATE_EPOCH}" \
+                --python python3.13 \
+                --output dist/reproducibility/freebsd_pkg.json
+            fi
 
       - name: Verify FreeBSD .pkg artifact on host
         run: |
@@ -74,23 +102,45 @@ jobs:
           test -f "dist/os/freebsd/pysh-shell-${VERSION}.pkg"
 
       - name: Upload FreeBSD .pkg workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # actions/upload-artifact v4
         with:
           name: ${{ matrix.artifact }}
           path: dist/os/freebsd/pysh-shell-*.pkg
+          if-no-files-found: error
+
+      - name: Upload FreeBSD reproducibility evidence (reference package only)
+        if: ${{ matrix.reference-pkg }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # actions/upload-artifact v4
+        with:
+          name: freebsd-reproducibility-evidence
+          path: dist/reproducibility/freebsd_pkg.json
           if-no-files-found: error
 
   build-and-validate:
     name: Build artifacts & validate release contract
     runs-on: ubuntu-latest
     needs: freebsd-pkg
+    # Keyless attestation needs the GitHub OIDC token (id-token), the Artifact
+    # Attestations API (attestations) and the artifact metadata record
+    # (artifact-metadata). No contents: write, no packages, no other scope.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout v5
+        with:
+          persist-credentials: false
+      # Issue #51 (Slice 4): one deterministic build epoch for every build below and for the
+      # A/B measurement: the commit timestamp of the exact source commit, never wall-clock time.
+      - name: Derive SOURCE_DATE_EPOCH from the release source commit
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "${GITHUB_ENV}"
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # actions/setup-python v6
         with:
           python-version: "3.13"
 
@@ -130,13 +180,153 @@ jobs:
         run: bash scripts/smoke_rpm_package.sh dist/os/rpm/*.rpm
 
       - name: Download FreeBSD .pkg
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # actions/download-artifact v4
         with:
           name: freebsd-reference-pkg
           path: dist/os/freebsd
 
       - name: Verify canonical artifact names + stage flat release assets
         run: bash scripts/check_release_artifacts.sh
+
+      # Issue #51 (Slice 2): SPDX 2.3 JSON SBOMs for the five package artifacts,
+      # generated ONLY from the validated canonical bytes staged above. The SBOM
+      # tool is CI-only equipment pinned by version and archive SHA-256 inside
+      # scripts/generate_release_sboms.py; it never uploads anything. The sequence
+      # is: generate, validate completeness, write the final SHA256SUMS over the
+      # complete published set, validate the whole bundle, and only then hand the
+      # bundle to the upload job.
+      - name: Fetch pinned SBOM tool (CI-only, digest-verified)
+        run: python scripts/generate_release_sboms.py fetch-syft --dest "${RUNNER_TEMP}/sbom-tool"
+
+      - name: Generate SPDX 2.3 JSON SBOMs for the staged package artifacts
+        run: |
+          python scripts/generate_release_sboms.py generate \
+            --input dist/release-assets \
+            --output dist/release-assets \
+            --syft "${RUNNER_TEMP}/sbom-tool/syft"
+
+      - name: Validate SBOM completeness
+        run: python scripts/generate_release_sboms.py validate --dir dist/release-assets
+
+      # Issue #51 (Slice 4): per-artifact reproducibility evidence, created BEFORE the final
+      # SHA256SUMS so that it is a listed, attested, published release asset. Linux measures
+      # wheel, sdist, deb and rpm with two independent clean builds each; the native FreeBSD
+      # measurement comes from the freebsd-pkg reference job. The platforms are combined only
+      # when both succeeded and the result is valid FINAL evidence (no PLATFORM_BLOCKED, no
+      # NOT_YET_MEASURED). The evidence never depends on the provenance bundle. Every measured
+      # family is also bound to the SHIPPED bytes: the already-staged public artifact in
+      # dist/release-assets must hash to build A or build B (nothing is copied into it), and the
+      # evidence records the resolved build toolchain, not only declared requirements.
+      - name: Measure Linux reproducibility (A/B builds of wheel, sdist, deb and rpm)
+        run: |
+          python scripts/measure_release_reproducibility.py \
+            --family wheel --family sdist --family deb --family rpm \
+            --python "$(command -v python)" \
+            --source-commit "${GITHUB_SHA}" \
+            --release-dir dist/release-assets \
+            --output dist/reproducibility/linux.json
+
+      - name: Download native FreeBSD reproducibility evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # actions/download-artifact v4
+        with:
+          name: freebsd-reproducibility-evidence
+          path: dist/reproducibility/freebsd
+
+      - name: Combine platform evidence into REPRODUCIBILITY.json
+        run: |
+          python scripts/measure_release_reproducibility.py merge \
+            --input dist/reproducibility/linux.json \
+            --input dist/reproducibility/freebsd/freebsd_pkg.json \
+            --source-commit "${GITHUB_SHA}" \
+            --release-dir dist/release-assets \
+            --output dist/release-assets/REPRODUCIBILITY.json
+
+      - name: Validate the final reproducibility evidence
+        run: |
+          python scripts/check_reproducibility_evidence.py \
+            --mode final \
+            --source-commit "${GITHUB_SHA}" \
+            dist/release-assets/REPRODUCIBILITY.json
+
+      - name: Finalize SHA256SUMS over the complete published set
+        run: bash scripts/check_release_artifacts.sh --finalize-release-assets
+
+      - name: Validate the complete release bundle (packages, SBOMs, SHA256SUMS)
+        run: python scripts/generate_release_sboms.py validate-bundle --dir dist/release-assets
+
+      # Issue #51 (Slice 3): keyless GitHub OIDC attestations over the FINAL bytes only.
+      # Trust model: GitHub Actions workflow identity + GitHub OIDC token + a short-lived
+      # Sigstore certificate + the GitHub Artifact Attestations service. There is no
+      # long-lived signing key, no GPG secret and no second signing path. The subjects
+      # come from the final SHA256SUMS through scripts/prepare_attestation_subjects.py,
+      # never from a hardcoded file-name list. Nothing here uploads release assets.
+      - name: Prepare exact attestation subjects (from the final SHA256SUMS)
+        id: subjects
+        run: |
+          python scripts/prepare_attestation_subjects.py \
+            --assets-dir dist/release-assets \
+            --source-commit "${GITHUB_SHA}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Attest provenance for the SHA256SUMS subjects (packages, SBOM files and REPRODUCIBILITY.json)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-checksums: dist/release-assets/SHA256SUMS
+
+      - name: Attest provenance for SHA256SUMS itself
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.checksums_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.checksums_sha256 }}
+
+      - name: Attest SPDX SBOM (wheel)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.wheel_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.wheel_sha256 }}
+          sbom-path: ${{ steps.subjects.outputs.wheel_sbom_path }}
+
+      - name: Attest SPDX SBOM (sdist)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.sdist_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.sdist_sha256 }}
+          sbom-path: ${{ steps.subjects.outputs.sdist_sbom_path }}
+
+      - name: Attest SPDX SBOM (deb)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.deb_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.deb_sha256 }}
+          sbom-path: ${{ steps.subjects.outputs.deb_sbom_path }}
+
+      - name: Attest SPDX SBOM (rpm)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.rpm_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.rpm_sha256 }}
+          sbom-path: ${{ steps.subjects.outputs.rpm_sbom_path }}
+
+      - name: Attest SPDX SBOM (freebsd_pkg)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # actions/attest v4.2.2
+        with:
+          subject-name: ${{ steps.subjects.outputs.freebsd_pkg_name }}
+          subject-digest: sha256:${{ steps.subjects.outputs.freebsd_pkg_sha256 }}
+          sbom-path: ${{ steps.subjects.outputs.freebsd_pkg_sbom_path }}
+
+      # Verification-before-upload: all eleven provenance attestations and all five SBOM
+      # attestations must verify against the pinned repository, the pinned signer
+      # workflow and this exact source commit BEFORE the bundle is handed off. A failure
+      # here means the upload job has nothing to download.
+      - name: Verify every attestation before the hand-off (fail closed)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/verify_release_attestations.py \
+            --assets-dir dist/release-assets \
+            --repo SSobol77/pysh \
+            --signer-workflow SSobol77/pysh/.github/workflows/release-artifacts.yml \
+            --source-digest "${GITHUB_SHA}"
 
       # The validated, flat dist/release-assets/ tree is the ONLY thing the
       # upload job can see: it never has repository source, never rebuilds
@@ -146,7 +336,7 @@ jobs:
       # means this upload never happens, and the upload job has nothing to
       # download.
       - name: Upload validated release assets for the upload job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # actions/upload-artifact v4
         with:
           name: release-assets
           path: dist/release-assets/*
@@ -157,10 +347,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-validate
     if: github.event_name == 'release'
+    # The only job that may write release assets. No OIDC token, no attestation
+    # rights: it never signs, rebuilds or verifies anything.
+    permissions:
+      contents: write
 
     steps:
       - name: Download validated release assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # actions/download-artifact v4
         with:
           name: release-assets
           path: dist/release-assets
