@@ -393,16 +393,23 @@ artifact from which source, reproducibility says whether the build can be repeat
 neither implies the other. No claim that PySH artifacts are reproducible is made beyond
 what the recorded measurements show; the final Tier-1 measurement is Slice 5.
 
+Recorded baseline: the Issue #51 Slice 5 dry run (workflow run 37166005508, source
+f642eaa5707456b2ecfa7696919bef2dfa5c4fa6, package version 0.9.1). The statuses below are
+those measured results, validated in final mode; the digests are in
+[supply-chain-evidence.md](supply-chain-evidence.md).
+
 | Family | A/B build environment | Status |
 | --- | --- | --- |
-| `wheel` | controlled Linux/Python build | NOT_YET_MEASURED |
-| `sdist` | controlled Linux/Python build | NOT_YET_MEASURED |
-| `deb` | controlled Debian builder | NOT_YET_MEASURED |
-| `rpm` | controlled Fedora/RPM builder | NOT_YET_MEASURED |
-| `freebsd_pkg` | native FreeBSD reference builder | NOT_YET_MEASURED |
+| `wheel` | Ubuntu 24.04 GitHub-hosted runner, Linux/Python 3.13 | REPRODUCIBLE |
+| `sdist` | Ubuntu 24.04 GitHub-hosted runner, Linux/Python 3.13 | REPRODUCIBLE |
+| `deb` | Ubuntu 24.04 GitHub-hosted runner, dpkg-deb | REPRODUCIBLE |
+| `rpm` | Ubuntu 24.04 GitHub-hosted runner, rpmbuild | REPRODUCIBLE |
+| `freebsd_pkg` | native FreeBSD 14.4 reference VM, pkg | REPRODUCIBLE |
 
-The status column is the status of the final Tier-1 release evidence (Slice 5); a local
-developer measurement never changes it.
+These statuses are the Issue #51 / 0.9.1 assurance baseline and prove the mechanism. They do
+not transfer to v1.0.0: the v1.0.0 release must rerun the full pipeline on its exact final
+release candidate SHA and record its own results. A local developer measurement never changes
+them.
 
 <a id="PYSH-SC-PIPELINE"></a>
 

@@ -41,8 +41,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
-
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout v5
+        with:
+          persist-credentials: false
       # Issue #51 (Slice 4): the only deterministic build epoch is the commit timestamp of
       # the exact source commit, never wall-clock time. The reference run also hands the VM
       # an archive of that exact commit, so the native A/B measurement needs no git there.
@@ -54,7 +55,7 @@ jobs:
           git archive --format=tar --output dist/reproducibility/source.tar "${GITHUB_SHA}"
 
       - name: Build and inspect FreeBSD .pkg
-        uses: vmactions/freebsd-vm@v1
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # vmactions/freebsd-vm v1
         with:
           release: "${{ matrix.release }}"
           usesh: true
@@ -101,7 +102,7 @@ jobs:
           test -f "dist/os/freebsd/pysh-shell-${VERSION}.pkg"
 
       - name: Upload FreeBSD .pkg workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # actions/upload-artifact v4
         with:
           name: ${{ matrix.artifact }}
           path: dist/os/freebsd/pysh-shell-*.pkg
@@ -109,7 +110,7 @@ jobs:
 
       - name: Upload FreeBSD reproducibility evidence (reference package only)
         if: ${{ matrix.reference-pkg }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # actions/upload-artifact v4
         with:
           name: freebsd-reproducibility-evidence
           path: dist/reproducibility/freebsd_pkg.json
@@ -130,15 +131,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
-
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout v5
+        with:
+          persist-credentials: false
       # Issue #51 (Slice 4): one deterministic build epoch for every build below and for the
       # A/B measurement: the commit timestamp of the exact source commit, never wall-clock time.
       - name: Derive SOURCE_DATE_EPOCH from the release source commit
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "${GITHUB_ENV}"
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # actions/setup-python v6
         with:
           python-version: "3.13"
 
@@ -178,7 +180,7 @@ jobs:
         run: bash scripts/smoke_rpm_package.sh dist/os/rpm/*.rpm
 
       - name: Download FreeBSD .pkg
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # actions/download-artifact v4
         with:
           name: freebsd-reference-pkg
           path: dist/os/freebsd
@@ -225,7 +227,7 @@ jobs:
             --output dist/reproducibility/linux.json
 
       - name: Download native FreeBSD reproducibility evidence
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # actions/download-artifact v4
         with:
           name: freebsd-reproducibility-evidence
           path: dist/reproducibility/freebsd
@@ -334,7 +336,7 @@ jobs:
       # means this upload never happens, and the upload job has nothing to
       # download.
       - name: Upload validated release assets for the upload job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # actions/upload-artifact v4
         with:
           name: release-assets
           path: dist/release-assets/*
@@ -352,7 +354,7 @@ jobs:
 
     steps:
       - name: Download validated release assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # actions/download-artifact v4
         with:
           name: release-assets
           path: dist/release-assets

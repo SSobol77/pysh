@@ -97,6 +97,50 @@ PYPROJECT = (
     '[build-system]\nrequires = ["hatchling>=1.27.0"]\nbuild-backend = "hatchling.build"\n\n'
     f'[project]\nname = "pysh-shell"\nversion = "{VERSION}"\n'
 )
+STRICT_SH = r"""#!/bin/sh
+# Test-owned strict POSIX sh: refuses scripts that use bash-only constructs, then runs them with /bin/sh.
+for argument in "$@"; do
+    case "$argument" in
+        -*) ;;
+        *)
+            if [ -f "$argument" ] && grep -Eq 'pipefail|\$RANDOM|\[\[|\$\{[A-Za-z_]+(//|,,|\^\^|:[0-9])|declare |local -[a-zA-Z]|<\(|\$\(\(' "$argument"; then
+                echo "$argument: 2: set: Illegal option -o pipefail (strict POSIX sh: bash-only construct)" >&2
+                exit 2
+            fi
+            ;;
+    esac
+done
+exec /bin/sh "$@"
+"""
+FREEBSD_FAKE_BUILDER = r"""#!/bin/sh
+# POSIX sh fake of scripts/build_freebsd_pkg.sh: the real builder is POSIX sh and is run through `sh`.
+set -eu
+cd "$(dirname "$0")/.."
+mode_of() { grep "^$1=" FAKE_MODE | head -1 | cut -d= -f2 || true; }
+sentinel() { cat FAKE_SENTINEL; }
+mode="$(mode_of freebsd_pkg)"
+mode="${mode:-deterministic}"
+dir=dist/os/freebsd
+name=NAME_PLACEHOLDER
+mkdir -p "$dir"
+payload="freebsd_pkg epoch=${SOURCE_DATE_EPOCH} tz=${TZ} lc=${LC_ALL}"
+case "$mode" in
+    random) payload="$payload $(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')$$" ;;
+    path) payload="$payload $PWD" ;;
+    time) payload="$payload $(date +%s%N)" ;;
+    fail) echo "fake builder failure for freebsd_pkg" >&2; exit 3 ;;
+    hang) sleep 300 & echo $! > "$(sentinel)"; wait ;;
+    record) printf 'SDE=%s TZ=%s LC=%s HOME=%s TMPDIR=%s PWD=%s UMASK=%s\n' "$SOURCE_DATE_EPOCH" "$TZ" "$LC_ALL" "$HOME" "$TMPDIR" "$PWD" "$(umask)" >> "$(sentinel)" ;;
+    touch) touch "$(sentinel)" ;;
+esac
+case "$mode" in
+    empty) : > "$dir/$name" ;;
+    badname) printf '%s\n' "$payload" > "$dir/wrong-name.bin" ;;
+    symlink) printf '%s\n' "$payload" > "$dir/real.bin"; ln -s real.bin "$dir/$name" ;;
+    extra) printf '%s\n' "$payload" > "$dir/$name"; printf 'x' > "$dir/stray.pkg" ;;
+    *) printf '%s\n' "$payload" > "$dir/$name" ;;
+esac
+"""
 FAKE_PYTHON = r"""#!/usr/bin/env bash
 case "$*" in
     *"import build, twine"*) exit 0 ;;
@@ -135,6 +179,7 @@ def make_repo(tmp_path: Path, modes: str = "", extra: dict[str, str] | None = No
     (repo / "FAKE_SENTINEL").write_text(str(sentinel), encoding="utf-8")
     for name, body in BUILDERS.items():
         (repo / "scripts" / name).write_text(BUILDER + body, encoding="utf-8")
+    (repo / "scripts" / "build_freebsd_pkg.sh").write_text(FREEBSD_FAKE_BUILDER.replace("NAME_PLACEHOLDER", PKG), encoding="utf-8")
     for name, content in (extra or {}).items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(content, encoding="utf-8")
@@ -153,6 +198,12 @@ def tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         path = directory / name
         path.write_text(f"#!/usr/bin/env bash\necho '{line}'\n", encoding="utf-8")
         path.chmod(0o755)
+    # The harness runs the FreeBSD builder through `sh`. This shim emulates a strict POSIX /bin/sh (such as the
+    # dash of the CI runner, which rejects `set -o pipefail`) on every host, so a fixture that quietly relies on
+    # bash fails here exactly as it did in CI.
+    strict_sh = directory / "sh"
+    strict_sh.write_text(STRICT_SH, encoding="utf-8")
+    strict_sh.chmod(0o755)
     python = directory / "python-fake"
     python.write_text(FAKE_PYTHON, encoding="utf-8")
     python.chmod(0o755)
@@ -1159,17 +1210,39 @@ def rpm_tree(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     rpmbuild.chmod(0o755)
+    # The real build_rpm.sh validates the package with the rpm CLI whenever one is on PATH. A test-owned fake
+    # `rpm` (first on PATH) keeps this test independent of whether the host has rpm installed.
+    fake_rpm = fake / "rpm"
+    fake_rpm.write_text(
+        "#!/usr/bin/env bash\nset -eu\nprintf 'EXEC:%s\\n' \"$0\" >> \"$RPM_RECORD\"; printf 'ARG:%s\\n' \"$@\" >> \"$RPM_RECORD\"\n"
+        "case \"$*\" in\n    *-qip*|*-qlp*) echo \"fake rpm query\" ;;\n    *) echo \"fake rpm: unexpected invocation $*\" >&2; exit 9 ;;\nesac\n",
+        encoding="utf-8",
+    )
+    fake_rpm.chmod(0o755)
     return root
 
 
 def run_rpm_builder(root: Path, tmp_path: Path, epoch: str | None) -> list[str]:
     record = tmp_path / "rpmbuild-args"
-    env = {"PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}", "RECORD": str(record), "HOME": str(tmp_path)}
+    env = {
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}", "RECORD": str(record),
+        "RPM_RECORD": str(tmp_path / "rpm-calls"), "HOME": str(tmp_path),
+    }
     if epoch is not None:
         env["SOURCE_DATE_EPOCH"] = epoch
     done = subprocess.run(["bash", str(root / "scripts" / "build_rpm.sh")], capture_output=True, text=True, check=False, env=env)
     assert done.returncode == 0, done.stderr
     return record.read_text(encoding="utf-8").splitlines()
+
+
+def test_the_rpm_builder_test_uses_the_test_owned_rpm_not_the_host_rpm(tmp_path) -> None:
+    root = rpm_tree(tmp_path)
+    run_rpm_builder(root, tmp_path, COMMIT_EPOCH)
+    calls = (tmp_path / "rpm-calls").read_text(encoding="utf-8").splitlines()
+    executables = [line[len("EXEC:"):] for line in calls if line.startswith("EXEC:")]
+    assert len(executables) == 2 and set(executables) == {str(tmp_path / "bin" / "rpm")}  # never a host rpm
+    assert "ARG:-qip" in calls and "ARG:-qlp" in calls
+    assert "ARG:--dbpath" in calls  # the exact validation invocation shape of build_rpm.sh
 
 
 def test_the_rpm_builder_enables_the_epoch_macros_when_an_epoch_is_set(tmp_path) -> None:
@@ -1356,3 +1429,52 @@ def test_a_non_freebsd_host_still_refuses_to_fake_a_package(tmp_path) -> None:
     done, args = run_freebsd_builder(root, tmp_path, SOURCE_DATE_EPOCH=COMMIT_EPOCH, FAKE_UNAME_S="Linux")
     assert done.returncode == 1 and "refusing to fake .pkg on Linux" in done.stderr
     assert args == [] and not (root / "dist").exists()
+
+
+# --- hermetic fixtures: the FreeBSD fake is POSIX sh and nothing depends on the host shell or rpm (PR #75 repair) -----------
+
+
+def test_the_strict_sh_shim_rejects_a_bash_only_fixture_like_the_ci_runner_did(tmp_path) -> None:
+    old_fixture = tmp_path / "old_builder.sh"
+    old_fixture.write_text(BUILDER + f'emit freebsd_pkg dist/os/freebsd "{PKG}"\n', encoding="utf-8")
+    shim = tmp_path / "shim"
+    shim.write_text(STRICT_SH, encoding="utf-8")
+    shim.chmod(0o755)
+    done = subprocess.run([str(shim), str(old_fixture)], capture_output=True, text=True, check=False)
+    assert done.returncode == 2 and "Illegal option -o pipefail" in done.stderr
+
+
+def test_the_freebsd_fake_builder_is_posix_sh_without_bash_constructs() -> None:
+    import re
+
+    lines = [line for line in FREEBSD_FAKE_BUILDER.splitlines() if line.strip()]
+    assert lines[0] == "#!/bin/sh" and "pipefail" not in FREEBSD_FAKE_BUILDER
+    assert not re.search(r"\$RANDOM|\[\[|\bdeclare\b|\blocal\b|\(\(|<\(|\$\{[A-Za-z_]+(//|,,|\^\^|:[0-9])|\bset -[a-z]*o ", FREEBSD_FAKE_BUILDER)
+    assert "bash" not in FREEBSD_FAKE_BUILDER
+
+
+def test_the_harness_still_runs_the_freebsd_builder_through_sh_not_bash() -> None:
+    group = next(g for g in harness.GROUPS if g.key == "freebsd_pkg")
+    assert group.argv[0] == "sh" and group.argv[1] == "scripts/build_freebsd_pkg.sh"
+    assert all(g.argv[0] == "bash" for g in harness.GROUPS if g.key != "freebsd_pkg")
+
+
+def test_the_freebsd_fake_builder_runs_under_a_non_bash_posix_shell(tmp_path, tools) -> None:
+    repo = make_repo(tmp_path, "freebsd_pkg=record\n")
+    shell_names = ["/bin/sh"] + (["/usr/bin/busybox"] if Path("/usr/bin/busybox").exists() else [])
+    for shell in shell_names:
+        tree = tmp_path / ("tree-" + Path(shell).name)
+        harness.materialize(harness.resolve_source(repo.path, None), tree)
+        argv = [shell, "sh", "scripts/build_freebsd_pkg.sh"] if shell.endswith("busybox") else [shell, "scripts/build_freebsd_pkg.sh"]
+        env = {"PATH": os.environ["PATH"], "SOURCE_DATE_EPOCH": COMMIT_EPOCH, "TZ": "UTC", "LC_ALL": "C.UTF-8", "HOME": str(tmp_path), "TMPDIR": str(tmp_path)}
+        done = subprocess.run(argv, cwd=tree, capture_output=True, text=True, check=False, env=env)
+        assert done.returncode == 0, (shell, done.stderr)
+        assert (tree / "dist" / "os" / "freebsd" / PKG).is_file()
+
+
+def test_the_freebsd_measurement_does_not_depend_on_the_host_sh(tmp_path, tools, monkeypatch) -> None:
+    """The strict shim sits first on PATH: the measurement passes only because the fake is POSIX sh."""
+    assert (tools / "sh").exists()
+    repo = make_repo(tmp_path)
+    doc = run(repo, tools, ["freebsd_pkg"], host=host(tools, system="FreeBSD"))
+    assert by_family(doc)["freebsd_pkg"]["classification"] == "REPRODUCIBLE"

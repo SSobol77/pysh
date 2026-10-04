@@ -215,12 +215,12 @@ def test_family_flags_must_agree_with_the_model(repo: Path) -> None:
 
 
 def test_incomplete_or_invalid_reproducibility_matrix_fails(repo: Path) -> None:
-    edit(repo, DOC, "| `deb` | controlled Debian builder | NOT_YET_MEASURED |\n", "")
+    edit(repo, DOC, "| `deb` | Ubuntu 24.04 GitHub-hosted runner, dpkg-deb | REPRODUCIBLE |\n", "")
     assert "DOC-REPRODUCIBILITY" in codes(repo)
 
 
 def test_an_invalid_reproducibility_status_fails(repo: Path) -> None:
-    edit(repo, DOC, "| `rpm` | controlled Fedora/RPM builder | NOT_YET_MEASURED |", "| `rpm` | controlled Fedora/RPM builder | MOSTLY_REPRODUCIBLE |")
+    edit(repo, DOC, "| `rpm` | Ubuntu 24.04 GitHub-hosted runner, rpmbuild | REPRODUCIBLE |", "| `rpm` | Ubuntu 24.04 GitHub-hosted runner, rpmbuild | MOSTLY_REPRODUCIBLE |")
     assert "DOC-REPRODUCIBILITY" in codes(repo)
 
 
@@ -1603,3 +1603,123 @@ def test_the_scope_must_not_claim_the_evidence_is_the_final_release_attestation(
 def test_the_scope_must_require_the_final_release_to_rerun_the_pipeline(repo: Path) -> None:
     replace_wrapped(repo, DOC, "must rerun the same assurance pipeline on its final release SHA", "needs nothing more")
     assert "DOC-PIPELINE" in codes(repo)
+
+
+# --- PR #75 repair: every action pinned, checkout without persisted credentials, honest status table -----------------------------
+
+PINS = {
+    "actions/checkout": "fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+    "actions/setup-python": "ece7cb06caefa5fff74198d8649806c4678c61a1",
+    "actions/download-artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+    "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+    "vmactions/freebsd-vm": "c46abacb49f09938ca4e1702d15d836285d694cc",
+}
+MUTABLE = {
+    "actions/checkout": "v5", "actions/setup-python": "v6", "actions/download-artifact": "v4",
+    "actions/upload-artifact": "v4", "vmactions/freebsd-vm": "v1",
+}
+
+
+def test_every_external_action_in_the_release_workflow_is_a_full_commit_sha(repo: Path) -> None:
+    assert [v for v in contract.run_checks(repo) if v.code in {"ATT-PIN", "ATT-CHECKOUT"}] == []
+    code = contract._code((repo / RELEASE_WF).read_text(encoding="utf-8"))
+    refs = re.findall(r"^\s*-?\s*uses:\s*([^\s@]+)@(\S+)", code, re.M)
+    assert len(refs) == 17
+    assert all(re.fullmatch(r"[0-9a-f]{40}", ref) for _, ref in refs), refs
+    for action, sha in PINS.items():
+        assert (action, sha) in refs
+    assert ("actions/attest", ATTEST_SHA) in refs
+
+
+@pytest.mark.parametrize("action", sorted(PINS))
+def test_a_mutable_tag_on_any_release_workflow_action_fails(repo: Path, action: str) -> None:
+    edit(repo, RELEASE_WF, f"{action}@{PINS[action]}", f"{action}@{MUTABLE[action]}", count=10)
+    violations = [v for v in contract.run_checks(repo) if v.code == "ATT-PIN"]
+    assert any(f"{action}@{MUTABLE[action]}" in v.message and "40-hex commit SHA" in v.message for v in violations)
+
+
+@pytest.mark.parametrize("ref", ["main", "master", "release/v1", "v1.2.3", "abc123", "A" * 40, "g" * 40, "1" * 39, "1" * 41])
+def test_branches_short_and_malformed_refs_are_not_pins(repo: Path, ref: str) -> None:
+    edit(repo, RELEASE_WF, f"actions/setup-python@{PINS['actions/setup-python']}", f"actions/setup-python@{ref}")
+    assert "ATT-PIN" in codes(repo)
+
+
+def test_a_different_valid_sha_for_a_non_attest_action_passes_the_generic_rule(repo: Path) -> None:
+    edit(repo, RELEASE_WF, f"actions/checkout@{PINS['actions/checkout']}", "actions/checkout@" + "1" * 40, count=2)
+    assert [v for v in contract.run_checks(repo) if v.code == "ATT-PIN"] == []
+
+
+def test_an_arbitrary_valid_sha_for_actions_attest_still_fails_the_dedicated_rule(repo: Path) -> None:
+    edit(repo, RELEASE_WF, f"actions/attest@{ATTEST_SHA}", "actions/attest@" + "2" * 40, count=10)
+    violations = [v for v in contract.run_checks(repo) if v.code == "ATT-PIN"]
+    assert any(f"must be exactly @{ATTEST_SHA}" in v.message for v in violations)
+
+
+def test_a_new_unpinned_job_step_is_rejected(repo: Path) -> None:
+    path = repo / RELEASE_WF
+    path.write_text(path.read_text(encoding="utf-8") + "      - uses: some/action@v9\n", encoding="utf-8")
+    assert "ATT-PIN" in codes(repo)
+
+
+def test_every_checkout_in_the_release_workflow_drops_persisted_credentials() -> None:
+    text = (REPO_ROOT / RELEASE_WF).read_text(encoding="utf-8")
+    assert text.count("actions/checkout@") == 2 and text.count("persist-credentials: false") == 2
+    assert "persist-credentials: true" not in text
+
+
+def test_a_checkout_without_persist_credentials_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "        with:\n          persist-credentials: false\n", "", count=1)
+    violations = [v for v in contract.run_checks(repo) if v.code == "ATT-CHECKOUT"]
+    assert len(violations) == 1 and "persist-credentials: false" in violations[0].message
+
+
+def test_a_checkout_with_persist_credentials_true_fails(repo: Path) -> None:
+    edit(repo, RELEASE_WF, "persist-credentials: false", "persist-credentials: true", count=1)
+    assert "ATT-CHECKOUT" in codes(repo)
+    edit(repo, RELEASE_WF, "persist-credentials: false", "persist-credentials: true", count=1)
+    assert len([v for v in contract.run_checks(repo) if v.code == "ATT-CHECKOUT"]) == 2
+
+
+def test_the_pin_repair_did_not_broaden_any_permission(repo: Path) -> None:
+    text = (repo / RELEASE_WF).read_text(encoding="utf-8")
+    assert contract._permissions(text.split("\njobs:", 1)[0], 0) == {"contents": "read"}
+    jobs = contract.split_jobs(contract._code(text))
+    assert contract._permissions(jobs["build-and-validate"], 4) == contract.BUILD_PERMISSIONS
+    assert contract._permissions(jobs["upload"], 4) == contract.UPLOAD_PERMISSIONS
+
+
+def test_the_status_table_records_the_measured_slice_five_baseline_not_unmeasured() -> None:
+    sections = contract.split_sections((REPO_ROOT / DOC).read_text(encoding="utf-8"))
+    rows = contract._table_rows(sections["PYSH-SC-REPRODUCIBILITY"])
+    assert {family: rows[family][-1] for family in FAMILIES_5} == {family: "REPRODUCIBLE" for family in FAMILIES_5}
+    text = " ".join(sections["PYSH-SC-REPRODUCIBILITY"].split())
+    assert "NOT_YET_MEASURED |" not in text
+    for needle in (SHA, RUN, "do not transfer to v1.0.0", "must rerun the full pipeline on its exact final release candidate SHA"):
+        assert needle in text
+
+
+@pytest.mark.parametrize("family", FAMILIES_5)
+def test_a_baseline_status_that_is_not_reproducible_fails(repo: Path, family: str) -> None:
+    path = repo / DOC
+    path.write_text(re.sub(rf"(\| `{family}` \|[^|]*\| )REPRODUCIBLE \|", r"\1NOT_YET_MEASURED |", path.read_text(encoding="utf-8")), encoding="utf-8")
+    assert "EVID-BASELINE" in codes(repo)
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "do not transfer to v1.0.0",
+        "must rerun the full pipeline on its exact final release candidate SHA",
+        "37166005508",
+        "f642eaa5707456b2ecfa7696919bef2dfa5c4fa6",
+    ],
+)
+def test_the_baseline_disclaimer_in_the_status_table_section_is_required(repo: Path, phrase: str) -> None:
+    sections = contract.split_sections((repo / DOC).read_text(encoding="utf-8"))
+    path = repo / DOC
+    text = path.read_text(encoding="utf-8")
+    section = sections["PYSH-SC-REPRODUCIBILITY"]
+    mutated = re.sub(r"\s+".join(re.escape(w) for w in phrase.split()), "REDACTED", section)
+    assert mutated != section, f"fixture drift: {phrase!r}"
+    path.write_text(text.replace(section, mutated), encoding="utf-8")
+    assert "EVID-BASELINE" in codes(repo)

@@ -637,6 +637,19 @@ def check_attestation_implementation(root: Path) -> list[Violation]:
             ):
                 out.append(Violation("ATT-PIN", f"{path.relative_to(root)}: every {ATTEST_ACTION} reference must carry the comment '# {ATTEST_ACTION} {ATTEST_VERSION}'"))
 
+    # The release workflow IS the signing trust boundary: every external action it runs must be an
+    # immutable full commit SHA (not only the attestation actions), and a checkout must not persist
+    # the job token in the checked-out repository.
+    for action, ref in re.findall(r"^\s*-?\s*uses:\s*([^\s@]+)@(\S+)", code, re.M):
+        if re.fullmatch(r"[0-9a-f]{40}", ref) is None:
+            out.append(Violation("ATT-PIN", f"{RELEASE_WORKFLOW}: {action}@{ref} must be pinned to a full 40-hex commit SHA"))
+    for job_name, job_body in jobs.items():
+        for _, step_text in _steps(job_body):
+            if re.search(r"uses:\s*actions/checkout@", step_text) and not re.search(
+                r"^\s+persist-credentials:\s*false\s*$", step_text, re.M
+            ):
+                out.append(Violation("ATT-CHECKOUT", f"{RELEASE_WORKFLOW}: the checkout step in job {job_name!r} must set persist-credentials: false"))
+
     steps = _steps(build)
     attest = [(at, text) for at, text in steps if re.search(r"uses:\s*actions/attest@", text)]
     prepare = _stage_index(build, "prepare_attestation_subjects.py")
@@ -1206,6 +1219,21 @@ def check_final_evidence(root: Path) -> list[Violation]:
     doc = _read(root, DOC) or ""
     if "supply-chain-evidence.md" not in doc:
         out.append(Violation("EVID-LINK", f"{DOC} must link {EVIDENCE_DOC.name}"))
+    repro_section = split_sections(doc).get("PYSH-SC-REPRODUCIBILITY", "")
+    baseline = " ".join(repro_section.split())
+    recorded = _table_rows(repro_section)
+    for family in (f.family_id for f in FAMILIES if f.reproducibility_required):
+        row = recorded.get(family)
+        if row is None or row[-1] != "REPRODUCIBLE":
+            out.append(Violation("EVID-BASELINE", f"the reproducibility status table must record {family} as REPRODUCIBLE (the measured Slice 5 baseline)"))
+    for needle, why in (
+        (EVIDENCE_SHA, "name the recorded baseline source SHA"),
+        (EVIDENCE_RUN, "name the recorded baseline run"),
+        ("do not transfer to v1.0.0", "say that the baseline statuses do not transfer to v1.0.0"),
+        ("must rerun the full pipeline on its exact final release candidate SHA", "require the v1.0.0 rerun on its exact SHA"),
+    ):
+        if needle not in baseline:
+            out.append(Violation("EVID-BASELINE", f"the reproducibility status table must {why}: {needle!r}"))
     release = " ".join((_read(root, RELEASE_DOC) or "").split())
     for needle, why in (
         ("supply-chain-evidence.md", "link the evidence record as the Issue #35 handoff"),
