@@ -18,6 +18,9 @@ behavior still requires an interactive terminal.
 
 ## Fresh virtual environment
 
+Replace `X.Y.Z` with the candidate version (for example `1.0.0`) in every
+command and package filename of this checklist before running it.
+
 ```sh
 python3.13 -m venv /tmp/pysh-user-manual
 . /tmp/pysh-user-manual/bin/activate

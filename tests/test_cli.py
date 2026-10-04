@@ -273,3 +273,36 @@ def test_the_early_scan_only_accepts_the_exact_tokens() -> None:
     for argv in ([], ["--credit"], ["--version", "--credits"], ["-V", "--credits"], ["script.pysh", "--credits"],
                  ["--", "--credits"], ["-c", "--credits"], ["--vers", "--credits"], ["-"], ["--credits=x"]):
         assert not cli._requests_credits(argv), argv
+
+
+def test_the_early_scan_resolves_argparse_abbreviations(tmp_path: Path) -> None:
+    # A value-taking abbreviation skips its value, exactly like the parser reads it.
+    for argv in (["--audit", "p", "--credits"], ["--a", "p", "-credits"], ["--audit-lo", "p", "--credits"],
+                 ["--audit=p", "--credits"], ["--audit-log=p", "--credits"], ["--no", "--credits"]):
+        assert cli._requests_credits(argv), argv
+    # Every short or long help/version abbreviation the parser accepts answers first.
+    for argv in (["--v", "--credits"], ["--h", "--credits"], ["--he", "--credits"], ["--ve", "--credits"],
+                 ["--hel", "--credits"], ["-h", "--credits"], ["-V", "--credits"],
+                 ["--no-rc", "--v", "--credits"], ["--audit", "p", "--v", "--credits"]):
+        assert not cli._requests_credits(argv), argv
+    # Ambiguous abbreviations are left to argparse's own error.
+    assert not cli._requests_credits(["--d", "--credits"])
+    # End to end: the real parser agrees with the early scan.
+    done = run_cli(["--audit", str(tmp_path / "audit.jsonl"), "--credits"], tmp_path)
+    assert done.returncode == 0 and done.stdout == cli.credits_text() and done.stderr == ""
+    assert not (tmp_path / "audit.jsonl").exists()
+    for abbreviation in ("--v", "--ve", "--ver"):
+        done = run_cli([abbreviation, "--credits"], tmp_path)
+        assert done.returncode == 0 and done.stdout == f"pysh {__version__}\n", abbreviation
+    for abbreviation in ("--h", "--he", "--hel"):
+        done = run_cli([abbreviation, "--credits"], tmp_path)
+        assert done.returncode == 0 and done.stdout.startswith("usage: pysh"), abbreviation
+        assert "PySH Project Authors" not in done.stdout
+
+
+def test_the_early_scan_long_options_match_the_parser() -> None:
+    parser_options = {
+        option for option in cli._build_parser()._option_string_actions if option.startswith("--")
+    }
+    assert set(cli._LONG_OPTIONS) == parser_options
+    assert cli._OPTIONS_WITH_VALUE <= parser_options | {"-c"}
