@@ -22,12 +22,12 @@ behavior still requires an interactive terminal.
 python3.13 -m venv /tmp/pysh-user-manual
 . /tmp/pysh-user-manual/bin/activate
 python -m pip install --upgrade pip
-python -m pip install pysh-shell==0.9.0
+python -m pip install pysh-shell==X.Y.Z
 pysh --version
 python -m pysh --version
 ```
 
-Expected result: both version commands report `pysh 0.9.0`.
+Expected result: both version commands report `pysh X.Y.Z`.
 
 Before PyPI publication, the equivalent wheel/sdist install path is validated
 by the release quality gate from locally built artifacts.
@@ -36,17 +36,21 @@ by the release quality gate from locally built artifacts.
 
 Use the package matching the target platform:
 
-- Debian 13: install `pysh-shell_0.9.0-1_all.deb` with `apt install ./...`;
-- RPM-based Linux: install `pysh-shell-0.9.0-1.noarch.rpm`;
-- FreeBSD 14+: install `pysh-shell-0.9.0.pkg` with `pkg`.
+- Debian 13: install `pysh-shell_X.Y.Z-1_all.deb` with `apt install ./...`;
+- RPM-based Linux: install `pysh-shell-X.Y.Z-1.noarch.rpm`;
+- FreeBSD 14+: install `pysh-shell-X.Y.Z.pkg` with `pkg`.
 
 Then verify:
 
 ```sh
 pysh --version
 python -m pysh --version
+pysh --credits
 pysh -c "echo package-smoke"
 ```
+
+`pysh --credits` must print exactly the project-authors list (a title line and one
+author per line), exit 0, and start no shell, banner, prompt or configuration load.
 
 The release workflows perform real install-and-run smoke tests for the package
 families before publication.
@@ -83,7 +87,7 @@ In an interactive PySH session run:
 ```sh
 pwd
 echo hello
-py 1 + 1
+py print(1 + 1)
 ```
 
 Then verify:
@@ -93,6 +97,11 @@ Then verify:
 - Ctrl+R can find a previous command;
 - Ctrl+C returns to a usable prompt;
 - multiline paste is staged rather than auto-executed.
+
+One-line `py <code>` uses `exec` semantics: an expression result is not echoed,
+which is why the example above uses `py print(1 + 1)`; `py 1 + 1` correctly
+prints nothing. Under `TERM=dumb` the readline fallback is used, and its Ctrl+R
+searches the history loaded at startup (see [history.md](history.md)).
 
 ## PySH 0.9.0 evidence record
 
@@ -118,3 +127,30 @@ release-gate evidence:
 
 For every future release, repeat this checklist against the release candidate
 and record the run or maintainer evidence in the corresponding release issue.
+
+## PySH 1.0.0 candidate record
+
+The 1.0.0 candidate was driven through this checklist on 2026-10-04 on a Debian
+13 amd64 workstation, against the locally built wheel and sdist installed into fresh
+virtual environments (`pysh --version` and `python -m pysh --version` both report
+`pysh 1.0.0`) and a disposable `HOME`. The session was driven by an automated
+pseudo-terminal harness, not by a person watching a screen, so it covers behavior
+and not visual presentation:
+
+- `pysh --credits` and `python -m pysh --credits` printed the three-author list and
+  exited 0 on a real pseudo-terminal and with redirected output, with no banner,
+  prompt or configuration load;
+- startup without a traceback, prompt rendering, `echo first-run-ok` executes once,
+  `exit` exits on the first attempt (`TERM=xterm-256color` and `TERM=dumb`);
+- first start created `~/.pyshrc.py`, and a second start left a user-modified file
+  byte-for-byte unchanged;
+- `pwd`, `echo hello`, `py print(1 + 1)`, a heredoc and a typed multiline `py { ... }`
+  block produced the expected output;
+- Ctrl+C interrupted `sleep 30` (status 130) and returned to a usable prompt;
+- Ctrl+R found a previous command in the raw editor, and found a command from a
+  previous session under the `TERM=dumb` readline fallback;
+- a bracketed multiline paste was staged and not auto-executed.
+
+The visual items (prompt appearance, syntax-highlight colors, terminal resize) still
+require a person at an interactive terminal and are repeated by the maintainer
+against the final release candidate before tagging.

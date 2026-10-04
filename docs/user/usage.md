@@ -30,7 +30,15 @@ pysh --no-rc -c "echo hi"   # explicit no-user-config policy for one command
 pysh --version              # print version and exit
 python -m pysh --version    # module entry point version check
 pysh -V                     # short form
+pysh --credits              # print the project authors and exit
 ```
+
+`pysh --credits` prints the project authors (a title line and one author per
+line) and exits with status 0. It is an early informational option like
+`--version`: it starts no shell, loads no configuration or plugins, prints no banner
+or prompt, needs no TTY, and works with redirected output
+(`pysh --credits > credits.txt`). `python -m pysh --credits` behaves identically. The
+output contains no version, date, URL or other dynamic data.
 
 When bare `pysh` receives non-TTY stdin, it executes logical input lines in
 batch mode. Batch mode emits no banner, prompt, continuation prompt, or editor

@@ -22,7 +22,7 @@ source of truth. All canonical documentation lives here under `docs/`.
 
 | Attribute            | Value                                             |
 | -------------------- | ------------------------------------------------- |
-| Version              | 0.9.1 release candidate                         |
+| Version              | 1.0.0 release candidate                         |
 | Language             | Pure Python (stdlib only, no external deps)       |
 | Runtime policy       | Supported Unix families with CPython 3.13+       |
 | Shell type           | Python-first interactive shell and script runner  |
@@ -114,6 +114,8 @@ docs/
 │   ├── release.md
 │   ├── release-notes-template.md
 │   ├── release-notes-0.9.1.md
+│   ├── release-notes-1.0.0.md
+│   ├── v1.0.0-readiness.md
 │   └── packaging.md
 └── img/                               ← project images and icons
 ```
@@ -277,7 +279,9 @@ Documentation for contributors, maintainers, and the release process.
 | [repository-structure.md](development/repository-structure.md) | Repository-relative path map and guidance for similarly named files |
 | [release.md](development/release.md) | Release checklist, tagging, PyPI Trusted Publishing via GitHub Actions |
 | [release-notes-template.md](development/release-notes-template.md) | Canonical GitHub Release notes template with platform and validation evidence sections |
-| [release-notes-0.9.1.md](development/release-notes-0.9.1.md) | Prepared maintenance-release notes for PySH 0.9.1 |
+| [release-notes-0.9.1.md](development/release-notes-0.9.1.md) | Historical maintenance-release notes for PySH 0.9.1 |
+| [release-notes-1.0.0.md](development/release-notes-1.0.0.md) | Prepared release notes for PySH 1.0.0 |
+| [v1.0.0-readiness.md](development/v1.0.0-readiness.md) | Issue #35 PySH v1.0.0 readiness audit: critical-path closure, blockers, evidence matrix and release decision |
 | [packaging.md](development/packaging.md) | Canonical naming contract; PyPI / `.deb` / `.rpm` / `.pkg` artifact filenames and build scripts |
 
 ---
